@@ -1,0 +1,13 @@
+[project]
+name = "TaskBot"
+version = "2025.10.17"
+dependencies = [
+  "pytest-playwright",
+  "playwright",
+  "opencv-python",
+  "python-dotenv",
+]
+requires-python = ">= 3.13"
+maintainers = [{ name = "refido", email = "revidoberliano@gmail.com" }]
+description = "Automate some boring task"
+readme = "README.md"
