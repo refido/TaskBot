@@ -21,3 +21,16 @@ run script
 ```bash
 py main.py
 ```
+
+install dependencies
+
+```bash
+pip freeze > requirements.txt
+```
+
+update dependencies
+
+```bash
+pip uninstall -r requirements.txt
+pip install -r requirements.txt
+```

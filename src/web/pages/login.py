@@ -27,5 +27,5 @@ class Login:
 
         expect(self.sign_in).to_be_enabled()
         self.sign_in.click()
-        print("Sign In button clicked")
+        print("Masuk button clicked")
         self.page.wait_for_load_state("networkidle")
