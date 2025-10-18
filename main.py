@@ -1,31 +1,71 @@
 from playwright.sync_api import sync_playwright
 
 from src.config import Config
-from src.web.pages.login import Login
+from src.web.helpers import Helpers
+from src.web.pages.cek_penjualan import CekPenjualan
 from src.web.pages.dashboard import Dashboard
+from src.web.pages.login import Login
+from src.web.pages.penjualan import Penjualan
 
 
 def main():
-    config = Config()  # Load configuration
+    config = Config()
+    helpers = Helpers()
 
     with sync_playwright() as p:
-        browser = p.firefox.launch(headless=False)
-        context = browser.new_context()  # Create a new browser context
-        page = context.new_page()  # Open a new page
+        browser = p.firefox.launch(headless=False)  # start browser
+        context = browser.new_context()  # single session for all NIKs
+        page = context.new_page()  # open a page
 
-        print(config.url_application)  # Print the application URL for debugging
-        page.goto(config.url_application)  # Navigate to the application URL
+        print(config.url_application)
+        page.goto(config.url_application)  # navigate to app
+        # login
+        login = Login(page)
+        login.login(config.email_user, config.pin_user)
+        page.wait_for_load_state("load")  # wait for page load
 
-        login = Login(page)  # Initialize the Login page object
-        login.login(config.email_user, config.pin_user)  # Perform login
+        # dashboard
+        dashboard = Dashboard(page)
+        profile_name = dashboard.get_profile_name()
+        dashboard.assert_profile_name_is(profile_name)
+        dashboard.get_current_stock()
 
-        dashboard = Dashboard(page)  # Initialize the Dashboard page object
-        profile_name = dashboard.get_profile_name()  # Retrieve profile name
-        dashboard.assert_profile_name_is(profile_name)  # Assert profile name
-        dashboard.catat_penjualan(config.nik)  # Click "Catat Penjualan" button
-        page.wait_for_load_state("networkidle") # Wait for the page to load completely
-        page.wait_for_timeout(5000)  # Wait for 5 seconds to observe the result
-        browser.close() # Close the browser
+        # process each NIK
+        for nik in config.nik:
+            try:
+                # go to "Catat Penjualan" for this NIK
+                dashboard.catat_penjualan(
+                    nik
+                )  # ensure this method accepts a single nik
+                page.wait_for_load_state("load")  # wait navigation/content
+
+                # jenis pelanggan selection (if needed)
+                # TODO: implement soon
+
+                # penjualan
+                penjualan = Penjualan(page)
+                penjualan.cek_pesanan()
+
+                # cek penjualan
+                cek_penjualan = CekPenjualan(page)
+                cek_penjualan.proses_penjualan()
+
+                # wait for manual confirmation
+                helpers.wait_for_human_interaction()
+
+                cek_penjualan.kembali_ke_dashboard()
+                page.wait_for_load_state("load")  # back at dashboard
+
+                # optional: check stock after each NIK
+                dashboard.get_current_stock()
+            except Exception as e:
+                print(f"Failed processing NIK {nik}: {e}")
+                # Optionally navigate back to dashboard to recover
+                page.goto(config.url_application)
+                login.login(config.email_user, config.pin_user)
+                page.wait_for_load_state("load")
+
+        browser.close()
 
 
 if __name__ == "__main__":

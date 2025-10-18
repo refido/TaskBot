@@ -34,3 +34,12 @@ update dependencies
 pip uninstall -r requirements.txt
 pip install -r requirements.txt
 ```
+
+## Usage
+
+- Configure the `.env` file with your application URL and user credentials.
+- Run the `main.py` script to automate the login and task execution process.
+
+    ```bash
+    py main.py
+    ```
