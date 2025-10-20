@@ -10,7 +10,6 @@ from src.web.pages.penjualan import Penjualan
 
 def main():
     config = Config()
-    helpers = Helpers()
 
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=False)  # start browser
@@ -40,7 +39,7 @@ def main():
                 page.wait_for_load_state("load")  # wait navigation/content
 
                 # jenis pelanggan selection (if needed)
-                # TODO: implement soon
+                dashboard.select_jenis_pelanggan_if_needed()
 
                 # penjualan
                 penjualan = Penjualan(page)
@@ -51,6 +50,7 @@ def main():
                 cek_penjualan.proses_penjualan()
 
                 # wait for manual confirmation
+                helpers = Helpers(page)
                 helpers.wait_for_human_interaction()
 
                 cek_penjualan.kembali_ke_dashboard()

@@ -1,4 +1,4 @@
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, TimeoutError, expect
 
 
 class Dashboard:
@@ -20,6 +20,20 @@ class Dashboard:
 
         self.lanjutkan_penjualan_button = page.get_by_role(
             "button", name="LANJUTKAN PENJUALAN"
+        )
+
+        self.jenis_pelanggan = page.get_by_text("Rumah Tangga", exact=True)
+        self.lanjut_transaksi_button = page.get_by_text("LANJUTKAN TRANSAKSI")
+
+        # Modal-scoped locators
+        self.jenis_pelanggan_modal = page.get_by_role("dialog").filter(
+            has_text="Jenis Pelanggan"
+        )
+        self.jenis_pelanggan = self.jenis_pelanggan_modal.get_by_text(
+            "Rumah Tangga", exact=True
+        )
+        self.lanjut_transaksi_button = self.jenis_pelanggan_modal.get_by_role(
+            "button", name="LANJUTKAN TRANSAKSI"
         )
 
     def get_profile_name(self) -> str:
@@ -68,3 +82,52 @@ class Dashboard:
             "networkidle"
         )  # Wait for the page to load completely
         print("Lanjutkan Penjualan button clicked")  # Print confirmation
+
+    # Only run if the modal actually appears
+    def select_jenis_pelanggan_if_needed(self, detect_timeout: int = 2000) -> bool:
+        try:
+            self.jenis_pelanggan_modal.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError as e:
+            print("Jenis Pelanggan modal not present; skipping.", e)
+            return False
+
+        self.select_jenis_pelanggan()
+        return True
+
+    def select_jenis_pelanggan(self):
+        # Assumes modal is visible (gated by select_jenis_pelanggan_if_needed)
+        radio_button = self.jenis_pelanggan
+        expect(radio_button).to_be_visible(
+            timeout=10000
+        )  # Wait for the radio button to be visible
+        expect(radio_button).to_be_enabled(
+            timeout=10000
+        )  # Wait for the radio button to be enabled
+        text = radio_button.inner_text()  # Get the radio button text
+        print("Clicking radio_button name:", text)  # Print the radio button name
+        expect(radio_button).to_contain_text(
+            "Rumah Tangga"
+        )  # Assert the radio button text
+        radio_button.click()  # Click the radio button
+        self.page.wait_for_load_state(
+            "networkidle"
+        )  # Wait for the page to load completely
+        print("Jenis Pelanggan radio_button clicked")  # Print confirmation
+
+        # Button is modal-scoped; assert presence/enabled then click
+        expect(self.lanjut_transaksi_button).to_be_visible(
+            timeout=10000
+        )  # Wait for the button to be visible
+        expect(self.lanjut_transaksi_button).to_be_enabled(
+            timeout=10000
+        )  # Wait for the button to be enabled
+        text = self.lanjut_transaksi_button.inner_text()  # Get the button text
+        print("Clicking button name:", text)  # Print the button name
+        expect(self.lanjut_transaksi_button).to_contain_text(
+            "LANJUTKAN TRANSAKSI"
+        )  # Assert the button text
+        self.lanjut_transaksi_button.click()  # Click the button
+        self.page.wait_for_load_state(
+            "networkidle"
+        )  # Wait for the page to load completely
+        print("Lanjutkan Transaksi button clicked")  # Print confirmation
