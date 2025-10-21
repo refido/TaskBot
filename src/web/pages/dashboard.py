@@ -1,3 +1,4 @@
+import re
 from playwright.sync_api import Page, TimeoutError, expect
 
 
@@ -34,6 +35,22 @@ class Dashboard:
         )
         self.lanjut_transaksi_button = self.jenis_pelanggan_modal.get_by_role(
             "button", name="LANJUTKAN TRANSAKSI"
+        )
+
+        # Pelanggan Tidak Terdaftar modal (unique button var)
+        self.pelanggan_tidak_terdaftar_modal = page.get_by_role("dialog").filter(
+            has=self.page.get_by_text("Pelanggan Tidak Terdaftar")
+        )
+        self.pelanggan_tidak_terdaftar_tutup = self.pelanggan_tidak_terdaftar_modal.get_by_role("button").filter(
+            has_text=re.compile(r"^\s*tutup\s*$", re.I)
+        )
+
+        # Perbarui Data Pelanggan modal (use :has instead of has_text)
+        self.perbarui_data_pelanggan_modal = page.locator(
+            'section[role="dialog"]:has(.mantine-Text-root:has-text("Perbarui Data Pelanggan"))'
+        )
+        self.perbarui_data_pelanggan_tutup = self.perbarui_data_pelanggan_modal.get_by_role("button").filter(
+            has_text=re.compile(r"^\s*tutup\s*$", re.I)
         )
 
     def get_profile_name(self) -> str:
@@ -131,3 +148,106 @@ class Dashboard:
             "networkidle"
         )  # Wait for the page to load completely
         print("Lanjutkan Transaksi button clicked")  # Print confirmation
+
+    # Only run if the "Pelanggan Tidak Terdaftar" modal appears
+    def close_pelanggan_tidak_terdaftar_if_needed(self, detect_timeout: int = 6000) -> bool:
+        try:
+            self.pelanggan_tidak_terdaftar_modal.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError:
+            print("Pelanggan Tidak Terdaftar modal not present; continuing.")
+            return False
+
+        expect(self.pelanggan_tidak_terdaftar_tutup).to_be_visible(timeout=5000)
+        expect(self.pelanggan_tidak_terdaftar_tutup).to_be_enabled(timeout=5000)
+        self.pelanggan_tidak_terdaftar_tutup.click()
+        self.pelanggan_tidak_terdaftar_modal.wait_for(state="hidden", timeout=7000)
+
+        try:
+            expect(self.nik_input).to_be_visible(timeout=3000)
+            self.nik_input.fill("")
+            print("Closed 'Pelanggan Tidak Terdaftar'; NIK input reset.")
+        except TimeoutError:
+            self.ensure_on_dashboard()
+            print("Closed 'Pelanggan Tidak Terdaftar'; returned to dashboard.")
+        return True
+
+    def close_pelanggan_tidak_terdaftar_modal(self):
+        expect(self.tutup_button).to_be_visible(
+            timeout=10000
+        )  # Wait for the button to be visible
+        expect(self.tutup_button).to_be_enabled(
+            timeout=10000
+        )  # Wait for the button to be enabled
+        text = self.tutup_button.inner_text()  # Get the button text
+        print("Clicking button name:", text)  # Print the button name
+        expect(self.tutup_button).to_contain_text("TUTUP")  # Assert the button text
+        self.tutup_button.click()  # Click the button
+        self.page.wait_for_load_state(
+            "networkidle"
+        )  # Wait for the page to load completely
+        print("Tutup button clicked")  # Print confirmation
+
+    def ensure_on_dashboard(self):
+        """
+        Make sure we are back at dashboard where 'Catat Penjualan' tile is visible.
+        Tries a few lightweight recovery actions before asserting.
+        """
+        try:
+            if self.catat_penjualan_tile.is_visible(timeout=800):
+                return
+        except Exception:
+            pass
+
+        # Try common back actions without throwing
+        for candidate in [
+            self.page.get_by_role("button", name="KEMBALI"),
+            self.page.get_by_role("link", name="Beranda"),
+            self.page.get_by_role("link", name="Dashboard"),
+            self.page.get_by_role("button", name="TUTUP"),
+        ]:
+            try:
+                candidate.click(timeout=700)
+                break
+            except Exception:
+                continue
+
+        # Assert we're on dashboard
+        expect(self.catat_penjualan_tile).to_be_visible(timeout=8000)
+
+    def close_perbarui_data_pelanggan_if_needed(self, detect_timeout: int = 6000) -> bool:
+        try:
+            self.perbarui_data_pelanggan_modal.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError:
+            print("Perbarui Data Pelanggan modal not present; continuing.")
+            return False
+
+        expect(self.perbarui_data_pelanggan_tutup).to_be_visible(timeout=5000)
+        expect(self.perbarui_data_pelanggan_tutup).to_be_enabled(timeout=5000)
+        self.perbarui_data_pelanggan_tutup.click()
+        self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
+
+        # Stay on NIK screen if possible
+        try:
+            expect(self.nik_input).to_be_visible(timeout=3000)
+            self.nik_input.fill("")
+            print("Closed 'Perbarui Data Pelanggan'; NIK input reset.")
+        except TimeoutError:
+            self.ensure_on_dashboard()
+            print("Closed 'Perbarui Data Pelanggan'; returned to dashboard.")
+        return True
+
+    def close_perbarui_data_pelanggan_modal(self):
+        expect(self.tutup_button).to_be_visible(
+            timeout=10000
+        )  # Wait for the button to be visible
+        expect(self.tutup_button).to_be_enabled(
+            timeout=10000
+        )  # Wait for the button to be enabled
+        text = self.tutup_button.inner_text()  # Get the button text
+        print("Clicking button name:", text)  # Print the button name
+        expect(self.tutup_button).to_contain_text("TUTUP")  # Assert the button text
+        self.tutup_button.click()  # Click the button
+        self.page.wait_for_load_state(
+            "networkidle"
+        )  # Wait for the page to load completely
+        print("Tutup button clicked")  # Print confirmation
