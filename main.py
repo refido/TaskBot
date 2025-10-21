@@ -7,10 +7,12 @@ from src.web.pages.dashboard import Dashboard
 from src.web.pages.login import Login
 from src.web.pages.penjualan import Penjualan
 from src.web.rate_limiter import SkipRateLimiter
+from src.web.reporter import TransactionReporter
 
 
 def main():
     config = Config()
+    reporter = TransactionReporter()
 
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=False)  # start browser
@@ -37,6 +39,7 @@ def main():
 
         # process each NIK
         for nik in config.nik:
+            started_at = reporter.start_item(nik)
             try:
                 # Back off if we recently hit too many skipped NIKs
                 limiter.wait_if_needed(page)
@@ -50,6 +53,7 @@ def main():
                 # If the "Update Customer Data" modal appears, close and SKIP this NIK
                 if dashboard.close_perbarui_data_pelanggan_if_needed():
                     limiter.record_skip()
+                    reporter.skip_needs_update(nik, started_at, url=page.url)
                     print(f"Skipping NIK {nik} (needs data update).")
                     # Small pacing to reduce burstiness
                     page.wait_for_timeout(300)
@@ -58,6 +62,7 @@ def main():
                 # If the "not registered" modal appears, close and SKIP this NIK
                 if dashboard.close_pelanggan_tidak_terdaftar_if_needed():
                     limiter.record_skip()
+                    reporter.skip_not_registered(nik, started_at, url=page.url)
                     print(f"Skipping NIK {nik} (not registered).")
                     # Small pacing to reduce burstiness
                     page.wait_for_timeout(300)
@@ -69,8 +74,45 @@ def main():
 
                 # penjualan
                 penjualan = Penjualan(page)
+                # Check early: alert visible right after filling NIK
+                if penjualan.is_max_kuota_alert_present(timeout=1500):
+                    # Reset to NIK form for the next iteration and SKIP this NIK
+                    try:
+                        penjualan.ganti_pelanggan()
+                    except Exception:
+                        pass
+                    limiter.record_skip()
+                    reporter.skip_max_kuota(
+                        nik,
+                        started_at,
+                        url=page.url,
+                        reason="Max kuota before cek pesanan",
+                    )
+                    print(f"Skipping NIK {nik} (max kuota).")
+                    page.wait_for_timeout(300)
+                    continue
+
+                # No alert yet, proceed to cek pesanan
                 penjualan.cek_pesanan()
 
+                # Check again: some apps show the alert only after CEK PESANAN
+                if penjualan.is_max_kuota_alert_present(timeout=1500):
+                    try:
+                        penjualan.ganti_pelanggan()
+                    except Exception:
+                        pass
+                    limiter.record_skip()
+                    reporter.skip_max_kuota(
+                        nik,
+                        started_at,
+                        url=page.url,
+                        reason="Max kuota after cek pesanan",
+                    )
+                    print(f"Skipping NIK {nik} (max kuota after cek pesanan).")
+                    page.wait_for_timeout(300)
+                    continue
+
+                # Only proceed if no alert at both checkpoints
                 # cek penjualan
                 cek_penjualan = CekPenjualan(page)
                 cek_penjualan.proses_penjualan()
@@ -84,8 +126,12 @@ def main():
 
                 # optional: check stock after each NIK
                 dashboard.get_current_stock()
+
+                # record completion
+                reporter.complete(nik, started_at, url=page.url)
             except Exception as e:
                 print(f"Failed processing NIK {nik}: {e}")
+                reporter.error(nik, started_at, e, url=page.url)
 
                 # Only re-login if we truly got logged out
                 is_logged_out = False
@@ -113,7 +159,12 @@ def main():
                         page.goto(config.url_application)
                         # Do not login here; only if the app redirects to login you'll hit the block above on the next iteration.
 
+        # end of NIK loop, close browser
         browser.close()
+
+    # Report
+    reporter.write_files()
+    reporter.print_summary()
 
 
 if __name__ == "__main__":

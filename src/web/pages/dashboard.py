@@ -1,4 +1,5 @@
 import re
+
 from playwright.sync_api import Page, TimeoutError, expect
 
 
@@ -41,64 +42,71 @@ class Dashboard:
         self.pelanggan_tidak_terdaftar_modal = page.get_by_role("dialog").filter(
             has=self.page.get_by_text("Pelanggan Tidak Terdaftar")
         )
-        self.pelanggan_tidak_terdaftar_tutup = self.pelanggan_tidak_terdaftar_modal.get_by_role("button").filter(
-            has_text=re.compile(r"^\s*tutup\s*$", re.I)
+        self.pelanggan_tidak_terdaftar_tutup = (
+            self.pelanggan_tidak_terdaftar_modal.get_by_role("button").filter(
+                has_text=re.compile(r"^\s*tutup\s*$", re.I)
+            )
         )
 
         # Perbarui Data Pelanggan modal (use :has instead of has_text)
         self.perbarui_data_pelanggan_modal = page.locator(
             'section[role="dialog"]:has(.mantine-Text-root:has-text("Perbarui Data Pelanggan"))'
         )
-        self.perbarui_data_pelanggan_tutup = self.perbarui_data_pelanggan_modal.get_by_role("button").filter(
-            has_text=re.compile(r"^\s*tutup\s*$", re.I)
+        self.perbarui_data_pelanggan_tutup = (
+            self.perbarui_data_pelanggan_modal.get_by_role("button").filter(
+                has_text=re.compile(r"^\s*tutup\s*$", re.I)
+            )
         )
 
     def get_profile_name(self) -> str:
-        expect(self.profile_name).to_be_visible(timeout=10000)
+        expect(self.profile_name).to_be_visible(timeout=5000)
         name = self.profile_name.inner_text()
         print("Profile name retrieved:", name)
         return name
 
     def assert_profile_name_is(self, expected_name: str):
-        expect(self.profile_name).to_be_visible(timeout=10000)
-        expect(self.profile_name).to_have_text(expected_name, timeout=10000)
+        expect(self.profile_name).to_be_visible(timeout=5000)
+        expect(self.profile_name).to_have_text(expected_name, timeout=5000)
 
     def get_current_stock(self) -> str:
-        expect(self.current_stock).to_be_visible(timeout=10000)
+        expect(self.current_stock).to_be_visible(timeout=5000)
         stock = self.current_stock.inner_text()
         print("Current stock retrieved:", stock)
         return stock
 
     def catat_penjualan(self, nik: str):
-        tile = self.catat_penjualan_tile  # Replace with the actual locator
-        expect(tile).to_be_visible(timeout=10000)  # Wait for the tile to be visible
-        text = tile.inner_text()  # Get the text of the tile
-        print("Clicking tile name:", text)  # Print the tile name
-        expect(tile).to_contain_text("Catat Penjualan")  # Assert the tile text
-        tile.click()  # Click the tile
-        self.page.wait_for_load_state(
-            "networkidle"
-        )  # Wait for the page to load completely
-        expect(self.nik_input).to_be_visible(
-            timeout=10000
-        )  # Wait for NIK input to be visible
-        self.nik_input.click()  # Click the NIK input
-        self.nik_input.fill("")  # Clear the NIK input
-        self.nik_input.type(str(nik), delay=20)  # Type the NIK
-        print("NIK input filled with:", nik)  # Print the filled NIK
-        expect(self.lanjutkan_penjualan_button).to_be_enabled(
-            timeout=10000
-        )  # Wait for the button to be enabled
+        # If the NIK input is already visible, skip clicking the tile
+        already_on_form = False
+        try:
+            self.nik_input.wait_for(state="visible", timeout=800)
+            already_on_form = True
+            print("NIK input already visible; skipping tile click")
+        except Exception:
+            pass
+
+        if not already_on_form:
+            tile = self.catat_penjualan_tile
+            expect(tile).to_be_visible(timeout=5000)
+            text = tile.inner_text()
+            print("Clicking tile name:", text)
+            expect(tile).to_contain_text("Catat Penjualan")
+            tile.click()
+            self.page.wait_for_load_state("networkidle")
+            expect(self.nik_input).to_be_visible(timeout=5000)
+
+        # Only the input-and-continue steps
+        self.nik_input.click()  # Focus the input
+        self.nik_input.fill("")  # Clear any existing text
+        self.nik_input.type(str(nik), delay=20)  # Type with slight delay
+        print("NIK input filled with:", nik)
+
+        expect(self.lanjutkan_penjualan_button).to_be_enabled(timeout=5000)
         text = self.lanjutkan_penjualan_button.inner_text()  # Get the button text
-        print("Clicking button name:", text)  # Print the button name
-        expect(self.lanjutkan_penjualan_button).to_contain_text(
-            "LANJUTKAN PENJUALAN"
-        )  # Assert the button text
-        self.lanjutkan_penjualan_button.click()  # Click the button
-        self.page.wait_for_load_state(
-            "networkidle"
-        )  # Wait for the page to load completely
-        print("Lanjutkan Penjualan button clicked")  # Print confirmation
+        print("Clicking button name:", text)
+        expect(self.lanjutkan_penjualan_button).to_contain_text("LANJUTKAN PENJUALAN")
+        self.lanjutkan_penjualan_button.click()
+        self.page.wait_for_load_state("networkidle")
+        print("Lanjutkan Penjualan button clicked")
 
     # Only run if the modal actually appears
     def select_jenis_pelanggan_if_needed(self, detect_timeout: int = 2000) -> bool:
@@ -150,9 +158,13 @@ class Dashboard:
         print("Lanjutkan Transaksi button clicked")  # Print confirmation
 
     # Only run if the "Pelanggan Tidak Terdaftar" modal appears
-    def close_pelanggan_tidak_terdaftar_if_needed(self, detect_timeout: int = 6000) -> bool:
+    def close_pelanggan_tidak_terdaftar_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> bool:
         try:
-            self.pelanggan_tidak_terdaftar_modal.wait_for(state="visible", timeout=detect_timeout)
+            self.pelanggan_tidak_terdaftar_modal.wait_for(
+                state="visible", timeout=detect_timeout
+            )
         except TimeoutError:
             print("Pelanggan Tidak Terdaftar modal not present; continuing.")
             return False
@@ -173,10 +185,10 @@ class Dashboard:
 
     def close_pelanggan_tidak_terdaftar_modal(self):
         expect(self.tutup_button).to_be_visible(
-            timeout=10000
+            timeout=5000
         )  # Wait for the button to be visible
         expect(self.tutup_button).to_be_enabled(
-            timeout=10000
+            timeout=5000
         )  # Wait for the button to be enabled
         text = self.tutup_button.inner_text()  # Get the button text
         print("Clicking button name:", text)  # Print the button name
@@ -214,9 +226,13 @@ class Dashboard:
         # Assert we're on dashboard
         expect(self.catat_penjualan_tile).to_be_visible(timeout=8000)
 
-    def close_perbarui_data_pelanggan_if_needed(self, detect_timeout: int = 6000) -> bool:
+    def close_perbarui_data_pelanggan_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> bool:
         try:
-            self.perbarui_data_pelanggan_modal.wait_for(state="visible", timeout=detect_timeout)
+            self.perbarui_data_pelanggan_modal.wait_for(
+                state="visible", timeout=detect_timeout
+            )
         except TimeoutError:
             print("Perbarui Data Pelanggan modal not present; continuing.")
             return False
