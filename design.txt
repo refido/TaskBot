@@ -1,0 +1,29 @@
+Project Structures
+.
+.
+.
+├── pyproject.toml
+├── README.md
+├── .gitignore
+├── .env.example
+├── requirements.txt
+├── reports/
+├── src/
+│    ├── __init__.py
+│    ├── config.py
+│    ├── web/               # browser automation code
+│    │   ├── pages/         # POM classes
+│    │   │   ├── dashboard.py
+│    │   │   ├── cek_penjualan.py
+│    │   │   ├── penjualan.py
+│    │   │   └── login.py
+│    │   └── reporter.py
+│    │   └── rate_limiter.py
+│    │   └── helpers.py
+│    ├── vision/            # OpenCV utilities
+│    │   ├── slider_solver.py
+│    └── pipelines/         # glue logic that combines web + vision
+│    │   ├── extract_captcha_images.py
+│    │   ├── solve_slider.py
+│    └── config.py
+└── main.py

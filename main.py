@@ -12,7 +12,7 @@ from src.web.reporter import TransactionReporter
 
 def main():
     config = Config()
-    reporter = TransactionReporter()
+    reporter = TransactionReporter(operator=config.email_user)
 
     with sync_playwright() as p:
         browser = p.firefox.launch(headless=False)  # start browser
@@ -21,6 +21,7 @@ def main():
 
         print(config.url_application)
         page.goto(config.url_application)  # navigate to app
+
         # login
         login = Login(page)
         login.login(config.email_user, config.pin_user)
@@ -117,8 +118,10 @@ def main():
                 cek_penjualan = CekPenjualan(page)
                 cek_penjualan.proses_penjualan()
 
-                # wait for manual confirmation
+                # Human interaction for slider:
                 helpers = Helpers(page)
+                helpers.save_puzzle_piece()
+                helpers.save_puzzle_bg()
                 helpers.wait_for_human_interaction()
 
                 cek_penjualan.kembali_ke_dashboard()
