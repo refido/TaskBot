@@ -1,6 +1,10 @@
+from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 from src.config import Config
+from src.pipelines.solve_slider import solve_slider_with_puzzle
+from src.vision.puzzle_solver import PuzzleSolver
 from src.web.helpers import Helpers
 from src.web.pages.cek_penjualan import CekPenjualan
 from src.web.pages.dashboard import Dashboard
@@ -118,11 +122,34 @@ def main():
                 cek_penjualan = CekPenjualan(page)
                 cek_penjualan.proses_penjualan()
 
-                # Human interaction for slider:
+                # Solve puzzle
                 helpers = Helpers(page)
-                helpers.save_puzzle_piece()
-                helpers.save_puzzle_bg()
-                helpers.wait_for_human_interaction()
+                piece_path = helpers.save_puzzle_piece()
+                bg_path = helpers.save_puzzle_bg()
+
+                # Build an output path in the same folder with the same timestamp prefix
+                out_dir = Path(piece_path).parent
+                stamp = Path(piece_path).stem.replace("_image_puzzle_piece", "")
+                result_path = out_dir / f"{stamp}_image_puzzle_result.png"
+
+                print(f"Result path (abs): {result_path.resolve()}")
+
+                solver = PuzzleSolver(
+                    gap_image_path=piece_path,
+                    bg_image_path=bg_path,
+                    output_image_path=str(result_path),
+                )
+                position = solver.discern_xy()
+                print(f"The position of the slide is: {position}")
+
+                # TODO: implement human-like drag using the computed position
+                ok = solve_slider_with_puzzle(
+                    page,
+                    imgs={"background": Path(bg_path), "piece": Path(piece_path)},
+                    bias_px=0.0,  # tune if consistently off by a few px
+                    max_wait_success_ms=3500,
+                )
+                print(f"Slider solved via PuzzleSolver: {ok}")
 
                 cek_penjualan.kembali_ke_dashboard()
                 page.wait_for_load_state("load")  # back at dashboard

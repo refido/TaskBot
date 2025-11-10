@@ -7,6 +7,7 @@ Project Structures
 ├── .gitignore
 ├── .env.example
 ├── requirements.txt
+├── data_puzzle/
 ├── reports/
 ├── src/
 │    ├── __init__.py
@@ -21,9 +22,9 @@ Project Structures
 │    │   └── rate_limiter.py
 │    │   └── helpers.py
 │    ├── vision/            # OpenCV utilities
-│    │   ├── slider_solver.py
+│    │   ├── puzzle_solver.py
+│    │   ├── overlay.py
 │    └── pipelines/         # glue logic that combines web + vision
-│    │   ├── extract_captcha_images.py
 │    │   ├── solve_slider.py
 │    └── config.py
 └── main.py

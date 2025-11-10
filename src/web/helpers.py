@@ -9,6 +9,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 class Helpers:
     def __init__(self, page: Page):
         self.page = page
+        self.folder_stamp = datetime.now().strftime("%Y-%m-%d")
         self.stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.piece_img = page.locator("img.rc-slider-captcha-jigsaw-puzzle")
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
@@ -42,7 +43,7 @@ class Helpers:
         except Exception as e:
             raise RuntimeError(f"Failed to decode base64 image: {e}")
 
-        out_dir = Path("data_puzzle")
+        out_dir = Path(f"data_puzzle/{self.folder_stamp}")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{self.stamp}_image_puzzle_piece.png"
         out_path.write_bytes(image_bytes)
@@ -74,7 +75,7 @@ class Helpers:
         except Exception as e:
             raise RuntimeError(f"Failed to decode base64 image: {e}")
 
-        out_dir = Path("data_puzzle")
+        out_dir = Path(f"data_puzzle/{self.folder_stamp}")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{self.stamp}_image_puzzle_bg.png"
         out_path.write_bytes(image_bytes)

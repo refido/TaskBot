@@ -172,12 +172,7 @@ class PuzzleSolver:
 
         return (tl[0], tl[1]), fused_score
 
-    def discern(self, y_roi=None, scales=(1.0, 0.95, 1.05)):
-        """
-        Multi-scale coarse search using fused template matching on gradients,
-        followed by a single chamfer refinement around the best scale/location.
-        Returns (x, score) for backward compatibility with your caller.
-        """
+    def discern_xy(self, y_roi=None, scales=(1.0, 0.95, 1.05)):
         gap_raw = self._imread_any(self.gap_image_path)
         bg_raw = self._imread_any(self.bg_image_path)
 
@@ -206,21 +201,18 @@ class PuzzleSolver:
             if score > best[1]:
                 best = (loc, score, s, tpl_s)
 
-        # Chamfer refine once around the best coarse hit
         coarse_xy, fused_score, best_scale, best_tpl = best
         refined_xy, _ = self._chamfer_refine(
             bg_gray, best_tpl, coarse_xy, search_radius=24
         )
 
-        # Return x and fused score (keep your original external API)
-        return refined_xy[0], fused_score
+        th, tw = best_tpl.shape[:2]
 
-
-if __name__ == "__main__":
-    solver = PuzzleSolver(
-        gap_image_path="../../data_puzzle/2025-11-05/20251105_155959_image_puzzle_piece.png",
-        bg_image_path="../../data_puzzle/2025-11-05/20251105_155959_image_puzzle_bg.png",
-        output_image_path="../../data_puzzle/2025-11-05/20251105_155959_image_puzzle_result.png",
-    )
-    position = solver.discern()
-    print(f"The position of the slide is: {position}")
+        # Persist fused visualization (optional)
+        return (
+            int(refined_xy[0]),
+            int(refined_xy[1]),
+            float(fused_score),
+            float(best_scale),
+            (int(tw), int(th)),
+        )
