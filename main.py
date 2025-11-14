@@ -142,11 +142,13 @@ def main():
                 position = solver.discern_xy()
                 print(f"The position of the slide is: {position}")
 
-                # TODO: implement human-like drag using the computed position
+                # Manual
+                # helpers.wait_for_human_interaction()
+
+                # Human-like drag using the computed position
                 ok = solve_slider_with_puzzle(
                     page,
                     imgs={"background": Path(bg_path), "piece": Path(piece_path)},
-                    bias_px=0.0,  # tune if consistently off by a few px
                     max_wait_success_ms=3500,
                 )
                 print(f"Slider solved via PuzzleSolver: {ok}")
