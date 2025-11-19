@@ -1,8 +1,9 @@
 import json
 import random
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -13,626 +14,887 @@ from src.vision.overlay import render_puzzle_overlay
 from src.vision.puzzle_solver import PuzzleSolver
 
 
-def _compute_slot_left_x(
-    piece_img_path: Path,
-    x_piece: float,
-    tpl_w: int,
-    *,
-    alpha_thresh: int = 5,
-) -> tuple[float, int]:
-    """
-    Recover the puzzle 'slot' left X (tile-left) in background-image pixels,
-    using the SAME mask + crop logic as PuzzleSolver._crop_by_mask for
-    alpha-channel pieces.
+@dataclass
+class SliderConfig:
+    """Configuration for slider CAPTCHA solving"""
 
-    - piece_img_path: original puzzle PNG from rc-slider-captcha.
-    - x_piece: matched top-left of the CROPPED template (in bg pixels).
-    - tpl_w: width of the matched template (after scaling) returned by PuzzleSolver.
-    Returns: (slot_left_x_in_bg, puzzle_tile_width_in_image_px)
-    """
-    piece_img = cv2.imread(str(piece_img_path), cv2.IMREAD_UNCHANGED)
-    if piece_img is None:
-        # Load failed → safest fallback is to use x_piece directly.
-        return float(x_piece), tpl_w
-
-    h, w = piece_img.shape[:2]
-    has_alpha = piece_img.ndim == 3 and piece_img.shape[2] == 4
-
-    if not has_alpha:
-        # No alpha channel → we do not know the internal crop;
-        # fall back to assuming the template covers the full tile.
-        puzzle_tile_width = w
-        return float(x_piece), puzzle_tile_width
-
-    # --- 1. Build mask exactly like PuzzleSolver._crop_by_mask (alpha branch) ---
-    alpha = piece_img[:, :, 3]
-    mask = (alpha > alpha_thresh).astype(np.uint8) * 255
-
-    # Morphological cleanup (must match solver)
-    mask = cv2.morphologyEx(
-        mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1
+    # Element selectors
+    container_selector: str = (
+        ".rc-slider-captcha, .rc-slider-captcha-embed, .rc-slider-captcha-panel"
     )
-    mask = cv2.morphologyEx(
-        mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1
-    )
+    bg_selector: str = "img.rc-slider-captcha-jigsaw-bg"
+    knob_selector: str = "span.rc-slider-captcha-button.rc-slider-captcha-control-button, span.rc-slider-captcha-button.rc-slider-captcha-button-pc"
+    rail_selector: str = ".rc-slider-captcha-control"
 
-    ys, xs = np.where(mask > 0)
-    if xs.size == 0:
-        # No opaque area detected after morphology; fall back safely.
-        puzzle_tile_width = w
-        return float(x_piece), puzzle_tile_width
+    # Success detection
+    success_selector: str = ".captcha-success"
+    success_text: str = "Berhasil"
+    max_wait_success_ms: int = 3500
 
-    # --- 2. This bounding box is the SAME crop the solver sees before scaling ---
-    alpha_x0 = int(xs.min())
-    alpha_x1 = int(xs.max())
-    cropped_width = alpha_x1 - alpha_x0 + 1  # width in original tile pixels
+    # Movement parameters
+    min_steps: int = 20
+    max_steps: int = 32
+    step_divisor: int = 6
+    step_base: int = 15
 
-    # The template width tpl_w is this cropped_width * best_scale (from solver).
-    # So scale from cropped tile coords to matched template coords is:
-    scale_crop_to_tpl = tpl_w / float(cropped_width)
+    # Timing (milliseconds)
+    initial_pause_min: int = 50
+    initial_pause_max: int = 150
+    step_pause_min: int = 0
+    step_pause_max: int = 3
+    release_pause_min: int = 30
+    release_pause_max: int = 80
+    validation_wait: int = 250
 
-    # In the matched template, x=0 corresponds to x = alpha_x0 in the original tile.
-    # So tile-left (x=0 in the tile) in background coordinates is:
-    slot_left_x = float(x_piece) - alpha_x0 * scale_crop_to_tpl
+    # Constraints
+    rail_margin: int = 4
+    alpha_threshold: int = 5
 
-    # Puzzle tile width AS DISPLAYED in the screenshot (full PNG width)
-    puzzle_tile_width = w
-
-    return slot_left_x, puzzle_tile_width
+    # Debugging
+    debug_root: str = "data_puzzle/puzzle_debug/"
 
 
-def _human_track(distance_px: int) -> list[int]:
-    """
-    Simple, accurate movement with easing - no jitter, just precision.
-    """
-    print(f"[_human_track] Requested distance: {distance_px}px")
+@dataclass
+class SliderElements:
+    """Container for slider DOM elements"""
 
-    def ease_out_quad(t: float) -> float:
+    root: any
+    bg_el: any
+    control: any
+    knob: any
+
+
+@dataclass
+class BoundingBoxes:
+    """Bounding boxes for slider elements"""
+
+    bg: Dict[str, float]
+    control: Dict[str, float]
+    knob: Dict[str, float]
+
+
+@dataclass
+class CoordinateMapping:
+    """Result of coordinate mapping calculation"""
+
+    slot_left_x_img: float
+    puzzle_tile_width: int
+    target_x_screen: float
+    target_y_screen: float
+    current_x: float
+    current_y: float
+    distance_px: float
+    clamped_target_x: float
+    rail_limits: Tuple[float, float]
+
+
+class MaskProcessor:
+    """Processes alpha masks to extract puzzle tile information"""
+
+    def __init__(self, alpha_threshold: int = 5):
+        self.alpha_threshold = alpha_threshold
+
+    def compute_slot_left_x(
+        self, piece_img_path: Path, x_piece: float, tpl_w: int
+    ) -> Tuple[float, int]:
+        """
+        Recover puzzle slot left X coordinate in background pixels.
+
+        Returns: (slot_left_x_in_bg, puzzle_tile_width_in_image_px)
+        """
+        piece_img = cv2.imread(str(piece_img_path), cv2.IMREAD_UNCHANGED)
+
+        if piece_img is None:
+            return float(x_piece), tpl_w
+
+        h, w = piece_img.shape[:2]
+        has_alpha = piece_img.ndim == 3 and piece_img.shape[2] == 4
+
+        if not has_alpha:
+            return float(x_piece), w
+
+        # Extract mask matching PuzzleSolver logic
+        mask = self._extract_alpha_mask(piece_img)
+
+        # Find bounding box
+        ys, xs = np.where(mask > 0)
+
+        if xs.size == 0:
+            return float(x_piece), w
+
+        alpha_x0 = int(xs.min())
+        alpha_x1 = int(xs.max())
+        cropped_width = alpha_x1 - alpha_x0 + 1
+
+        # Scale from cropped to template coordinates
+        scale_crop_to_tpl = tpl_w / float(cropped_width)
+        slot_left_x = float(x_piece) - alpha_x0 * scale_crop_to_tpl
+
+        return slot_left_x, w
+
+    def _extract_alpha_mask(self, img: np.ndarray) -> np.ndarray:
+        """Extract and process alpha channel mask"""
+        alpha = img[:, :, 3]
+        mask = (alpha > self.alpha_threshold).astype(np.uint8) * 255
+
+        # Morphological cleanup
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1
+        )
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1
+        )
+
+        return mask
+
+
+class MovementGenerator:
+    """Generates human-like movement paths"""
+
+    def __init__(self, config: SliderConfig):
+        self.config = config
+
+    def generate_path(self, distance_px: int) -> List[int]:
+        """Generate smooth movement path with easing"""
+        print(f"[MovementGenerator] Distance: {distance_px}px")
+
+        sign = 1 if distance_px >= 0 else -1
+        abs_dist = abs(distance_px)
+
+        steps = self._calculate_steps(abs_dist)
+        print(f"[MovementGenerator] Steps: {steps}, Sign: {sign}, Distance: {abs_dist}")
+
+        path = self._build_path(abs_dist, steps, sign)
+
+        print(f"[MovementGenerator] Path: {len(path)} steps, Total: {sum(path)}px")
+        return path
+
+    def _calculate_steps(self, distance: int) -> int:
+        """Calculate optimal number of steps for distance"""
+        return max(
+            self.config.min_steps,
+            min(
+                self.config.max_steps,
+                distance // self.config.step_divisor + self.config.step_base,
+            ),
+        )
+
+    def _build_path(self, distance: int, steps: int, sign: int) -> List[int]:
+        """Build movement path with easing function"""
+        path = []
+        remaining = distance
+        accumulated = 0.0
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            target = distance * self._ease_out_quad(t)
+            delta = target - accumulated
+            accumulated = target
+
+            move = max(1, int(round(delta))) if i < steps else remaining
+            path.append(sign * move)
+            remaining -= move
+
+            if remaining <= 0:
+                break
+
+        # Apply correction if needed
+        actual_total = sum(path)
+        expected_total = sign * distance
+
+        if actual_total != expected_total:
+            correction = expected_total - actual_total
+            path.append(correction)
+            print(f"[MovementGenerator] Correction: {correction}")
+
+        return path
+
+    @staticmethod
+    def _ease_out_quad(t: float) -> float:
+        """Quadratic easing function"""
         return 1 - (1 - t) * (1 - t)
 
-    sign = 1 if distance_px >= 0 else -1
-    abs_dist = abs(distance_px)
 
-    # Optimal steps for smoothness without overcomplexity
-    steps = max(20, min(32, abs_dist // 6 + 15))
-    print(f"[_human_track] steps={steps}, sign={sign}, abs_dist={abs_dist}")
+class CoordinateMapper:
+    """Handles coordinate transformations between image and screen space"""
 
-    path: list[int] = []
-    remaining = abs_dist
-    accumulated_float = 0.0
+    def __init__(self, config: SliderConfig, mask_processor: MaskProcessor):
+        self.config = config
+        self.mask_processor = mask_processor
 
-    for i in range(1, steps + 1):
-        t = i / steps
-        target = abs_dist * ease_out_quad(t)
-        delta = target - accumulated_float
-        accumulated_float = target
+    def map_coordinates(
+        self,
+        piece_path: Path,
+        x_piece: int,
+        tpl_w: int,
+        tpl_h: int,
+        bg_img_width: int,
+        bg_img_height: int,
+        boxes: BoundingBoxes,
+    ) -> CoordinateMapping:
+        """Map puzzle coordinates to screen coordinates"""
+        print("\n[CoordinateMapper] Starting coordinate mapping...")
 
-        # Round and track what we actually moved
-        move = max(1, int(round(delta))) if i < steps else remaining
-        path.append(sign * move)
-        remaining -= move
+        # Get slot position in image space
+        slot_left_x_img, puzzle_tile_w = self.mask_processor.compute_slot_left_x(
+            piece_path, x_piece, tpl_w
+        )
 
-        if remaining <= 0:
-            break
+        print(f"  Slot left X (image): {slot_left_x_img:.2f}")
+        print(f"  Puzzle tile width: {puzzle_tile_w}")
 
-    # Final correction if needed
-    actual_total = sum(path)
-    expected_total = sign * abs_dist
+        # Calculate offset ratio
+        max_offset_img = max(1.0, float(bg_img_width - puzzle_tile_w))
+        slot_offset_img = max(0.0, min(slot_left_x_img, max_offset_img))
+        u_offset = slot_offset_img / max_offset_img
 
-    if actual_total != expected_total:
-        correction = expected_total - actual_total
-        path.append(correction)
-        print(f"[_human_track] Applied correction: {correction}")
+        print(f"  Max offset: {max_offset_img:.2f}")
+        print(f"  U offset: {u_offset:.6f}")
 
-    print(f"[_human_track] Path: {len(path)} steps, Total: {sum(path)}px")
-    return path
+        # Map to screen space
+        knob_w = boxes.knob["width"]
+        knob_h = boxes.knob["height"]
+        knob_half = knob_w / 2.0
+
+        rail_x = boxes.control["x"]
+        rail_w = boxes.control["width"]
+        knob_travel = rail_w - knob_w
+
+        target_x_screen = rail_x + knob_half + u_offset * knob_travel
+        target_y_screen = boxes.bg["y"] + boxes.bg["height"] / 2.0
+
+        print(f"  Knob travel: {knob_travel:.2f}")
+        print(f"  Target X (screen): {target_x_screen:.2f}")
+
+        # Current position
+        current_x = boxes.knob["x"] + knob_half
+        current_y = boxes.knob["y"] + knob_h / 2.0
+
+        # Calculate distance and apply rail limits
+        distance_px = target_x_screen - current_x
+
+        left_limit = rail_x + knob_half + self.config.rail_margin
+        right_limit = rail_x + rail_w - knob_half - self.config.rail_margin
+
+        unclamped = current_x + distance_px
+        clamped_target_x = max(left_limit, min(unclamped, right_limit))
+
+        if clamped_target_x != unclamped:
+            print(f"  Clamped: {unclamped:.2f} -> {clamped_target_x:.2f}")
+
+        distance_px = clamped_target_x - current_x
+        print(f"  Final distance: {distance_px:.2f}px\n")
+
+        return CoordinateMapping(
+            slot_left_x_img=slot_left_x_img,
+            puzzle_tile_width=puzzle_tile_w,
+            target_x_screen=target_x_screen,
+            target_y_screen=target_y_screen,
+            current_x=current_x,
+            current_y=current_y,
+            distance_px=distance_px,
+            clamped_target_x=clamped_target_x,
+            rail_limits=(left_limit, right_limit),
+        )
 
 
-def _resolve_slider_scope(
-    page: Page,
-    *,
-    container_selector: str = ".rc-slider-captcha, .rc-slider-captcha-embed, .rc-slider-captcha-panel",
-    bg_selector: str = "img.rc-slider-captcha-jigsaw-bg",
-    knob_selector: str = (
-        "span.rc-slider-captcha-button.rc-slider-captcha-control-button, "
-        "span.rc-slider-captcha-button.rc-slider-captcha-button-pc"
-    ),
-    rail_selector: str = ".rc-slider-captcha-control",
-) -> Dict[str, any]:
-    """Locate slider elements in the DOM."""
-    print("[_resolve_slider_scope] Starting element resolution...")
-    print(f"[_resolve_slider_scope] bg_selector: {bg_selector}")
+class ElementResolver:
+    """Resolves slider DOM elements"""
 
-    bg_el = page.locator(bg_selector).first
-    bg_el.wait_for(state="visible", timeout=8000)
-    print("[_resolve_slider_scope] Background element found and visible")
+    def __init__(self, config: SliderConfig):
+        self.config = config
 
-    root = None
-    containers = page.locator(container_selector)
-    containers_count = containers.count()
-    print(f"[_resolve_slider_scope] Found {containers_count} container(s)")
+    def resolve(self, page: Page) -> SliderElements:
+        """Locate and return slider elements"""
+        print("[ElementResolver] Starting resolution...")
 
-    if containers_count > 0:
-        try:
-            root = containers.filter(has=bg_el).first
-            root_count = root.count()
-            print(f"[_resolve_slider_scope] Root element found, count: {root_count}")
-        except Exception as e:
-            print(f"[_resolve_slider_scope] Exception filtering containers: {e}")
-            root = None
+        # Find background element
+        bg_el = page.locator(self.config.bg_selector).first
+        bg_el.wait_for(state="visible", timeout=8000)
+        print("[ElementResolver] Background element found")
 
-    if root is None or (hasattr(root, "count") and root.count() == 0):
-        print("[_resolve_slider_scope] Root is None or empty, using XPath fallback")
-        root = bg_el.locator(
+        # Find container root
+        root = self._find_root_container(page, bg_el)
+
+        # Find control elements
+        control = self._find_control(root)
+        knob = self._find_knob(root, control)
+
+        # Prepare elements
+        self._prepare_elements(page, root, control, knob)
+
+        print("[ElementResolver] Resolution complete")
+        return SliderElements(root=root, bg_el=bg_el, control=control, knob=knob)
+
+    def _find_root_container(self, page: Page, bg_el: any) -> any:
+        """Find root container element"""
+        containers = page.locator(self.config.container_selector)
+        count = containers.count()
+        print(f"[ElementResolver] Found {count} container(s)")
+
+        if count > 0:
+            try:
+                root = containers.filter(has=bg_el).first
+                if root.count() > 0:
+                    return root
+            except Exception as e:
+                print(f"[ElementResolver] Filter error: {e}")
+
+        # Fallback to XPath
+        print("[ElementResolver] Using XPath fallback")
+        return bg_el.locator(
             "xpath=ancestor::div[contains(@class,'rc-slider-captcha')]"
         ).first
 
-    control = root.locator(rail_selector).first
-    print("[_resolve_slider_scope] Control element located (rail_selector)")
+    def _find_control(self, root: any) -> any:
+        """Find control rail element"""
+        control = root.locator(self.config.rail_selector).first
 
-    if control.count() == 0:
-        print("[_resolve_slider_scope] Control.count() == 0, using fallback selector")
-        control = root.locator("div.rc-slider-captcha-control").first
+        if control.count() == 0:
+            print("[ElementResolver] Using fallback control selector")
+            control = root.locator("div.rc-slider-captcha-control").first
 
-    knob = root.locator(knob_selector).first
-    print("[_resolve_slider_scope] Knob element located")
+        return control
 
-    if knob.count() == 0:
-        print("[_resolve_slider_scope] Knob.count() == 0, using fallback selector")
-        knob = control.locator(
-            "span.rc-slider-captcha-button.rc-slider-captcha-control-button"
-        ).first
+    def _find_knob(self, root: any, control: any) -> any:
+        """Find knob element"""
+        knob = root.locator(self.config.knob_selector).first
 
-    try:
-        root.scroll_into_view_if_needed(timeout=1000)
-        root.hover()
-        page.wait_for_timeout(120)
-        print("[_resolve_slider_scope] Root element scrolled and hovered")
-    except Exception as e:
-        print(f"[_resolve_slider_scope] Exception during scroll/hover: {e}")
+        if knob.count() == 0:
+            print("[ElementResolver] Using fallback knob selector")
+            knob = control.locator(
+                "span.rc-slider-captcha-button.rc-slider-captcha-control-button"
+            ).first
 
-    control.wait_for(state="visible", timeout=6000)
-    print("[_resolve_slider_scope] Control element is visible")
+        return knob
 
-    try:
-        knob.wait_for(state="visible", timeout=2000)
-        print("[_resolve_slider_scope] Knob element is visible")
-    except Exception as e:
-        print(f"[_resolve_slider_scope] Exception waiting for knob visibility: {e}")
+    def _prepare_elements(self, page: Page, root: any, control: any, knob: any) -> None:
+        """Prepare elements for interaction"""
+        try:
+            root.scroll_into_view_if_needed(timeout=1000)
+            root.hover()
+            page.wait_for_timeout(120)
+        except Exception as e:
+            print(f"[ElementResolver] Preparation error: {e}")
 
-    print("[_resolve_slider_scope] Element resolution complete")
-    return {"root": root, "bg_el": bg_el, "control": control, "knob": knob}
+        control.wait_for(state="visible", timeout=6000)
+
+        try:
+            knob.wait_for(state="visible", timeout=2000)
+        except Exception as e:
+            print(f"[ElementResolver] Knob visibility error: {e}")
 
 
-def _create_movement_diagram(
-    puzzle_result_path: Path,
-    x_piece: int,
-    y_piece: int,
-    tpl_w: int,
-    tpl_h: int,
-    piece_center_x: float,
-    current_x: float,
-    target_x_screen: float,
-    distance_px: float,
-    ctrl_bb_x: float,
-    ctrl_bb_width: float,
-    attempt_dir: Path,
-    *,
-    bg_img_width: int,
-) -> None:
-    """Create movement visualization diagram."""
-    print("[_create_movement_diagram] Starting diagram creation...")
+class DiagramCreator:
+    """Creates movement visualization diagrams"""
 
-    base_img = cv2.imread(str(puzzle_result_path))
-    if base_img is None:
-        print(
-            f"[_create_movement_diagram] ERROR: Could not read image at {puzzle_result_path}"
+    def create_diagram(
+        self,
+        puzzle_result_path: Path,
+        x_piece: int,
+        y_piece: int,
+        tpl_w: int,
+        tpl_h: int,
+        mapping: CoordinateMapping,
+        ctrl_bb_x: float,
+        ctrl_bb_width: float,
+        bg_img_width: int,
+        output_dir: Path,
+    ) -> None:
+        """Create and save movement diagram"""
+        print("[DiagramCreator] Creating diagram...")
+
+        base_img = cv2.imread(str(puzzle_result_path))
+        if base_img is None:
+            print(f"[DiagramCreator] ERROR: Cannot read {puzzle_result_path}")
+            return
+
+        base_h, base_w = base_img.shape[:2]
+
+        # Create bar visualization
+        bar = self._create_bar(base_w, mapping, ctrl_bb_x, ctrl_bb_width, bg_img_width)
+
+        # Combine images
+        final_img = self._combine_images(base_img, bar, base_w, mapping, bg_img_width)
+
+        # Save
+        output_path = output_dir / "movement_diagram.jpg"
+        cv2.imwrite(str(output_path), final_img)
+        print(f"[DiagramCreator] Diagram saved to {output_path}")
+
+    def _create_bar(
+        self,
+        width: int,
+        mapping: CoordinateMapping,
+        ctrl_bb_x: float,
+        ctrl_bb_width: float,
+        bg_img_width: int,
+    ) -> np.ndarray:
+        """Create movement bar visualization"""
+        bar_height = 80
+        bar_bg = np.ones((bar_height, width, 3), dtype=np.uint8) * 40
+
+        margin = 20
+        rail_start = margin
+        rail_width = width - 2 * margin
+        y_center = bar_height // 2
+
+        # Calculate positions
+        piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
+        u = piece_center_x / float(bg_img_width)
+        piece_center_bar_x = rail_start + u * rail_width
+
+        current_rel = mapping.current_x - ctrl_bb_x
+        target_rel = mapping.clamped_target_x - ctrl_bb_x
+
+        current_bar_x = rail_start + (current_rel / ctrl_bb_width) * rail_width
+        target_bar_x = rail_start + (target_rel / ctrl_bb_width) * rail_width
+
+        # Clamp to rail
+        current_bar_x = max(rail_start, min(current_bar_x, rail_start + rail_width))
+        target_bar_x = max(rail_start, min(target_bar_x, rail_start + rail_width))
+        piece_center_bar_x = max(
+            rail_start, min(piece_center_bar_x, rail_start + rail_width)
         )
-        return
 
-    base_h, base_w = base_img.shape[:2]
-    bar_height = 80
-    bar_width = base_w
-    bar_bg = np.ones((bar_height, bar_width, 3), dtype=np.uint8) * 40
+        # Draw elements
+        self._draw_rail(bar_bg, rail_start, rail_width, y_center)
+        self._draw_current(bar_bg, current_bar_x, y_center)
+        self._draw_target(bar_bg, target_bar_x, y_center)
+        self._draw_arrow(bar_bg, current_bar_x, target_bar_x, y_center)
+        self._draw_piece_center(bar_bg, piece_center_bar_x, bar_height)
+        self._draw_labels(bar_bg, mapping.distance_px, bar_height)
 
-    margin = 20
-    bar_rail_start = margin
-    bar_rail_width = bar_width - 2 * margin
-    bar_y_center = bar_height // 2
+        return bar_bg
 
-    u = piece_center_x / float(bg_img_width)
-    piece_center_bar_x = bar_rail_start + u * bar_rail_width
+    def _draw_rail(self, img: np.ndarray, start: int, width: int, y: int) -> None:
+        """Draw rail line"""
+        cv2.line(img, (start, y), (start + width, y), (100, 100, 100), 3)
 
-    current_relative = current_x - ctrl_bb_x
-    target_relative = target_x_screen - ctrl_bb_x
+    def _draw_current(self, img: np.ndarray, x: float, y: int) -> None:
+        """Draw current position marker"""
+        x_int = int(x)
+        cv2.line(img, (x_int, y - 15), (x_int, y + 15), (0, 255, 0), 4)
+        cv2.circle(img, (x_int, y), 8, (0, 255, 0), -1)
 
-    current_bar_x = bar_rail_start + (current_relative / ctrl_bb_width) * bar_rail_width
-    target_bar_x = bar_rail_start + (target_relative / ctrl_bb_width) * bar_rail_width
+    def _draw_target(self, img: np.ndarray, x: float, y: int) -> None:
+        """Draw target position marker"""
+        cv2.circle(img, (int(x), y), 10, (0, 0, 255), -1)
 
-    current_bar_x = max(
-        bar_rail_start, min(current_bar_x, bar_rail_start + bar_rail_width)
-    )
-    target_bar_x = max(
-        bar_rail_start, min(target_bar_x, bar_rail_start + bar_rail_width)
-    )
-    piece_center_bar_x = max(
-        bar_rail_start, min(piece_center_bar_x, bar_rail_start + bar_rail_width)
-    )
+    def _draw_arrow(
+        self, img: np.ndarray, start_x: float, end_x: float, y: int
+    ) -> None:
+        """Draw movement arrow"""
+        if int(start_x) != int(end_x):
+            cv2.arrowedLine(
+                img,
+                (int(start_x) + 15, y),
+                (int(end_x) - 15, y),
+                (0, 255, 255),
+                2,
+                tipLength=0.2,
+            )
 
-    # Draw rail
-    cv2.line(
-        bar_bg,
-        (bar_rail_start, bar_y_center),
-        (bar_rail_start + bar_rail_width, bar_y_center),
-        (100, 100, 100),
-        3,
-    )
+    def _draw_piece_center(self, img: np.ndarray, x: float, height: int) -> None:
+        """Draw piece center line"""
+        cv2.line(img, (int(x), 0), (int(x), height), (255, 0, 0), 2)
 
-    # Draw current (green)
-    cv2.line(
-        bar_bg,
-        (int(current_bar_x), bar_y_center - 15),
-        (int(current_bar_x), bar_y_center + 15),
-        (0, 255, 0),
-        4,
-    )
-    cv2.circle(bar_bg, (int(current_bar_x), bar_y_center), 8, (0, 255, 0), -1)
+    def _draw_labels(self, img: np.ndarray, distance: float, height: int) -> None:
+        """Draw text labels"""
+        cv2.putText(
+            img,
+            f"Distance: {distance:.1f}px",
+            (10, 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+        )
+        cv2.putText(
+            img,
+            "GREEN = Current | RED = Target",
+            (10, height - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+        )
 
-    # Draw target (red)
-    cv2.circle(bar_bg, (int(target_bar_x), bar_y_center), 10, (0, 0, 255), -1)
+    def _combine_images(
+        self,
+        base_img: np.ndarray,
+        bar: np.ndarray,
+        base_w: int,
+        mapping: CoordinateMapping,
+        bg_img_width: int,
+    ) -> np.ndarray:
+        """Combine base image and bar"""
+        base_h = base_img.shape[0]
+        final = np.vstack([base_img, bar])
 
-    # Draw arrow
-    if int(current_bar_x) != int(target_bar_x):
-        cv2.arrowedLine(
-            bar_bg,
-            (int(current_bar_x) + 15, bar_y_center),
-            (int(target_bar_x) - 15, bar_y_center),
-            (0, 255, 255),
+        # Draw connecting line
+        piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
+        u = piece_center_x / float(bg_img_width)
+        piece_center_img_x = int(round(u * base_w))
+
+        margin = 20
+        rail_start = margin
+        rail_width = base_w - 2 * margin
+        piece_center_bar_x = rail_start + u * rail_width
+
+        cv2.line(
+            final,
+            (piece_center_img_x, base_h - 5),
+            (int(piece_center_bar_x), base_h + 5),
+            (255, 0, 0),
             2,
-            tipLength=0.2,
         )
 
-    # Draw piece center line
-    cv2.line(
-        bar_bg,
-        (int(piece_center_bar_x), 0),
-        (int(piece_center_bar_x), bar_height),
-        (255, 0, 0),
-        2,
-    )
-
-    # Labels
-    cv2.putText(
-        bar_bg,
-        f"Distance: {distance_px:.1f}px",
-        (10, 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
-        (255, 255, 255),
-        1,
-    )
-    cv2.putText(
-        bar_bg,
-        "GREEN = Current | RED = Target",
-        (10, bar_height - 10),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
-        (255, 255, 255),
-        1,
-    )
-
-    final_img = np.vstack([base_img, bar_bg])
-    piece_center_img_x = int(round(u * base_w))
-    cv2.line(
-        final_img,
-        (piece_center_img_x, base_h - 5),
-        (int(piece_center_bar_x), base_h + 5),
-        (255, 0, 0),
-        2,
-    )
-
-    output_path = attempt_dir / "movement_diagram.jpg"
-    cv2.imwrite(str(output_path), final_img)
-    print(f"[_create_movement_diagram] Diagram saved to {output_path}")
+        return final
 
 
-def solve_slider_with_puzzle(
-    page: Page,
-    imgs: Dict[str, Path],
-    *,
-    success_selector: str = ".captcha-success",
-    success_text: str = "Berhasil",
-    max_wait_success_ms: int = 3500,
-    debug_root: str = "data_puzzle/puzzle_debug/",
-) -> bool:
+class MetadataWriter:
+    """Writes metadata for debugging"""
+
+    def write_metadata(
+        self,
+        output_dir: Path,
+        puzzle_result: Tuple[int, int, float, float, Tuple[int, int]],
+        mapping: CoordinateMapping,
+        bg_dimensions: Tuple[int, int],
+    ) -> None:
+        """Save solving metadata"""
+        x_piece, y_piece, score, scale, (tpl_w, tpl_h) = puzzle_result
+        bg_img_width, bg_img_height = bg_dimensions
+
+        # Calculate centers for metadata
+        piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
+        piece_center_y = y_piece + tpl_h / 2.0
+
+        metadata = {
+            "puzzle_result": {
+                "x": x_piece,
+                "y": y_piece,
+                "score": score,
+                "scale": scale,
+                "template_size": [tpl_w, tpl_h],
+            },
+            "piece_center": {
+                "x_image": float(piece_center_x),
+                "y_image": float(piece_center_y),
+            },
+            "bg_image_dimensions": [bg_img_width, bg_img_height],
+            "unitless_ratios": {
+                "u_x": float(piece_center_x / bg_img_width),
+                "u_y": float(piece_center_y / bg_img_height),
+            },
+            "target_screen": {
+                "x": float(mapping.clamped_target_x),
+                "y_background": float(mapping.target_y_screen),
+            },
+            "knob_current": {
+                "x": float(mapping.current_x),
+                "y": float(mapping.current_y),
+            },
+            "distance_to_move": float(mapping.distance_px),
+            "rail_bounds_x": list(mapping.rail_limits),
+            "drag_y": float(mapping.current_y),
+        }
+
+        (output_dir / "meta.json").write_text(
+            json.dumps(metadata, indent=2), encoding="utf-8"
+        )
+
+
+class DragExecutor:
+    """Executes drag movement on page"""
+
+    def __init__(self, config: SliderConfig, movement_gen: MovementGenerator):
+        self.config = config
+        self.movement_gen = movement_gen
+
+    def execute_drag(self, page: Page, mapping: CoordinateMapping) -> None:
+        """Execute drag movement with human-like behavior"""
+        print("\n[DragExecutor] Executing drag movement...")
+        print(f"  Start: ({mapping.current_x:.1f}, {mapping.current_y:.1f})")
+        print(f"  Target X: {mapping.clamped_target_x:.1f}")
+
+        # Initial pause
+        page.wait_for_timeout(
+            random.randint(self.config.initial_pause_min, self.config.initial_pause_max)
+        )
+
+        # Move to start and mouse down
+        page.mouse.move(mapping.current_x, mapping.current_y)
+        page.mouse.down()
+        print("[DragExecutor] Mouse down")
+
+        # Generate and execute movement
+        int_distance = int(round(mapping.distance_px))
+        path = self.movement_gen.generate_path(int_distance)
+
+        x_cur = mapping.current_x
+        for step_idx, dx in enumerate(path):
+            x_cur += dx
+            page.mouse.move(x_cur, mapping.current_y, steps=1)
+
+            # Random micro-pauses
+            if step_idx % random.randint(8, 12) == 0:
+                page.wait_for_timeout(
+                    random.randint(
+                        self.config.step_pause_min, self.config.step_pause_max
+                    )
+                )
+
+            if step_idx % 8 == 0:
+                print(f"  Step {step_idx}: x={x_cur:.1f}, dx={dx}")
+
+        print(f"[DragExecutor] Final: x={x_cur:.1f}, y={mapping.current_y:.1f}")
+        print(f"[DragExecutor] Total moved: {x_cur - mapping.current_x:.1f}px")
+
+        # Release pause
+        page.wait_for_timeout(
+            random.randint(self.config.release_pause_min, self.config.release_pause_max)
+        )
+        page.mouse.up()
+        print("[DragExecutor] Mouse up\n")
+
+        # Allow validation
+        page.wait_for_timeout(self.config.validation_wait)
+
+
+class SuccessDetector:
+    """Detects CAPTCHA success"""
+
+    def __init__(self, config: SliderConfig):
+        self.config = config
+
+    def check_success(self, page: Page, root: any) -> bool:
+        """Check if CAPTCHA was solved successfully"""
+        print(
+            f"[SuccessDetector] Checking success (timeout: {self.config.max_wait_success_ms}ms)..."
+        )
+
+        # Try CSS selector
+        if self._check_by_selector(page):
+            return True
+
+        # Try text content
+        if self._check_by_text(page):
+            return True
+
+        # Try root disappearance
+        if self._check_root_hidden(root):
+            return True
+
+        print("[SuccessDetector] FAILED: Could not detect success")
+        return False
+
+    def _check_by_selector(self, page: Page) -> bool:
+        """Check success via CSS selector"""
+        try:
+            page.locator(self.config.success_selector).first.wait_for(
+                timeout=self.config.max_wait_success_ms, state="visible"
+            )
+            print(
+                f"[SuccessDetector] SUCCESS via selector '{self.config.success_selector}'!"
+            )
+            return True
+        except Exception as e:
+            print(f"[SuccessDetector] Selector not found: {e}")
+            return False
+
+    def _check_by_text(self, page: Page) -> bool:
+        """Check success via text content"""
+        try:
+            page.get_by_text(self.config.success_text).first.wait_for(
+                timeout=self.config.max_wait_success_ms, state="visible"
+            )
+            print(f"[SuccessDetector] SUCCESS via text '{self.config.success_text}'!")
+            return True
+        except Exception as e:
+            print(f"[SuccessDetector] Text not found: {e}")
+            return False
+
+    def _check_root_hidden(self, root: any) -> bool:
+        """Check if root element disappeared"""
+        try:
+            root.wait_for(state="hidden", timeout=1500)
+            print("[SuccessDetector] SUCCESS! Root disappeared")
+            return True
+        except Exception as e:
+            print(f"[SuccessDetector] Root timeout: {e}")
+            return False
+
+
+class SliderSolver:
+    """Main solver orchestrating all components"""
+
+    def __init__(self, config: Optional[SliderConfig] = None):
+        self.config = config or SliderConfig()
+
+        # Initialize components
+        self.mask_processor = MaskProcessor(self.config.alpha_threshold)
+        self.movement_gen = MovementGenerator(self.config)
+        self.coord_mapper = CoordinateMapper(self.config, self.mask_processor)
+        self.element_resolver = ElementResolver(self.config)
+        self.diagram_creator = DiagramCreator()
+        self.metadata_writer = MetadataWriter()
+        self.drag_executor = DragExecutor(self.config, self.movement_gen)
+        self.success_detector = SuccessDetector(self.config)
+
+    def solve(self, page: Page, imgs: Dict[str, Path]) -> bool:
+        """Solve slider CAPTCHA"""
+        print(f"\n{'=' * 70}")
+        print("[SliderSolver] STARTING SLIDER CAPTCHA SOLVE")
+        print(f"{'=' * 70}\n")
+
+        # Setup debug directory
+        attempt_dir = self._create_debug_dir()
+
+        # Resolve elements
+        elements = self.element_resolver.resolve(page)
+
+        # Solve puzzle
+        puzzle_result, puzzle_result_path = self._solve_puzzle(imgs, attempt_dir)
+
+        # Get bounding boxes
+        boxes = self._get_bounding_boxes(elements)
+
+        # Load image dimensions
+        bg_dimensions = self._get_image_dimensions(imgs["background"])
+
+        # Map coordinates
+        mapping = self.coord_mapper.map_coordinates(
+            imgs["piece"],
+            puzzle_result[0],  # x_piece
+            puzzle_result[4][0],  # tpl_w
+            puzzle_result[4][1],  # tpl_h
+            bg_dimensions[0],
+            bg_dimensions[1],
+            boxes,
+        )
+
+        # Create visualizations
+        self._create_visualizations(
+            puzzle_result,
+            puzzle_result_path,
+            imgs,
+            mapping,
+            boxes,
+            bg_dimensions,
+            attempt_dir,
+        )
+
+        # Save metadata
+        self.metadata_writer.write_metadata(
+            attempt_dir, puzzle_result, mapping, bg_dimensions
+        )
+
+        # Execute drag
+        self.drag_executor.execute_drag(page, mapping)
+
+        # Check success
+        success = self.success_detector.check_success(page, elements.root)
+
+        print(f"{'=' * 70}\n")
+        return success
+
+    def _create_debug_dir(self) -> Path:
+        """Create debug directory for this attempt"""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        attempt_dir = Path(self.config.debug_root) / ts
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[SliderSolver] Debug directory: {attempt_dir}")
+        return attempt_dir
+
+    def _solve_puzzle(
+        self, imgs: Dict[str, Path], attempt_dir: Path
+    ) -> Tuple[Tuple, Path]:
+        """Solve puzzle using computer vision"""
+        print("[SliderSolver] Solving puzzle...")
+
+        puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
+        solver = PuzzleSolver(
+            gap_image_path=str(imgs["piece"]),
+            bg_image_path=str(imgs["background"]),
+            output_image_path=str(puzzle_result_path),
+        )
+
+        result = solver.discern_xy()
+        x_piece, y_piece, score, scale, (tpl_w, tpl_h) = result
+
+        print(f"  Position: ({x_piece}, {y_piece})")
+        print(f"  Score: {score:.4f}")
+        print(f"  Scale: {scale:.2f}")
+        print(f"  Template: {tpl_w}x{tpl_h}")
+
+        return result, puzzle_result_path
+
+    def _get_bounding_boxes(self, elements: SliderElements) -> BoundingBoxes:
+        """Get bounding boxes for all elements"""
+        print("[SliderSolver] Getting bounding boxes...")
+
+        bg_bb = elements.bg_el.bounding_box()
+        ctrl_bb = elements.control.bounding_box()
+        knob_bb = elements.knob.bounding_box()
+
+        if not all([bg_bb, ctrl_bb, knob_bb]):
+            raise RuntimeError("Slider elements not visible")
+
+        return BoundingBoxes(bg=bg_bb, control=ctrl_bb, knob=knob_bb)
+
+    def _get_image_dimensions(self, bg_path: Path) -> Tuple[int, int]:
+        """Get background image dimensions"""
+        bg_img = Image.open(bg_path)
+        return bg_img.width, bg_img.height
+
+    def _create_visualizations(
+        self,
+        puzzle_result: Tuple,
+        puzzle_result_path: Path,
+        imgs: Dict[str, Path],
+        mapping: CoordinateMapping,
+        boxes: BoundingBoxes,
+        bg_dimensions: Tuple[int, int],
+        attempt_dir: Path,
+    ) -> None:
+        """Create debug visualizations"""
+        print("[SliderSolver] Creating visualizations...")
+
+        x_piece, y_piece, _, _, (tpl_w, tpl_h) = puzzle_result
+
+        # Create overlay
+        render_puzzle_overlay(
+            str(imgs["background"]),
+            (x_piece, y_piece),
+            (tpl_w, tpl_h),
+            attempt_dir / "match_overlay.jpg",
+        )
+
+        # Create movement diagram
+        self.diagram_creator.create_diagram(
+            puzzle_result_path,
+            x_piece,
+            y_piece,
+            tpl_w,
+            tpl_h,
+            mapping,
+            boxes.control["x"],
+            boxes.control["width"],
+            bg_dimensions[0],
+            attempt_dir,
+        )
+
+
+def solve_slider_with_puzzle(page: Page, imgs: Dict[str, Path], **kwargs) -> bool:
     """
+    Convenience function maintaining backward compatibility.
+
     Solve slider CAPTCHA with human-like movement patterns.
-    The ONLY coordinate that matters for solving is the horizontal
-    offset of the puzzle tile (X); Y is used only to keep the mouse
-    on the rail visually.
     """
-    print(f"\n{'=' * 70}")
-    print("[solve_slider_with_puzzle] STARTING SLIDER CAPTCHA SOLVE")
-    print(f"{'=' * 70}\n")
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    attempt_dir = Path(debug_root) / ts
-    attempt_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[solve_slider_with_puzzle] Debug directory: {attempt_dir}")
-
-    # Get slider elements
-    print("[solve_slider_with_puzzle] Resolving slider elements...")
-    scope = _resolve_slider_scope(page)
-    bg_el = scope["bg_el"]
-    control = scope["control"]
-    knob = scope["knob"]
-    root = scope["root"]
-    print("[solve_slider_with_puzzle] Slider elements resolved successfully")
-
-    # Solve puzzle (image space)
-    bg_path = Path(imgs["background"])
-    piece_path = Path(imgs["piece"])
-    print(f"[solve_slider_with_puzzle] Background image: {bg_path}")
-    print(f"[solve_slider_with_puzzle] Piece image: {piece_path}")
-
-    puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
-
-    print("[solve_slider_with_puzzle] Initializing PuzzleSolver...")
-    solver = PuzzleSolver(
-        gap_image_path=str(piece_path),
-        bg_image_path=str(bg_path),
-        output_image_path=str(puzzle_result_path),
+    config = SliderConfig(
+        **{k: v for k, v in kwargs.items() if hasattr(SliderConfig, k)}
     )
-    x_piece, y_piece, score, best_scale, (tpl_w, tpl_h) = solver.discern_xy()
-    print("[solve_slider_with_puzzle] Puzzle solved:")
-    print(f"  - Position: ({x_piece}, {y_piece})")
-    print(f"  - Score: {score}")
-    print(f"  - Scale: {best_scale}")
-    print(f"  - Template size: {tpl_w}x{tpl_h}")
-
-    # Debug overlay
-    print("[solve_slider_with_puzzle] Creating debug overlay...")
-    render_puzzle_overlay(
-        str(bg_path),
-        (x_piece, y_piece),
-        (tpl_w, tpl_h),
-        attempt_dir / "match_overlay.jpg",
-    )
-
-    # Get DOM bounding boxes
-    print("[solve_slider_with_puzzle] Getting element bounding boxes...")
-    bg_bb = bg_el.bounding_box()
-    ctrl_bb = control.bounding_box()
-    knob_bb = knob.bounding_box()
-
-    print("[solve_slider_with_puzzle] Bounding boxes:")
-    print(f"  - Background: {bg_bb}")
-    print(f"  - Control: {ctrl_bb}")
-    print(f"  - Knob: {knob_bb}")
-
-    if not bg_bb or not ctrl_bb or not knob_bb:
-        print("[solve_slider_with_puzzle] ERROR: Bounding boxes are None!")
-        raise RuntimeError("Slider elements not visible")
-
-    # Load background image dimensions (same pixels as used in solver)
-    print("[solve_slider_with_puzzle] Loading background image dimensions...")
-    bg_img = Image.open(bg_path)
-    bg_img_width = bg_img.width
-    bg_img_height = bg_img.height
-    print(
-        f"[solve_slider_with_puzzle] Background dimensions: {bg_img_width}x{bg_img_height}"
-    )
-
-    # ============================================================
-    # PRECISE COORDINATE MAPPING (tile-left -> knob travel)
-    # ============================================================
-    print("\n[solve_slider_with_puzzle] COORDINATE MAPPING:")
-    print(f"{'-' * 70}")
-
-    # Recover the puzzle slot LEFT X (backend's solution x) in image pixels.
-    slot_left_x_img, puzzle_tile_w = _compute_slot_left_x(piece_path, x_piece, tpl_w)
-
-    print("  [Slot Left X]")
-    print(f"    x_piece (cropped match left) = {x_piece}")
-    print(f"    puzzle_tile_w (image)        = {puzzle_tile_w}")
-    print(f"    slot_left_x_img (tile-left)  = {slot_left_x_img:.2f}")
-
-    # The tile can legally move in [0, bg_img_width - puzzle_tile_w]
-    max_offset_img = max(1.0, float(bg_img_width - puzzle_tile_w))
-    slot_offset_img = max(0.0, min(slot_left_x_img, max_offset_img))
-    u_offset = slot_offset_img / max_offset_img
-
-    print(f"  max_offset_img = {bg_img_width} - {puzzle_tile_w} = {max_offset_img:.2f}")
-    print(f"  slot_offset_img (clamped)      = {slot_offset_img:.2f}")
-    print(f"  u_offset = {slot_offset_img:.2f} / {max_offset_img:.2f} = {u_offset:.6f}")
-
-    # Map to slider RAIL coordinates using knob travel (not full width).
-    knob_bb = knob.bounding_box()
-    if not knob_bb:
-        raise RuntimeError("Knob not visible before drag")
-
-    knob_w = knob_bb["width"]
-    knob_h = knob_bb["height"]
-    knob_half = knob_w / 2.0
-    rail_x = ctrl_bb["x"]
-    rail_w = ctrl_bb["width"]
-
-    knob_travel = rail_w - knob_w
-    target_x_screen = rail_x + knob_half + u_offset * knob_travel
-
-    # Y is not used by the backend; we only keep the mouse on the rail visually.
-    # For debugging, approximate a Y in the background box.
-    target_y_screen = bg_bb["y"] + bg_bb["height"] / 2.0
-
-    print(f"  rail_x = {rail_x}, rail_w = {rail_w}, knob_w = {knob_w}")
-    print(f"  knob_travel = {rail_w} - {knob_w} = {knob_travel:.2f}")
-    print(
-        f"  target_x_screen = {rail_x} + {knob_half:.2f} + "
-        f"{u_offset:.6f} * {knob_travel:.2f} = {target_x_screen:.2f}"
-    )
-    print(f"  target_y_screen (info) = {target_y_screen:.2f}")
-
-    # Current knob center
-    current_x = knob_bb["x"] + knob_half
-    current_y = knob_bb["y"] + knob_h / 2.0
-
-    distance_px = target_x_screen - current_x
-    print(
-        f"  distance_px (raw) = {target_x_screen:.2f} - {current_x:.2f} = {distance_px:.2f}"
-    )
-    print(f"{'-' * 70}\n")
-
-    # Clamp knob center to rail bounds with a small margin
-    margin = 4
-    print(f"[solve_slider_with_puzzle] Clamping to rail bounds (margin={margin})...")
-    left_limit = rail_x + knob_half + margin
-    right_limit = rail_x + rail_w - knob_half - margin
-    unclamped_target_x = current_x + distance_px
-    clamped_target_x = max(left_limit, min(unclamped_target_x, right_limit))
-
-    if clamped_target_x != unclamped_target_x:
-        print(f"  Clamped from {unclamped_target_x:.2f} to {clamped_target_x:.2f}")
-
-    distance_px = clamped_target_x - current_x
-    print(f"  distance_px (clamped) = {distance_px:.2f}")
-
-    # Create diagram (use slot center just for visualization)
-    slot_center_img_x = slot_left_x_img + puzzle_tile_w / 2.0
-    print("[solve_slider_with_puzzle] Creating movement diagram...")
-    _create_movement_diagram(
-        puzzle_result_path,
-        x_piece,
-        y_piece,
-        tpl_w,
-        tpl_h,
-        slot_center_img_x,  # center of TILE in image space (visual only)
-        current_x,
-        clamped_target_x,
-        distance_px,
-        ctrl_bb["x"],
-        ctrl_bb["width"],
-        attempt_dir,
-        bg_img_width=bg_img_width,
-    )
-
-    # ----------------------------------------------------------------
-    # Save metadata (purely for offline analysis / tuning)
-    # ----------------------------------------------------------------
-    # For completeness, define a vertical center in image coordinates,
-    # though it is not used by the solver or the backend.
-    piece_center_y_img = y_piece + tpl_h / 2.0
-    u_x = slot_center_img_x / float(bg_img_width)
-    u_y = piece_center_y_img / float(bg_img_height)
-
-    print("[solve_slider_with_puzzle] Saving metadata...")
-    metadata = {
-        "puzzle_result": {
-            "x": x_piece,
-            "y": y_piece,
-            "score": score,
-            "scale": best_scale,
-            "template_size": [tpl_w, tpl_h],
-        },
-        "piece_center": {
-            "x_image": float(slot_center_img_x),
-            "y_image": float(piece_center_y_img),
-        },
-        "bg_image_dimensions": [bg_img_width, bg_img_height],
-        "unitless_ratios": {"u_x": float(u_x), "u_y": float(u_y)},
-        "target_screen": {
-            "x": float(clamped_target_x),
-            "y_background": float(target_y_screen),
-        },
-        "knob_current": {"x": float(current_x), "y": float(current_y)},
-        "distance_to_move": float(distance_px),
-        "rail_bounds_x": [float(left_limit), float(right_limit)],
-        "drag_y": float(current_y),
-    }
-    (attempt_dir / "meta.json").write_text(
-        json.dumps(metadata, indent=2), encoding="utf-8"
-    )
-    print("[solve_slider_with_puzzle] Metadata saved")
-
-    # ============================================================
-    # EXECUTE DRAG WITH HUMAN-LIKE MOVEMENT
-    # ============================================================
-    print("\n[solve_slider_with_puzzle] EXECUTING DRAG MOVEMENT:")
-    print(f"{'-' * 70}")
-    print(f"[solve_slider_with_puzzle] Starting: ({current_x}, {current_y})")
-    print(f"[solve_slider_with_puzzle] Target X: {clamped_target_x}")
-    print("[solve_slider_with_puzzle] Using randomized human-like movement")
-
-    # Initial pause (humans don't click instantly)
-    page.wait_for_timeout(random.randint(50, 150))
-
-    page.mouse.move(current_x, current_y)
-    page.mouse.down()
-    print("[solve_slider_with_puzzle] Mouse down")
-
-    x_cur = current_x
-    int_distance = int(round(distance_px))
-    movement_path = _human_track(int_distance)
-    print(f"[solve_slider_with_puzzle] Movement path: {len(movement_path)} steps")
-
-    # Execute movement with precise tracking
-    for step_idx, dx in enumerate(movement_path):
-        x_cur += dx
-
-        # Stay exactly on rail Y - no vertical variation
-        page.mouse.move(x_cur, current_y, steps=1)
-
-        # Minimal random pauses (0-3ms) to appear human but maintain speed
-        if step_idx % random.randint(8, 12) == 0:
-            page.wait_for_timeout(random.randint(0, 3))
-
-        if step_idx % 8 == 0:
-            print(f"  Step {step_idx}: x={x_cur:.1f}, dx={dx}")
-
-    print(f"[solve_slider_with_puzzle] Final: x={x_cur}, y={current_y}")
-    print(f"[solve_slider_with_puzzle] Total moved: {x_cur - current_x:.1f}px")
-
-    # Brief pause before release (humans don't release instantly)
-    page.wait_for_timeout(random.randint(30, 80))
-    page.mouse.up()
-    print("[solve_slider_with_puzzle] Mouse up")
-    print(f"{'-' * 70}\n")
-
-    # Allow validation
-    page.wait_for_timeout(250)
-
-    # Check success
-    print(
-        f"[solve_slider_with_puzzle] Checking success (max {max_wait_success_ms}ms)..."
-    )
-
-    try:
-        page.locator(success_selector).first.wait_for(
-            timeout=max_wait_success_ms, state="visible"
-        )
-        print(f"[solve_slider_with_puzzle] SUCCESS via selector '{success_selector}'!")
-        print(f"{'=' * 70}\n")
-        return True
-    except Exception as e:
-        print(f"[solve_slider_with_puzzle] CSS selector not found: {e}")
-
-    try:
-        page.get_by_text(success_text).first.wait_for(
-            timeout=max_wait_success_ms, state="visible"
-        )
-        print(f"[solve_slider_with_puzzle] SUCCESS via text '{success_text}'!")
-        print(f"{'=' * 70}\n")
-        return True
-    except Exception as e:
-        print(f"[solve_slider_with_puzzle] Text fallback not found: {e}")
-
-    try:
-        root.wait_for(state="hidden", timeout=1500)
-        print("[solve_slider_with_puzzle] Tentative SUCCESS! Root disappeared")
-        print(f"{'=' * 70}\n")
-        return True
-    except Exception as e:
-        print(f"[solve_slider_with_puzzle] Root timeout: {e}")
-
-    print("[solve_slider_with_puzzle] FAILED: Could not solve captcha")
-    print(f"{'=' * 70}\n")
-    return False
+    solver = SliderSolver(config)
+    return solver.solve(page, imgs)

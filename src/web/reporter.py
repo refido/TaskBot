@@ -353,11 +353,15 @@ class TransactionReporter:
     def _setup_directories(
         self, out_dir: str, run_name: Optional[str], per_run_subdir: bool
     ) -> None:
-        """Setup directory structure for reports"""
+        """Setup directory structure for reports organized by operator/email."""
         run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         day_stamp = datetime.now().strftime("%Y-%m-%d")
 
-        self.base_dir = Path(out_dir) / day_stamp
+        # Sanitize operator name for use as folder name
+        safe_operator = self._sanitize_folder_name(self.operator)
+
+        # Create hierarchical structure: reports/{operator}/{date}/{run}
+        self.base_dir = Path(out_dir) / safe_operator / day_stamp
         self.run_dir = (
             self.base_dir / (run_name or run_stamp) if per_run_subdir else self.base_dir
         )
@@ -369,6 +373,93 @@ class TransactionReporter:
         self.meta_path = self.run_dir / "run_meta.json"
         self.final_json_path = self.run_dir / "items_snapshot.json"
         self.analytics_path = self.run_dir / "analytics.json"
+
+        # Create operator-level summary if needed
+        self.operator_dir = Path(out_dir) / safe_operator
+        self.operator_summary_path = self.operator_dir / "operator_summary.json"
+
+    @staticmethod
+    def _sanitize_folder_name(name: str) -> str:
+        """
+        Sanitize string for use as folder name.
+
+        Args:
+            name: Original name (e.g., email)
+
+        Returns:
+            Sanitized folder name
+        """
+        if not name:
+            return "unknown_operator"
+
+        # Replace invalid characters with underscores
+        invalid_chars = '<>:"/\\|?*'
+        sanitized = name
+        for char in invalid_chars:
+            sanitized = sanitized.replace(char, "_")
+
+        # Remove leading/trailing spaces and dots
+        sanitized = sanitized.strip(". ")
+
+        # Replace spaces with underscores
+        sanitized = sanitized.replace(" ", "_")
+
+        # Ensure it's not empty after sanitization
+        return sanitized if sanitized else "unknown_operator"
+
+    def _write_operator_summary(self) -> None:
+        """Write operator-level summary aggregating all runs."""
+        if not self.operator_dir.exists():
+            return
+
+        # Collect all run metadata files
+        all_runs = []
+        for meta_file in self.operator_dir.rglob("run_meta.json"):
+            try:
+                with meta_file.open("r", encoding="utf-8") as f:
+                    run_data = json.load(f)
+                    all_runs.append(
+                        {
+                            "run_started_at": run_data.get("run_started_at"),
+                            "run_ended_at": run_data.get("run_ended_at"),
+                            "counts": run_data.get("counts", {}),
+                            "run_dir": str(meta_file.parent),
+                        }
+                    )
+            except Exception as e:
+                print(f"Error reading {meta_file}: {e}")
+
+        if not all_runs:
+            return
+
+        # Calculate aggregated statistics
+        total_transactions = sum(
+            run.get("counts", {}).get("total", 0) for run in all_runs
+        )
+        total_completed = sum(
+            run.get("counts", {}).get("completed", 0) for run in all_runs
+        )
+        total_errors = sum(run.get("counts", {}).get("error", 0) for run in all_runs)
+
+        summary = {
+            "operator": self.operator,
+            "last_updated": now_iso(),
+            "total_runs": len(all_runs),
+            "aggregated_stats": {
+                "total_transactions": total_transactions,
+                "total_completed": total_completed,
+                "total_errors": total_errors,
+                "success_rate_percent": MetricsCalculator._safe_percentage(
+                    total_completed, total_transactions
+                ),
+            },
+            "recent_runs": sorted(
+                all_runs, key=lambda x: x["run_started_at"], reverse=True
+            )[:10],
+        }
+
+        self.file_writer.write_json(self.operator_summary_path, summary)
+        print(f"Operator summary updated: {self.operator_summary_path}")
 
     def start_item(self, nik: str) -> str:
         """Start timing for a new item"""
@@ -509,7 +600,7 @@ class TransactionReporter:
         self.file_writer.write_json(self.meta_path, payload)
 
     def write_files(self, run_name: Optional[str] = None) -> None:
-        """Write final snapshot files"""
+        """Write final snapshot files and update operator summary."""
         calculator = MetricsCalculator(self.rows)
         payload = {
             "operator": self.operator,
@@ -525,8 +616,12 @@ class TransactionReporter:
             self.analytics_path, calculator.get_analytics(self.run_started_at)
         )
 
+        # Update operator-level summary
+        self._write_operator_summary()
+
         print(
-            f"Report written: {self.final_json_path}, {self.csv_path}, {self.jsonl_path}, {self.analytics_path}"
+            f"Report written: {self.final_json_path}, {self.csv_path}, "
+            f"{self.jsonl_path}, {self.analytics_path}"
         )
 
     def summary(self) -> Dict[str, int]:

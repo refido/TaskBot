@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -248,6 +249,72 @@ class BrowserSession:
         dashboard.get_current_stock()
 
 
+def print_report_structure(email_user: str):
+    """
+    Print the report folder structure for an operator.
+
+    Args:
+        email_user: Operator email to check
+    """
+    from src.web.reporter import TransactionReporter
+
+    # Get sanitized folder name
+    safe_operator = TransactionReporter._sanitize_folder_name(email_user)
+    operator_dir = Path("reports") / safe_operator
+
+    if not operator_dir.exists():
+        print(f"No reports found for operator: {email_user}")
+        return
+
+    print(f"\nReport Structure for {email_user}:")
+    print(f"{'=' * 60}")
+    print(f"Root: {operator_dir}")
+
+    # List all date folders
+    date_folders = sorted([d for d in operator_dir.iterdir() if d.is_dir()])
+
+    for date_folder in date_folders:
+        if date_folder.name == "operator_summary.json":
+            continue
+
+        print(f"\n  📅 {date_folder.name}/")
+
+        # List all run folders
+        run_folders = sorted([r for r in date_folder.iterdir() if r.is_dir()])
+
+        for run_folder in run_folders:
+            print(f"    🏃 {run_folder.name}/")
+
+            # List key files
+            key_files = ["items.csv", "analytics.json", "run_meta.json"]
+            for file in key_files:
+                file_path = run_folder / file
+                if file_path.exists():
+                    size = file_path.stat().st_size
+                    print(f"      📄 {file} ({size:,} bytes)")
+
+    # Show operator summary if exists
+    summary_path = operator_dir / "operator_summary.json"
+    if summary_path.exists():
+        print("\n  📊 operator_summary.json")
+        try:
+            with summary_path.open("r") as f:
+                summary = json.load(f)
+                print(
+                    f"     Total Runs: {summary['aggregated_stats']['total_transactions']}"
+                )
+                print(
+                    f"     Completed: {summary['aggregated_stats']['total_completed']}"
+                )
+                print(
+                    f"     Success Rate: {summary['aggregated_stats']['success_rate_percent']}%"
+                )
+        except Exception as e:
+            print(f"     Error reading summary: {e}")
+
+    print(f"{'=' * 60}\n")
+
+
 def main():
     """Main entry point"""
     config = Config()
@@ -265,6 +332,9 @@ def main():
     # Generate final report
     reporter.write_files()
     reporter.print_summary()
+
+    # Print folder structure for easy navigation
+    print_report_structure(config.email_user)
 
 
 if __name__ == "__main__":
