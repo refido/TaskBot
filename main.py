@@ -1,6 +1,7 @@
 from pathlib import Path
+from typing import Optional
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 
 from src.config import Config
 from src.pipelines.solve_slider import solve_slider_with_puzzle
@@ -14,187 +15,254 @@ from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
 
 
-def main():
-    config = Config()
-    reporter = TransactionReporter(operator=config.email_user)
+class TransactionProcessor:
+    """Handles processing of transactions with proper error handling and recovery"""
 
-    with sync_playwright() as p:
-        browser = p.firefox.launch(headless=False)  # start browser
-        context = browser.new_context()  # single session for all NIKs
-        page = context.new_page()  # open a page
+    def __init__(
+        self,
+        config: Config,
+        page: Page,
+        reporter: TransactionReporter,
+        limiter: SkipRateLimiter,
+    ):
+        self.config = config
+        self.page = page
+        self.reporter = reporter
+        self.limiter = limiter
+        self.dashboard = Dashboard(page)
+        self.login = Login(page)
 
-        print(config.url_application)
-        page.goto(config.url_application)  # navigate to app
+    def process_all_niks(self) -> None:
+        """Process all NIKs from configuration"""
+        for nik in self.config.nik:
+            try:
+                self.process_single_nik(nik)
+            except Exception as e:
+                print(f"Unhandled error processing NIK {nik}: {e}")
+                self._handle_session_recovery()
 
-        # login
-        login = Login(page)
-        login.login(config.email_user, config.pin_user)
-        page.wait_for_load_state("load")  # wait for page load
+    def process_single_nik(self, nik: str) -> None:
+        """Process a single NIK transaction"""
+        started_at = self.reporter.start_item(nik)
+        puzzle_solved = None
+        puzzle_attempts = 0
 
-        # dashboard
-        dashboard = Dashboard(page)
+        try:
+            # Check rate limiting
+            self.limiter.wait_if_needed(self.page)
+
+            # Navigate to transaction page
+            self.dashboard.catat_penjualan(nik)
+            self.page.wait_for_load_state("load")
+
+            # Handle pre-checks
+            if self._handle_pre_checks(nik, started_at):
+                return
+
+            # Process transaction
+            penjualan = Penjualan(self.page)
+
+            # Check for max kuota before and after cek pesanan
+            if self._check_max_kuota(penjualan, nik, started_at, "before cek pesanan"):
+                return
+
+            penjualan.cek_pesanan()
+
+            if self._check_max_kuota(penjualan, nik, started_at, "after cek pesanan"):
+                return
+
+            # Process order confirmation
+            cek_penjualan = CekPenjualan(self.page)
+            cek_penjualan.proses_penjualan()
+
+            # Solve puzzle
+            puzzle_solved, puzzle_attempts = self._solve_puzzle()
+
+            if not puzzle_solved:
+                raise Exception("CAPTCHA solving failed")
+
+            # Return to dashboard
+            cek_penjualan.kembali_ke_dashboard()
+            self.page.wait_for_load_state("load")
+            self.dashboard.get_current_stock()
+
+            # Record success
+            self.reporter.complete(
+                nik,
+                started_at,
+                url=self.page.url,
+                puzzle_solved=puzzle_solved,
+                puzzle_attempts=puzzle_attempts,
+            )
+
+        except Exception as e:
+            print(f"Failed processing NIK {nik}: {e}")
+            self.reporter.error(
+                nik,
+                started_at,
+                e,
+                url=self.page.url,
+                puzzle_solved=puzzle_solved,
+                puzzle_attempts=puzzle_attempts,
+            )
+            self._handle_session_recovery()
+
+    def _handle_pre_checks(self, nik: str, started_at: str) -> bool:
+        """Handle pre-transaction checks. Returns True if NIK should be skipped"""
+        # Check for data update needed
+        if self.dashboard.close_perbarui_data_pelanggan_if_needed():
+            self.limiter.record_skip()
+            self.reporter.skip_needs_update(nik, started_at, url=self.page.url)
+            print(f"Skipping NIK {nik} (needs data update).")
+            self.page.wait_for_timeout(300)
+            return True
+
+        # Check if not registered
+        if self.dashboard.close_pelanggan_tidak_terdaftar_if_needed():
+            self.limiter.record_skip()
+            self.reporter.skip_not_registered(nik, started_at, url=self.page.url)
+            print(f"Skipping NIK {nik} (not registered).")
+            self.page.wait_for_timeout(300)
+            return True
+
+        # Select jenis pelanggan if needed
+        self.dashboard.select_jenis_pelanggan_if_needed()
+        return False
+
+    def _check_max_kuota(
+        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
+    ) -> bool:
+        """Check for max kuota alert. Returns True if alert present"""
+        if penjualan.is_max_kuota_alert_present(timeout=1500):
+            try:
+                penjualan.ganti_pelanggan()
+            except Exception:
+                pass
+
+            self.limiter.record_skip()
+            self.reporter.skip_max_kuota(
+                nik, started_at, url=self.page.url, reason=f"Max kuota {stage}"
+            )
+            print(f"Skipping NIK {nik} (max kuota {stage}).")
+            self.page.wait_for_timeout(300)
+            return True
+
+        return False
+
+    def _solve_puzzle(self) -> tuple[bool, int]:
+        """Solve CAPTCHA puzzle. Returns (success, attempts)"""
+        helpers = Helpers(self.page)
+        piece_path = helpers.save_puzzle_piece()
+        bg_path = helpers.save_puzzle_bg()
+
+        # Generate result path
+        out_dir = Path(piece_path).parent
+        stamp = Path(piece_path).stem.replace("_image_puzzle_piece", "")
+        result_path = out_dir / f"{stamp}_image_puzzle_result.png"
+
+        print(f"Result path (abs): {result_path.resolve()}")
+
+        # Solve puzzle
+        solver = PuzzleSolver(
+            gap_image_path=piece_path,
+            bg_image_path=bg_path,
+            output_image_path=str(result_path),
+        )
+        position = solver.discern_xy()
+        print(f"The position of the slide is: {position}")
+
+        # Execute slider
+        success = solve_slider_with_puzzle(
+            self.page,
+            imgs={"background": Path(bg_path), "piece": Path(piece_path)},
+            max_wait_success_ms=3500,
+        )
+        print(f"Slider solved: {success}")
+
+        return success, 1
+
+    def _handle_session_recovery(self) -> None:
+        """Handle session recovery after error"""
+        is_logged_out = self._check_if_logged_out()
+
+        if is_logged_out:
+            # Re-login if logged out
+            self.page.goto(self.config.url_application)
+            self.login.login(self.config.email_user, self.config.pin_user)
+            self.page.wait_for_load_state("load")
+        else:
+            # Try to recover to dashboard
+            try:
+                self.dashboard.ensure_on_dashboard()
+            except Exception:
+                self.page.goto(self.config.url_application)
+
+    def _check_if_logged_out(self) -> bool:
+        """Check if user is logged out"""
+        try:
+            return (
+                "login" in self.page.url
+                or self.page.get_by_placeholder("Email").is_visible(timeout=800)
+                or self.page.get_by_role("button", name="MASUK").is_visible(timeout=800)
+            )
+        except Exception:
+            return False
+
+
+class BrowserSession:
+    """Manages browser lifecycle and initialization"""
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.playwright = None
+        self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
+        self.page: Optional[Page] = None
+
+    def __enter__(self):
+        """Enter context manager"""
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.firefox.launch(headless=False)
+        self.context = self.browser.new_context()
+        self.page = self.context.new_page()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager"""
+        if self.browser:
+            self.browser.close()
+        if self.playwright:
+            self.playwright.stop()
+
+    def initialize_session(self) -> None:
+        """Initialize browser session with login"""
+        self.page.goto(self.config.url_application)
+
+        login = Login(self.page)
+        login.login(self.config.email_user, self.config.pin_user)
+        self.page.wait_for_load_state("load")
+
+        dashboard = Dashboard(self.page)
         profile_name = dashboard.get_profile_name()
         dashboard.assert_profile_name_is(profile_name)
         dashboard.get_current_stock()
 
-        # rate limiter
-        limiter = SkipRateLimiter(
-            max_skips=10, window_seconds=60, min_cooldown=60, jitter_seconds=5
-        )
 
-        # process each NIK
-        for nik in config.nik:
-            started_at = reporter.start_item(nik)
-            try:
-                # Back off if we recently hit too many skipped NIKs
-                limiter.wait_if_needed(page)
+def main():
+    """Main entry point"""
+    config = Config()
+    reporter = TransactionReporter(operator=config.email_user)
+    limiter = SkipRateLimiter(
+        max_skips=10, window_seconds=60, min_cooldown=60, jitter_seconds=5
+    )
 
-                # go to "Catat Penjualan" for this NIK
-                dashboard.catat_penjualan(
-                    nik
-                )  # ensure this method accepts a single nik
-                page.wait_for_load_state("load")  # wait navigation/content
+    with BrowserSession(config) as session:
+        session.initialize_session()
 
-                # If the "Update Customer Data" modal appears, close and SKIP this NIK
-                if dashboard.close_perbarui_data_pelanggan_if_needed():
-                    limiter.record_skip()
-                    reporter.skip_needs_update(nik, started_at, url=page.url)
-                    print(f"Skipping NIK {nik} (needs data update).")
-                    # Small pacing to reduce burstiness
-                    page.wait_for_timeout(300)
-                    continue
+        processor = TransactionProcessor(config, session.page, reporter, limiter)
+        processor.process_all_niks()
 
-                # If the "not registered" modal appears, close and SKIP this NIK
-                if dashboard.close_pelanggan_tidak_terdaftar_if_needed():
-                    limiter.record_skip()
-                    reporter.skip_not_registered(nik, started_at, url=page.url)
-                    print(f"Skipping NIK {nik} (not registered).")
-                    # Small pacing to reduce burstiness
-                    page.wait_for_timeout(300)
-                    continue
-
-                # Proceed normally (this does not count against rate limit)
-                # jenis pelanggan selection (if needed)
-                dashboard.select_jenis_pelanggan_if_needed()
-
-                # penjualan
-                penjualan = Penjualan(page)
-                # Check early: alert visible right after filling NIK
-                if penjualan.is_max_kuota_alert_present(timeout=1500):
-                    # Reset to NIK form for the next iteration and SKIP this NIK
-                    try:
-                        penjualan.ganti_pelanggan()
-                    except Exception:
-                        pass
-                    limiter.record_skip()
-                    reporter.skip_max_kuota(
-                        nik,
-                        started_at,
-                        url=page.url,
-                        reason="Max kuota before cek pesanan",
-                    )
-                    print(f"Skipping NIK {nik} (max kuota).")
-                    page.wait_for_timeout(300)
-                    continue
-
-                # No alert yet, proceed to cek pesanan
-                penjualan.cek_pesanan()
-
-                # Check again: some apps show the alert only after CEK PESANAN
-                if penjualan.is_max_kuota_alert_present(timeout=1500):
-                    try:
-                        penjualan.ganti_pelanggan()
-                    except Exception:
-                        pass
-                    limiter.record_skip()
-                    reporter.skip_max_kuota(
-                        nik,
-                        started_at,
-                        url=page.url,
-                        reason="Max kuota after cek pesanan",
-                    )
-                    print(f"Skipping NIK {nik} (max kuota after cek pesanan).")
-                    page.wait_for_timeout(300)
-                    continue
-
-                # Only proceed if no alert at both checkpoints
-                # cek penjualan
-                cek_penjualan = CekPenjualan(page)
-                cek_penjualan.proses_penjualan()
-
-                # Solve puzzle
-                helpers = Helpers(page)
-                piece_path = helpers.save_puzzle_piece()
-                bg_path = helpers.save_puzzle_bg()
-
-                # Build an output path in the same folder with the same timestamp prefix
-                out_dir = Path(piece_path).parent
-                stamp = Path(piece_path).stem.replace("_image_puzzle_piece", "")
-                result_path = out_dir / f"{stamp}_image_puzzle_result.png"
-
-                print(f"Result path (abs): {result_path.resolve()}")
-
-                solver = PuzzleSolver(
-                    gap_image_path=piece_path,
-                    bg_image_path=bg_path,
-                    output_image_path=str(result_path),
-                )
-                position = solver.discern_xy()
-                print(f"The position of the slide is: {position}")
-
-                # Manual
-                # helpers.wait_for_human_interaction()
-
-                # Human-like drag using the computed position
-                ok = solve_slider_with_puzzle(
-                    page,
-                    imgs={"background": Path(bg_path), "piece": Path(piece_path)},
-                    max_wait_success_ms=3500,
-                )
-                print(f"Slider solved via PuzzleSolver: {ok}")
-
-                cek_penjualan.kembali_ke_dashboard()
-                page.wait_for_load_state("load")  # back at dashboard
-
-                # optional: check stock after each NIK
-                dashboard.get_current_stock()
-
-                # record completion
-                reporter.complete(nik, started_at, url=page.url)
-            except Exception as e:
-                print(f"Failed processing NIK {nik}: {e}")
-                reporter.error(nik, started_at, e, url=page.url)
-
-                # Only re-login if we truly got logged out
-                is_logged_out = False
-                try:
-                    is_logged_out = (
-                        "login" in page.url
-                        or page.get_by_placeholder("Email").is_visible(timeout=800)
-                        or page.get_by_role("button", name="MASUK").is_visible(
-                            timeout=800
-                        )
-                    )
-                except Exception:
-                    pass
-
-                if is_logged_out:
-                    # Perform login recovery
-                    page.goto(config.url_application)
-                    login.login(config.email_user, config.pin_user)
-                    page.wait_for_load_state("load")
-                else:
-                    # Stay in-session: try to recover to dashboard
-                    try:
-                        dashboard.ensure_on_dashboard()
-                    except Exception:
-                        page.goto(config.url_application)
-                        # Do not login here; only if the app redirects to login you'll hit the block above on the next iteration.
-
-        # end of NIK loop, close browser
-        browser.close()
-
-    # Report
+    # Generate final report
     reporter.write_files()
     reporter.print_summary()
 
