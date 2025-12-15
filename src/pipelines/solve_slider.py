@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -16,14 +16,17 @@ from src.vision.puzzle_solver import PuzzleSolver
 
 @dataclass
 class SliderConfig:
-    """Configuration for slider CAPTCHA solving"""
+    """Configuration for slider CAPTCHA solving."""
 
     # Element selectors
     container_selector: str = (
         ".rc-slider-captcha, .rc-slider-captcha-embed, .rc-slider-captcha-panel"
     )
     bg_selector: str = "img.rc-slider-captcha-jigsaw-bg"
-    knob_selector: str = "span.rc-slider-captcha-button.rc-slider-captcha-control-button, span.rc-slider-captcha-button.rc-slider-captcha-button-pc"
+    knob_selector: str = (
+        "span.rc-slider-captcha-button.rc-slider-captcha-control-button, "
+        "span.rc-slider-captcha-button.rc-slider-captcha-button-pc"
+    )
     rail_selector: str = ".rc-slider-captcha-control"
 
     # Success detection
@@ -56,17 +59,17 @@ class SliderConfig:
 
 @dataclass
 class SliderElements:
-    """Container for slider DOM elements"""
+    """Container for slider DOM elements."""
 
-    root: any
-    bg_el: any
-    control: any
-    knob: any
+    root: Any
+    bg_el: Any
+    control: Any
+    knob: Any
 
 
 @dataclass
 class BoundingBoxes:
-    """Bounding boxes for slider elements"""
+    """Bounding boxes for slider elements."""
 
     bg: Dict[str, float]
     control: Dict[str, float]
@@ -75,7 +78,7 @@ class BoundingBoxes:
 
 @dataclass
 class CoordinateMapping:
-    """Result of coordinate mapping calculation"""
+    """Result of coordinate mapping calculation."""
 
     slot_left_x_img: float
     puzzle_tile_width: int
@@ -89,11 +92,12 @@ class CoordinateMapping:
 
 
 class MaskProcessor:
-    """Processes alpha masks to extract puzzle tile information"""
+    """Processes alpha masks to extract puzzle tile information."""
 
     def __init__(self, alpha_threshold: int = 5):
         self.alpha_threshold = alpha_threshold
 
+    # Public methods
     def compute_slot_left_x(
         self, piece_img_path: Path, x_piece: float, tpl_w: int
     ) -> Tuple[float, int]:
@@ -103,22 +107,17 @@ class MaskProcessor:
         Returns: (slot_left_x_in_bg, puzzle_tile_width_in_image_px)
         """
         piece_img = cv2.imread(str(piece_img_path), cv2.IMREAD_UNCHANGED)
-
         if piece_img is None:
             return float(x_piece), tpl_w
 
         h, w = piece_img.shape[:2]
         has_alpha = piece_img.ndim == 3 and piece_img.shape[2] == 4
-
         if not has_alpha:
             return float(x_piece), w
 
-        # Extract mask matching PuzzleSolver logic
         mask = self._extract_alpha_mask(piece_img)
 
-        # Find bounding box
         ys, xs = np.where(mask > 0)
-
         if xs.size == 0:
             return float(x_piece), w
 
@@ -126,36 +125,35 @@ class MaskProcessor:
         alpha_x1 = int(xs.max())
         cropped_width = alpha_x1 - alpha_x0 + 1
 
-        # Scale from cropped to template coordinates
         scale_crop_to_tpl = tpl_w / float(cropped_width)
         slot_left_x = float(x_piece) - alpha_x0 * scale_crop_to_tpl
 
         return slot_left_x, w
 
+    # Private helpers
     def _extract_alpha_mask(self, img: np.ndarray) -> np.ndarray:
-        """Extract and process alpha channel mask"""
+        """Extract and process alpha channel mask."""
         alpha = img[:, :, 3]
         mask = (alpha > self.alpha_threshold).astype(np.uint8) * 255
 
-        # Morphological cleanup
         mask = cv2.morphologyEx(
             mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1
         )
         mask = cv2.morphologyEx(
             mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1
         )
-
         return mask
 
 
 class MovementGenerator:
-    """Generates human-like movement paths"""
+    """Generates human-like movement paths."""
 
     def __init__(self, config: SliderConfig):
         self.config = config
 
+    # Public methods
     def generate_path(self, distance_px: int) -> List[int]:
-        """Generate smooth movement path with easing"""
+        """Generate smooth movement path with easing."""
         print(f"[MovementGenerator] Distance: {distance_px}px")
 
         sign = 1 if distance_px >= 0 else -1
@@ -165,12 +163,11 @@ class MovementGenerator:
         print(f"[MovementGenerator] Steps: {steps}, Sign: {sign}, Distance: {abs_dist}")
 
         path = self._build_path(abs_dist, steps, sign)
-
         print(f"[MovementGenerator] Path: {len(path)} steps, Total: {sum(path)}px")
         return path
 
+    # Private helpers
     def _calculate_steps(self, distance: int) -> int:
-        """Calculate optimal number of steps for distance"""
         return max(
             self.config.min_steps,
             min(
@@ -180,8 +177,7 @@ class MovementGenerator:
         )
 
     def _build_path(self, distance: int, steps: int, sign: int) -> List[int]:
-        """Build movement path with easing function"""
-        path = []
+        path: List[int] = []
         remaining = distance
         accumulated = 0.0
 
@@ -198,10 +194,8 @@ class MovementGenerator:
             if remaining <= 0:
                 break
 
-        # Apply correction if needed
         actual_total = sum(path)
         expected_total = sign * distance
-
         if actual_total != expected_total:
             correction = expected_total - actual_total
             path.append(correction)
@@ -211,17 +205,17 @@ class MovementGenerator:
 
     @staticmethod
     def _ease_out_quad(t: float) -> float:
-        """Quadratic easing function"""
         return 1 - (1 - t) * (1 - t)
 
 
 class CoordinateMapper:
-    """Handles coordinate transformations between image and screen space"""
+    """Handles coordinate transformations between image and screen space."""
 
     def __init__(self, config: SliderConfig, mask_processor: MaskProcessor):
         self.config = config
         self.mask_processor = mask_processor
 
+    # Public methods
     def map_coordinates(
         self,
         piece_path: Path,
@@ -232,18 +226,15 @@ class CoordinateMapper:
         bg_img_height: int,
         boxes: BoundingBoxes,
     ) -> CoordinateMapping:
-        """Map puzzle coordinates to screen coordinates"""
+        """Map puzzle coordinates to screen coordinates."""
         print("\n[CoordinateMapper] Starting coordinate mapping...")
 
-        # Get slot position in image space
         slot_left_x_img, puzzle_tile_w = self.mask_processor.compute_slot_left_x(
             piece_path, x_piece, tpl_w
         )
-
         print(f"  Slot left X (image): {slot_left_x_img:.2f}")
         print(f"  Puzzle tile width: {puzzle_tile_w}")
 
-        # Calculate offset ratio
         max_offset_img = max(1.0, float(bg_img_width - puzzle_tile_w))
         slot_offset_img = max(0.0, min(slot_left_x_img, max_offset_img))
         u_offset = slot_offset_img / max_offset_img
@@ -251,7 +242,6 @@ class CoordinateMapper:
         print(f"  Max offset: {max_offset_img:.2f}")
         print(f"  U offset: {u_offset:.6f}")
 
-        # Map to screen space
         knob_w = boxes.knob["width"]
         knob_h = boxes.knob["height"]
         knob_half = knob_w / 2.0
@@ -266,11 +256,9 @@ class CoordinateMapper:
         print(f"  Knob travel: {knob_travel:.2f}")
         print(f"  Target X (screen): {target_x_screen:.2f}")
 
-        # Current position
         current_x = boxes.knob["x"] + knob_half
         current_y = boxes.knob["y"] + knob_h / 2.0
 
-        # Calculate distance and apply rail limits
         distance_px = target_x_screen - current_x
 
         left_limit = rail_x + knob_half + self.config.rail_margin
@@ -278,7 +266,6 @@ class CoordinateMapper:
 
         unclamped = current_x + distance_px
         clamped_target_x = max(left_limit, min(unclamped, right_limit))
-
         if clamped_target_x != unclamped:
             print(f"  Clamped: {unclamped:.2f} -> {clamped_target_x:.2f}")
 
@@ -299,35 +286,35 @@ class CoordinateMapper:
 
 
 class ElementResolver:
-    """Resolves slider DOM elements"""
+    """Resolves slider DOM elements."""
+
+    _BG_VISIBLE_TIMEOUT_MS: int = 8000
+    _CTRL_VISIBLE_TIMEOUT_MS: int = 6000
+    _KNOB_VISIBLE_TIMEOUT_MS: int = 2000
 
     def __init__(self, config: SliderConfig):
         self.config = config
 
+    # Public methods
     def resolve(self, page: Page) -> SliderElements:
-        """Locate and return slider elements"""
+        """Locate and return slider elements."""
         print("[ElementResolver] Starting resolution...")
 
-        # Find background element
         bg_el = page.locator(self.config.bg_selector).first
-        bg_el.wait_for(state="visible", timeout=8000)
+        bg_el.wait_for(state="visible", timeout=self._BG_VISIBLE_TIMEOUT_MS)
         print("[ElementResolver] Background element found")
 
-        # Find container root
         root = self._find_root_container(page, bg_el)
-
-        # Find control elements
         control = self._find_control(root)
         knob = self._find_knob(root, control)
 
-        # Prepare elements
         self._prepare_elements(page, root, control, knob)
 
         print("[ElementResolver] Resolution complete")
         return SliderElements(root=root, bg_el=bg_el, control=control, knob=knob)
 
-    def _find_root_container(self, page: Page, bg_el: any) -> any:
-        """Find root container element"""
+    # Private helpers
+    def _find_root_container(self, page: Page, bg_el: Any) -> Any:
         containers = page.locator(self.config.container_selector)
         count = containers.count()
         print(f"[ElementResolver] Found {count} container(s)")
@@ -337,57 +324,50 @@ class ElementResolver:
                 root = containers.filter(has=bg_el).first
                 if root.count() > 0:
                     return root
-            except Exception as e:
-                print(f"[ElementResolver] Filter error: {e}")
+            except Exception as exc:
+                print(f"[ElementResolver] Filter error: {exc}")
 
-        # Fallback to XPath
         print("[ElementResolver] Using XPath fallback")
         return bg_el.locator(
             "xpath=ancestor::div[contains(@class,'rc-slider-captcha')]"
         ).first
 
-    def _find_control(self, root: any) -> any:
-        """Find control rail element"""
+    def _find_control(self, root: Any) -> Any:
         control = root.locator(self.config.rail_selector).first
-
         if control.count() == 0:
             print("[ElementResolver] Using fallback control selector")
             control = root.locator("div.rc-slider-captcha-control").first
-
         return control
 
-    def _find_knob(self, root: any, control: any) -> any:
-        """Find knob element"""
+    def _find_knob(self, root: Any, control: Any) -> Any:
         knob = root.locator(self.config.knob_selector).first
-
         if knob.count() == 0:
             print("[ElementResolver] Using fallback knob selector")
             knob = control.locator(
                 "span.rc-slider-captcha-button.rc-slider-captcha-control-button"
             ).first
-
         return knob
 
-    def _prepare_elements(self, page: Page, root: any, control: any, knob: any) -> None:
-        """Prepare elements for interaction"""
+    def _prepare_elements(self, page: Page, root: Any, control: Any, knob: Any) -> None:
         try:
             root.scroll_into_view_if_needed(timeout=1000)
             root.hover()
             page.wait_for_timeout(120)
-        except Exception as e:
-            print(f"[ElementResolver] Preparation error: {e}")
+        except Exception as exc:
+            print(f"[ElementResolver] Preparation error: {exc}")
 
-        control.wait_for(state="visible", timeout=6000)
+        control.wait_for(state="visible", timeout=self._CTRL_VISIBLE_TIMEOUT_MS)
 
         try:
-            knob.wait_for(state="visible", timeout=2000)
-        except Exception as e:
-            print(f"[ElementResolver] Knob visibility error: {e}")
+            knob.wait_for(state="visible", timeout=self._KNOB_VISIBLE_TIMEOUT_MS)
+        except Exception as exc:
+            print(f"[ElementResolver] Knob visibility error: {exc}")
 
 
 class DiagramCreator:
-    """Creates movement visualization diagrams"""
+    """Creates movement visualization diagrams."""
 
+    # Public methods
     def create_diagram(
         self,
         puzzle_result_path: Path,
@@ -401,7 +381,7 @@ class DiagramCreator:
         bg_img_width: int,
         output_dir: Path,
     ) -> None:
-        """Create and save movement diagram"""
+        """Create and save movement diagram."""
         print("[DiagramCreator] Creating diagram...")
 
         base_img = cv2.imread(str(puzzle_result_path))
@@ -410,18 +390,14 @@ class DiagramCreator:
             return
 
         base_h, base_w = base_img.shape[:2]
-
-        # Create bar visualization
         bar = self._create_bar(base_w, mapping, ctrl_bb_x, ctrl_bb_width, bg_img_width)
-
-        # Combine images
         final_img = self._combine_images(base_img, bar, base_w, mapping, bg_img_width)
 
-        # Save
         output_path = output_dir / "movement_diagram.jpg"
         cv2.imwrite(str(output_path), final_img)
         print(f"[DiagramCreator] Diagram saved to {output_path}")
 
+    # Private helpers
     def _create_bar(
         self,
         width: int,
@@ -430,7 +406,6 @@ class DiagramCreator:
         ctrl_bb_width: float,
         bg_img_width: int,
     ) -> np.ndarray:
-        """Create movement bar visualization"""
         bar_height = 80
         bar_bg = np.ones((bar_height, width, 3), dtype=np.uint8) * 40
 
@@ -439,7 +414,6 @@ class DiagramCreator:
         rail_width = width - 2 * margin
         y_center = bar_height // 2
 
-        # Calculate positions
         piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
         u = piece_center_x / float(bg_img_width)
         piece_center_bar_x = rail_start + u * rail_width
@@ -450,14 +424,12 @@ class DiagramCreator:
         current_bar_x = rail_start + (current_rel / ctrl_bb_width) * rail_width
         target_bar_x = rail_start + (target_rel / ctrl_bb_width) * rail_width
 
-        # Clamp to rail
         current_bar_x = max(rail_start, min(current_bar_x, rail_start + rail_width))
         target_bar_x = max(rail_start, min(target_bar_x, rail_start + rail_width))
         piece_center_bar_x = max(
             rail_start, min(piece_center_bar_x, rail_start + rail_width)
         )
 
-        # Draw elements
         self._draw_rail(bar_bg, rail_start, rail_width, y_center)
         self._draw_current(bar_bg, current_bar_x, y_center)
         self._draw_target(bar_bg, target_bar_x, y_center)
@@ -468,23 +440,19 @@ class DiagramCreator:
         return bar_bg
 
     def _draw_rail(self, img: np.ndarray, start: int, width: int, y: int) -> None:
-        """Draw rail line"""
         cv2.line(img, (start, y), (start + width, y), (100, 100, 100), 3)
 
     def _draw_current(self, img: np.ndarray, x: float, y: int) -> None:
-        """Draw current position marker"""
         x_int = int(x)
         cv2.line(img, (x_int, y - 15), (x_int, y + 15), (0, 255, 0), 4)
         cv2.circle(img, (x_int, y), 8, (0, 255, 0), -1)
 
     def _draw_target(self, img: np.ndarray, x: float, y: int) -> None:
-        """Draw target position marker"""
         cv2.circle(img, (int(x), y), 10, (0, 0, 255), -1)
 
     def _draw_arrow(
         self, img: np.ndarray, start_x: float, end_x: float, y: int
     ) -> None:
-        """Draw movement arrow"""
         if int(start_x) != int(end_x):
             cv2.arrowedLine(
                 img,
@@ -496,11 +464,9 @@ class DiagramCreator:
             )
 
     def _draw_piece_center(self, img: np.ndarray, x: float, height: int) -> None:
-        """Draw piece center line"""
         cv2.line(img, (int(x), 0), (int(x), height), (255, 0, 0), 2)
 
     def _draw_labels(self, img: np.ndarray, distance: float, height: int) -> None:
-        """Draw text labels"""
         cv2.putText(
             img,
             f"Distance: {distance:.1f}px",
@@ -528,11 +494,9 @@ class DiagramCreator:
         mapping: CoordinateMapping,
         bg_img_width: int,
     ) -> np.ndarray:
-        """Combine base image and bar"""
         base_h = base_img.shape[0]
         final = np.vstack([base_img, bar])
 
-        # Draw connecting line
         piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
         u = piece_center_x / float(bg_img_width)
         piece_center_img_x = int(round(u * base_w))
@@ -549,13 +513,13 @@ class DiagramCreator:
             (255, 0, 0),
             2,
         )
-
         return final
 
 
 class MetadataWriter:
-    """Writes metadata for debugging"""
+    """Writes metadata for debugging."""
 
+    # Public methods
     def write_metadata(
         self,
         output_dir: Path,
@@ -563,11 +527,10 @@ class MetadataWriter:
         mapping: CoordinateMapping,
         bg_dimensions: Tuple[int, int],
     ) -> None:
-        """Save solving metadata"""
+        """Save solving metadata."""
         x_piece, y_piece, score, scale, (tpl_w, tpl_h) = puzzle_result
         bg_img_width, bg_img_height = bg_dimensions
 
-        # Calculate centers for metadata
         piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
         piece_center_y = y_piece + tpl_h / 2.0
 
@@ -607,29 +570,27 @@ class MetadataWriter:
 
 
 class DragExecutor:
-    """Executes drag movement on page"""
+    """Executes drag movement on page."""
 
     def __init__(self, config: SliderConfig, movement_gen: MovementGenerator):
         self.config = config
         self.movement_gen = movement_gen
 
+    # Public methods
     def execute_drag(self, page: Page, mapping: CoordinateMapping) -> None:
-        """Execute drag movement with human-like behavior"""
+        """Execute drag movement with human-like behavior."""
         print("\n[DragExecutor] Executing drag movement...")
         print(f"  Start: ({mapping.current_x:.1f}, {mapping.current_y:.1f})")
         print(f"  Target X: {mapping.clamped_target_x:.1f}")
 
-        # Initial pause
         page.wait_for_timeout(
             random.randint(self.config.initial_pause_min, self.config.initial_pause_max)
         )
 
-        # Move to start and mouse down
         page.mouse.move(mapping.current_x, mapping.current_y)
         page.mouse.down()
         print("[DragExecutor] Mouse down")
 
-        # Generate and execute movement
         int_distance = int(round(mapping.distance_px))
         path = self.movement_gen.generate_path(int_distance)
 
@@ -638,7 +599,6 @@ class DragExecutor:
             x_cur += dx
             page.mouse.move(x_cur, mapping.current_y, steps=1)
 
-            # Random micro-pauses
             if step_idx % random.randint(8, 12) == 0:
                 page.wait_for_timeout(
                     random.randint(
@@ -652,46 +612,42 @@ class DragExecutor:
         print(f"[DragExecutor] Final: x={x_cur:.1f}, y={mapping.current_y:.1f}")
         print(f"[DragExecutor] Total moved: {x_cur - mapping.current_x:.1f}px")
 
-        # Release pause
         page.wait_for_timeout(
             random.randint(self.config.release_pause_min, self.config.release_pause_max)
         )
         page.mouse.up()
         print("[DragExecutor] Mouse up\n")
 
-        # Allow validation
         page.wait_for_timeout(self.config.validation_wait)
 
 
 class SuccessDetector:
-    """Detects CAPTCHA success"""
+    """Detects CAPTCHA success."""
+
+    _ROOT_HIDDEN_TIMEOUT_MS: int = 1500
 
     def __init__(self, config: SliderConfig):
         self.config = config
 
-    def check_success(self, page: Page, root: any) -> bool:
-        """Check if CAPTCHA was solved successfully"""
+    # Public methods
+    def check_success(self, page: Page, root: Any) -> bool:
+        """Check if CAPTCHA was solved successfully."""
         print(
             f"[SuccessDetector] Checking success (timeout: {self.config.max_wait_success_ms}ms)..."
         )
 
-        # Try CSS selector
         if self._check_by_selector(page):
             return True
-
-        # Try text content
         if self._check_by_text(page):
             return True
-
-        # Try root disappearance
         if self._check_root_hidden(root):
             return True
 
         print("[SuccessDetector] FAILED: Could not detect success")
         return False
 
+    # Private helpers
     def _check_by_selector(self, page: Page) -> bool:
-        """Check success via CSS selector"""
         try:
             page.locator(self.config.success_selector).first.wait_for(
                 timeout=self.config.max_wait_success_ms, state="visible"
@@ -700,40 +656,37 @@ class SuccessDetector:
                 f"[SuccessDetector] SUCCESS via selector '{self.config.success_selector}'!"
             )
             return True
-        except Exception as e:
-            print(f"[SuccessDetector] Selector not found: {e}")
+        except Exception as exc:
+            print(f"[SuccessDetector] Selector not found: {exc}")
             return False
 
     def _check_by_text(self, page: Page) -> bool:
-        """Check success via text content"""
         try:
             page.get_by_text(self.config.success_text).first.wait_for(
                 timeout=self.config.max_wait_success_ms, state="visible"
             )
             print(f"[SuccessDetector] SUCCESS via text '{self.config.success_text}'!")
             return True
-        except Exception as e:
-            print(f"[SuccessDetector] Text not found: {e}")
+        except Exception as exc:
+            print(f"[SuccessDetector] Text not found: {exc}")
             return False
 
-    def _check_root_hidden(self, root: any) -> bool:
-        """Check if root element disappeared"""
+    def _check_root_hidden(self, root: Any) -> bool:
         try:
-            root.wait_for(state="hidden", timeout=1500)
+            root.wait_for(state="hidden", timeout=self._ROOT_HIDDEN_TIMEOUT_MS)
             print("[SuccessDetector] SUCCESS! Root disappeared")
             return True
-        except Exception as e:
-            print(f"[SuccessDetector] Root timeout: {e}")
+        except Exception as exc:
+            print(f"[SuccessDetector] Root timeout: {exc}")
             return False
 
 
 class SliderSolver:
-    """Main solver orchestrating all components"""
+    """Main solver orchestrating all components."""
 
     def __init__(self, config: Optional[SliderConfig] = None):
         self.config = config or SliderConfig()
 
-        # Initialize components
         self.mask_processor = MaskProcessor(self.config.alpha_threshold)
         self.movement_gen = MovementGenerator(self.config)
         self.coord_mapper = CoordinateMapper(self.config, self.mask_processor)
@@ -743,28 +696,20 @@ class SliderSolver:
         self.drag_executor = DragExecutor(self.config, self.movement_gen)
         self.success_detector = SuccessDetector(self.config)
 
+    # Public methods (external API via solve_slider_with_puzzle)
     def solve(self, page: Page, imgs: Dict[str, Path]) -> bool:
-        """Solve slider CAPTCHA"""
+        """Solve slider CAPTCHA."""
         print(f"\n{'=' * 70}")
         print("[SliderSolver] STARTING SLIDER CAPTCHA SOLVE")
         print(f"{'=' * 70}\n")
 
-        # Setup debug directory
         attempt_dir = self._create_debug_dir()
-
-        # Resolve elements
         elements = self.element_resolver.resolve(page)
 
-        # Solve puzzle
         puzzle_result, puzzle_result_path = self._solve_puzzle(imgs, attempt_dir)
-
-        # Get bounding boxes
         boxes = self._get_bounding_boxes(elements)
-
-        # Load image dimensions
         bg_dimensions = self._get_image_dimensions(imgs["background"])
 
-        # Map coordinates
         mapping = self.coord_mapper.map_coordinates(
             imgs["piece"],
             puzzle_result[0],  # x_piece
@@ -775,33 +720,28 @@ class SliderSolver:
             boxes,
         )
 
-        # Create visualizations
         self._create_visualizations(
-            puzzle_result,
-            puzzle_result_path,
-            imgs,
-            mapping,
-            boxes,
-            bg_dimensions,
-            attempt_dir,
+            puzzle_result=puzzle_result,
+            puzzle_result_path=puzzle_result_path,
+            imgs=imgs,
+            mapping=mapping,
+            boxes=boxes,
+            bg_dimensions=bg_dimensions,
+            attempt_dir=attempt_dir,
         )
 
-        # Save metadata
         self.metadata_writer.write_metadata(
             attempt_dir, puzzle_result, mapping, bg_dimensions
         )
-
-        # Execute drag
         self.drag_executor.execute_drag(page, mapping)
 
-        # Check success
         success = self.success_detector.check_success(page, elements.root)
 
         print(f"{'=' * 70}\n")
         return success
 
+    # Private helpers (orchestration steps)
     def _create_debug_dir(self) -> Path:
-        """Create debug directory for this attempt"""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         attempt_dir = Path(self.config.debug_root) / ts
         attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -810,8 +750,7 @@ class SliderSolver:
 
     def _solve_puzzle(
         self, imgs: Dict[str, Path], attempt_dir: Path
-    ) -> Tuple[Tuple, Path]:
-        """Solve puzzle using computer vision"""
+    ) -> Tuple[Tuple[int, int, float, float, Tuple[int, int]], Path]:
         print("[SliderSolver] Solving puzzle...")
 
         puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
@@ -832,7 +771,6 @@ class SliderSolver:
         return result, puzzle_result_path
 
     def _get_bounding_boxes(self, elements: SliderElements) -> BoundingBoxes:
-        """Get bounding boxes for all elements"""
         print("[SliderSolver] Getting bounding boxes...")
 
         bg_bb = elements.bg_el.bounding_box()
@@ -845,13 +783,12 @@ class SliderSolver:
         return BoundingBoxes(bg=bg_bb, control=ctrl_bb, knob=knob_bb)
 
     def _get_image_dimensions(self, bg_path: Path) -> Tuple[int, int]:
-        """Get background image dimensions"""
         bg_img = Image.open(bg_path)
         return bg_img.width, bg_img.height
 
     def _create_visualizations(
         self,
-        puzzle_result: Tuple,
+        puzzle_result: Tuple[int, int, float, float, Tuple[int, int]],
         puzzle_result_path: Path,
         imgs: Dict[str, Path],
         mapping: CoordinateMapping,
@@ -859,12 +796,10 @@ class SliderSolver:
         bg_dimensions: Tuple[int, int],
         attempt_dir: Path,
     ) -> None:
-        """Create debug visualizations"""
         print("[SliderSolver] Creating visualizations...")
 
-        x_piece, y_piece, _, _, (tpl_w, tpl_h) = puzzle_result
+        x_piece, y_piece, _score, _scale, (tpl_w, tpl_h) = puzzle_result
 
-        # Create overlay
         render_puzzle_overlay(
             str(imgs["background"]),
             (x_piece, y_piece),
@@ -872,18 +807,17 @@ class SliderSolver:
             attempt_dir / "match_overlay.jpg",
         )
 
-        # Create movement diagram
         self.diagram_creator.create_diagram(
-            puzzle_result_path,
-            x_piece,
-            y_piece,
-            tpl_w,
-            tpl_h,
-            mapping,
-            boxes.control["x"],
-            boxes.control["width"],
-            bg_dimensions[0],
-            attempt_dir,
+            puzzle_result_path=puzzle_result_path,
+            x_piece=x_piece,
+            y_piece=y_piece,
+            tpl_w=tpl_w,
+            tpl_h=tpl_h,
+            mapping=mapping,
+            ctrl_bb_x=boxes.control["x"],
+            ctrl_bb_width=boxes.control["width"],
+            bg_img_width=bg_dimensions[0],
+            output_dir=attempt_dir,
         )
 
 
