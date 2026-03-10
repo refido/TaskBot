@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional
 
+from src.logging_utils import log_print, logger
+
 
 def now_iso() -> str:
     """Get current timestamp in ISO format."""
@@ -467,8 +469,19 @@ class TransactionReporter:
         )
 
         self._write_operator_summary()
+        logger.bind(
+            event="report.files_written",
+            operator=self.operator,
+            run_dir=str(self.run_dir),
+            row_count=len(self.rows),
+            counts=payload["counts"],
+            snapshot_path=str(self.final_json_path),
+            csv_path=str(self.csv_path),
+            jsonl_path=str(self.jsonl_path),
+            analytics_path=str(self.analytics_path),
+        ).info("Run report files written")
 
-        print(
+        log_print(
             f"Report written: {self.final_json_path}, {self.csv_path}, "
             f"{self.jsonl_path}, {self.analytics_path}"
         )
@@ -537,9 +550,9 @@ class TransactionReporter:
         """Print comprehensive summary."""
         analytics = self.get_analytics()
 
-        print("\n" + "=" * 60)
-        print("RUN SUMMARY")
-        print("=" * 60)
+        log_print("\n" + "=" * 60)
+        log_print("RUN SUMMARY")
+        log_print("=" * 60)
 
         self._print_section("Transaction Counts", analytics["summary"], ["_percent"])
         self._print_section(
@@ -556,9 +569,9 @@ class TransactionReporter:
         self._print_error_analysis(analytics["error_analysis"])
         self._print_nik_statistics()
 
-        print("\n" + "=" * 60)
-        print(f"Analytics saved to: {self.analytics_path}")
-        print("=" * 60 + "\n")
+        log_print("\n" + "=" * 60)
+        log_print(f"Analytics saved to: {self.analytics_path}")
+        log_print("=" * 60 + "\n")
 
     # Protected-ish methods (kept private to preserve current design)
     def _setup_directories(
@@ -654,6 +667,16 @@ class TransactionReporter:
         self.rows.append(row)
         self.file_writer.append_row(row)
         self._write_meta()
+        logger.bind(
+            event="report.row_recorded",
+            operator=self.operator,
+            nik=row.nik,
+            status=row.status,
+            duration_seconds=row.duration_seconds,
+            puzzle_solved=row.puzzle_solved,
+            puzzle_attempts=row.puzzle_attempts,
+            reason=row.reason,
+        ).info("Transaction row recorded")
 
     # Private helpers (meta + operator summary)
     def _write_meta(self) -> None:
@@ -678,6 +701,13 @@ class TransactionReporter:
             "paths": {"day_dir": str(self.base_dir), "run_dir": str(self.run_dir)},
         }
         self.file_writer.write_json(self.meta_path, payload)
+        logger.bind(
+            event="report.meta_written",
+            operator=self.operator,
+            run_dir=str(self.run_dir),
+            counts=payload["counts"],
+            meta_path=str(self.meta_path),
+        ).debug("Run meta updated")
 
     def _write_operator_summary(self) -> None:
         """Write operator-level summary aggregating all runs."""
@@ -727,14 +757,28 @@ class TransactionReporter:
         }
 
         self.file_writer.write_json(self.operator_summary_path, summary)
-        print(f"Operator summary updated: {self.operator_summary_path}")
+        logger.bind(
+            event="report.operator_summary_updated",
+            operator=self.operator,
+            total_runs=summary["total_runs"],
+            total_transactions=total_transactions,
+            total_completed=total_completed,
+            total_errors=total_errors,
+            operator_summary_path=str(self.operator_summary_path),
+        ).info("Operator summary updated")
+        log_print(f"Operator summary updated: {self.operator_summary_path}")
 
     def _try_read_json(self, path: Path) -> Optional[Dict[str, Any]]:
         try:
             with path.open("r", encoding="utf-8") as file_handle:
                 return json.load(file_handle)
         except Exception as exc:
-            print(f"Error reading {path}: {exc}")
+            logger.bind(
+                event="report.json_read_error",
+                operator=self.operator,
+                path=str(path),
+            ).exception("Error reading report JSON file")
+            log_print(f"Error reading {path}: {exc}")
             return None
 
     # Private helpers (printing)
@@ -744,28 +788,28 @@ class TransactionReporter:
         if not skipped_by_type:
             return
 
-        print("\nSkipped NIKs by Type:")
+        log_print("\nSkipped NIKs by Type:")
         for skip_type, niks in skipped_by_type.items():
-            print(f"  {skip_type}: {len(niks)} NIKs")
+            log_print(f"  {skip_type}: {len(niks)} NIKs")
             if len(niks) <= 5:
                 for nik in niks:
-                    print(f"    - {nik}")
+                    log_print(f"    - {nik}")
             else:
-                print(f"    First 5: {', '.join(niks[:5])}")
-                print(f"    ... and {len(niks) - 5} more")
+                log_print(f"    First 5: {', '.join(niks[:5])}")
+                log_print(f"    ... and {len(niks) - 5} more")
 
     def _print_nik_statistics(self) -> None:
-        print("\nNIK Statistics:")
-        print(f"  Total Successful: {len(self.get_successful_niks())}")
-        print(f"  Total Failed: {len(self.get_failed_niks())}")
+        log_print("\nNIK Statistics:")
+        log_print(f"  Total Successful: {len(self.get_successful_niks())}")
+        log_print(f"  Total Failed: {len(self.get_failed_niks())}")
 
         skipped_by_type = self.get_skipped_niks_by_type()
         total_skipped = sum(len(niks) for niks in skipped_by_type.values())
-        print(f"  Total Skipped: {total_skipped}")
+        log_print(f"  Total Skipped: {total_skipped}")
 
         puzzle_failed = self.get_puzzle_failed_niks()
         if puzzle_failed:
-            print(f"  Puzzle Failed: {len(puzzle_failed)}")
+            log_print(f"  Puzzle Failed: {len(puzzle_failed)}")
 
     def _print_section(
         self,
@@ -774,7 +818,7 @@ class TransactionReporter:
         filters: Optional[List[str]] = None,
         suffix: str = "",
     ) -> None:
-        print(f"\n{title}:")
+        log_print(f"\n{title}:")
         for key, value in data.items():
             if filters:
                 if suffix:
@@ -786,17 +830,17 @@ class TransactionReporter:
 
             label = key.replace("_", " ").title()
             if isinstance(value, float):
-                print(f"  {label}: {value:.2f}{'%' if '_percent' in key else ''}")
+                log_print(f"  {label}: {value:.2f}{'%' if '_percent' in key else ''}")
             else:
-                print(f"  {label}: {value}")
+                log_print(f"  {label}: {value}")
 
     def _print_performance(self, perf: Dict[str, Any]) -> None:
-        print("\nPerformance Metrics:")
-        print(f"  Total Runtime: {perf['total_runtime_minutes']:.2f} minutes")
-        print(f"  Throughput: {perf['throughput_per_minute']:.2f} items/minute")
-        print(f"  Avg Duration: {perf['avg_duration_seconds']:.3f} seconds")
+        log_print("\nPerformance Metrics:")
+        log_print(f"  Total Runtime: {perf['total_runtime_minutes']:.2f} minutes")
+        log_print(f"  Throughput: {perf['throughput_per_minute']:.2f} items/minute")
+        log_print(f"  Avg Duration: {perf['avg_duration_seconds']:.3f} seconds")
         if perf["avg_completed_duration_seconds"] > 0:
-            print(
+            log_print(
                 f"  Avg Completed Duration: {perf['avg_completed_duration_seconds']:.3f} seconds"
             )
 
@@ -804,25 +848,27 @@ class TransactionReporter:
         if puzzle.get("total_puzzles", 0) <= 0:
             return
 
-        print("\nPuzzle Solving Metrics:")
-        print(f"  Total Puzzles: {puzzle['total_puzzles']}")
-        print(
+        log_print("\nPuzzle Solving Metrics:")
+        log_print(f"  Total Puzzles: {puzzle['total_puzzles']}")
+        log_print(
             f"  Solved: {puzzle['puzzles_solved']} ({puzzle['puzzle_success_rate_percent']}%)"
         )
-        print(
+        log_print(
             f"  Failed: {puzzle['puzzles_failed']} ({puzzle['puzzle_failure_rate_percent']}%)"
         )
-        print(f"  Avg Attempts: {puzzle['avg_attempts']:.2f}")
+        log_print(f"  Avg Attempts: {puzzle['avg_attempts']:.2f}")
 
         if puzzle["avg_solved_duration_seconds"] > 0:
-            print(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
+            log_print(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
         if puzzle["avg_failed_duration_seconds"] > 0:
-            print(f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s")
+            log_print(
+                f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s"
+            )
 
     def _print_status_breakdown(self, breakdown: Dict[str, Any]) -> None:
-        print("\nStatus Breakdown:")
+        log_print("\nStatus Breakdown:")
         for status, data in breakdown.items():
-            print(
+            log_print(
                 f"  {status}: {data['count']} ({data['percentage']}%) - "
                 f"avg {data['avg_duration_seconds']:.3f}s"
             )
@@ -831,18 +877,18 @@ class TransactionReporter:
         if not reasons:
             return
 
-        print("\nTop Skip Reasons:")
+        log_print("\nTop Skip Reasons:")
         for reason, count in list(reasons.items())[:5]:
-            print(f"  {reason}: {count}")
+            log_print(f"  {reason}: {count}")
 
     def _print_error_analysis(self, analysis: Dict[str, Any]) -> None:
         if analysis["total_errors"] <= 0:
             return
 
-        print("\nError Analysis:")
-        print(f"  Total Errors: {analysis['total_errors']}")
-        print(f"  Unique Error Types: {analysis['unique_error_types']}")
+        log_print("\nError Analysis:")
+        log_print(f"  Total Errors: {analysis['total_errors']}")
+        log_print(f"  Unique Error Types: {analysis['unique_error_types']}")
         if analysis["error_frequency"]:
-            print("  Top Errors:")
+            log_print("  Top Errors:")
             for error, count in list(analysis["error_frequency"].items())[:3]:
-                print(f"    {error[:80]}...: {count}")
+                log_print(f"    {error[:80]}...: {count}")

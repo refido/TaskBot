@@ -2,82 +2,67 @@ import base64
 from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import Page
+from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+from src.logging_utils import log_print
 
 
 class Helpers:
-    def __init__(self, page: Page):
+    def __init__(self, page: Page) -> None:
         self.page = page
         self.folder_stamp = datetime.now().strftime("%Y-%m-%d")
         self.stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.piece_img = page.locator("img.rc-slider-captcha-jigsaw-puzzle")
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
 
-    def wait_for_human_interaction(self, timeout: int = 5000):
-        print("Waiting for human interaction...")
-        self.page.wait_for_timeout(timeout)
-
     def save_puzzle_piece(self) -> str:
-        # Ensure the element exists before reading its attribute
-        try:
-            self.piece_img.wait_for(state="attached", timeout=5000)
-        except PlaywrightTimeoutError:
-            raise RuntimeError("Puzzle piece image not found on the page.")
-
-        src = self.piece_img.get_attribute("src")
-        if not src:
-            raise RuntimeError("Image 'src' attribute is missing.")
-        if "base64," not in src:
-            # Fallback: if it's a normal URL, tell the caller to fetch it differently
-            raise RuntimeError("Image src is not a base64 data URI.")
-
-        # Extract the base64 payload
-        b64_data = src.split("base64,", 1)[1]
-        if not b64_data:
-            raise RuntimeError("Empty base64 payload in image src.")
-
-        # Decode and save
-        try:
-            image_bytes = base64.b64decode(b64_data, validate=True)
-        except Exception as e:
-            raise RuntimeError(f"Failed to decode base64 image: {e}")
-
-        out_dir = Path(f"data_puzzle/{self.folder_stamp}")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{self.stamp}_image_puzzle_piece.png"
-        out_path.write_bytes(image_bytes)
-        print(f"Image saved to {out_path}")
-        return str(out_path)
+        return self._save_data_uri_image(
+            locator=self.piece_img,
+            output_name=f"{self.stamp}_image_puzzle_piece.png",
+            missing_message="Puzzle piece image not found on the page.",
+        )
 
     def save_puzzle_bg(self) -> str:
-        # Ensure the element exists before reading its attribute
-        try:
-            self.piece_bg.wait_for(state="attached", timeout=5000)
-        except PlaywrightTimeoutError:
-            raise RuntimeError("Puzzle background image not found on the page.")
+        return self._save_data_uri_image(
+            locator=self.piece_bg,
+            output_name=f"{self.stamp}_image_puzzle_bg.png",
+            missing_message="Puzzle background image not found on the page.",
+        )
 
-        src = self.piece_bg.get_attribute("src")
+    def _save_data_uri_image(
+        self, *, locator: Locator, output_name: str, missing_message: str
+    ) -> str:
+        try:
+            locator.wait_for(state="attached", timeout=5000)
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(missing_message) from exc
+
+        src = locator.get_attribute("src")
         if not src:
             raise RuntimeError("Image 'src' attribute is missing.")
-        if "base64," not in src:
-            # Fallback: if it's a normal URL, tell the caller to fetch it differently
-            raise RuntimeError("Image src is not a base64 data URI.")
 
-        # Extract the base64 payload
-        b64_data = src.split("base64,", 1)[1]
-        if not b64_data:
-            raise RuntimeError("Empty base64 payload in image src.")
+        payload = self._extract_base64_payload(src)
 
-        # Decode and save
         try:
-            image_bytes = base64.b64decode(b64_data, validate=True)
-        except Exception as e:
-            raise RuntimeError(f"Failed to decode base64 image: {e}")
+            image_bytes = base64.b64decode(payload, validate=True)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to decode base64 image: {exc}") from exc
 
         out_dir = Path(f"data_puzzle/{self.folder_stamp}")
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{self.stamp}_image_puzzle_bg.png"
+        out_path = out_dir / output_name
         out_path.write_bytes(image_bytes)
-        print(f"Image saved to {out_path}")
+        log_print(f"Image saved to {out_path}")
         return str(out_path)
+
+    @staticmethod
+    def _extract_base64_payload(src: str) -> str:
+        if "base64," not in src:
+            raise RuntimeError("Image src is not a base64 data URI.")
+
+        payload = src.split("base64,", 1)[1]
+        if not payload:
+            raise RuntimeError("Empty base64 payload in image src.")
+
+        return payload

@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 from playwright.sync_api import Page
 
+from src.logging_utils import log_print
 from src.vision.overlay import render_puzzle_overlay
 from src.vision.puzzle_solver import PuzzleSolver
 
@@ -305,7 +306,7 @@ class ElementResolver:
                 if root.count() > 0:
                     return root
             except Exception as exc:
-                print(f"[ElementResolver] Filter error: {exc}")
+                log_print(f"[ElementResolver] Filter error: {exc}")
 
         return bg_el.locator(
             "xpath=ancestor::div[contains(@class,'rc-slider-captcha')]"
@@ -331,14 +332,14 @@ class ElementResolver:
             root.hover()
             page.wait_for_timeout(120)
         except Exception as exc:
-            print(f"[ElementResolver] Preparation error: {exc}")
+            log_print(f"[ElementResolver] Preparation error: {exc}")
 
         control.wait_for(state="visible", timeout=self._CTRL_VISIBLE_TIMEOUT_MS)
 
         try:
             knob.wait_for(state="visible", timeout=self._KNOB_VISIBLE_TIMEOUT_MS)
         except Exception as exc:
-            print(f"[ElementResolver] Knob visibility error: {exc}")
+            log_print(f"[ElementResolver] Knob visibility error: {exc}")
 
 
 class DiagramCreator:
@@ -611,7 +612,7 @@ class SuccessDetector:
             )
             return True
         except Exception as exc:
-            print(f"[SuccessDetector] Selector not found: {exc}")
+            log_print(f"[SuccessDetector] Selector not found: {exc}")
             return False
 
     def _check_by_text(self, page: Page) -> bool:
@@ -619,10 +620,12 @@ class SuccessDetector:
             page.get_by_text(self.config.success_text).first.wait_for(
                 timeout=self.config.max_wait_success_ms, state="visible"
             )
-            print(f"[SuccessDetector] SUCCESS via text '{self.config.success_text}'!")
+            log_print(
+                f"[SuccessDetector] SUCCESS via text '{self.config.success_text}'!"
+            )
             return True
         except Exception as exc:
-            print(f"[SuccessDetector] Text not found: {exc}")
+            log_print(f"[SuccessDetector] Text not found: {exc}")
             return False
 
     def _check_root_hidden(self, root: Any) -> bool:
@@ -630,7 +633,7 @@ class SuccessDetector:
             root.wait_for(state="hidden", timeout=self._ROOT_HIDDEN_TIMEOUT_MS)
             return True
         except Exception as exc:
-            print(f"[SuccessDetector] Root timeout: {exc}")
+            log_print(f"[SuccessDetector] Root timeout: {exc}")
             return False
 
 

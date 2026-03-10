@@ -1,9 +1,12 @@
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page
+
+from src.logging_utils import log_print
+from src.web.pages.base_page import BasePage
 
 
-class Login:
-    def __init__(self, page: Page):
-        self.page = page
+class Login(BasePage):
+    def __init__(self, page: Page) -> None:
+        super().__init__(page)
         self.email = page.locator(
             'div.mantine-TextInput-root:has(label:has-text("Email")) input'
         )
@@ -12,20 +15,24 @@ class Login:
         )
         self.sign_in = page.get_by_role("button", name="Masuk")
 
-    def login(self, email_user: str, pin_user: str):
-        expect(self.email).to_be_visible(timeout=10000)
-        self.email.click()
-        self.email.fill("")  # clear safely
-        self.email.type(str(email_user), delay=20)
-        print("Email filled", email_user)
+    def login(self, email_user: str, pin_user: str) -> None:
+        self.fill_input(self.email, str(email_user))
+        log_print("Email filled", self._mask_email(email_user))
 
-        expect(self.pin).to_be_visible(timeout=10000)
-        self.pin.click()
-        self.pin.fill("")
-        self.pin.type(str(pin_user), delay=20)
-        print("PIN filled", pin_user)
+        self.fill_input(self.pin, str(pin_user))
+        log_print("PIN filled", "***")
 
-        expect(self.sign_in).to_be_enabled()
-        self.sign_in.click()
-        print("Masuk button clicked")
-        self.page.wait_for_load_state("networkidle")
+        self.click_button_and_wait(self.sign_in, "MASUK", timeout_ms=10000)
+        log_print("Masuk button clicked")
+
+    @staticmethod
+    def _mask_email(value: str) -> str:
+        if "@" not in value:
+            return "***"
+
+        local, domain = value.split("@", 1)
+        if not local:
+            return f"***@{domain}"
+
+        head = local[0]
+        return f"{head}***@{domain}"

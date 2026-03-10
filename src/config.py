@@ -21,7 +21,9 @@ class Config:
         self.accounts: List[AccountConfig] = self._load_accounts()
 
         # Backward-compatible attributes used by existing workflow classes.
-        primary_account = self.accounts[0] if self.accounts else AccountConfig("", "", [])
+        primary_account = (
+            self.accounts[0] if self.accounts else AccountConfig("", "", [])
+        )
         self.email_user: str = primary_account.email_user
         self.pin_user: str = primary_account.pin_user
         self.nik: List[str] = list(primary_account.nik)
