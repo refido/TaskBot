@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -377,22 +378,70 @@ def print_report_structure(email_user: str):
     ReportStructurePrinter().print_for_operator(email_user)
 
 
-def main():
-    """Main entry point."""
-    config = Config()
+def run_account(config: Config) -> tuple[str, bool]:
+    """
+    Run a full transaction workflow for one account.
+
+    Each call creates its own BrowserSession (and sync_playwright) so it can be
+    executed safely inside a thread.
+    """
     reporter = TransactionReporter(operator=config.email_user)
     limiter = SkipRateLimiter(
         max_skips=10, window_seconds=60, min_cooldown=60, jitter_seconds=5
     )
 
-    with BrowserSession(config) as session:
-        session.initialize_session()
-        processor = TransactionProcessor(config, session.page, reporter, limiter)
-        processor.process_all_niks()
+    is_successful = True
 
-    reporter.write_files()
-    reporter.print_summary()
-    print_report_structure(config.email_user)
+    print(f"[{config.email_user}] Starting run with {len(config.nik)} NIK(s).")
+
+    try:
+        with BrowserSession(config) as session:
+            session.initialize_session()
+            processor = TransactionProcessor(config, session.page, reporter, limiter)
+            processor.process_all_niks()
+    except Exception as exc:
+        is_successful = False
+        print(f"[{config.email_user}] Fatal error: {exc}")
+    finally:
+        reporter.write_files()
+        reporter.print_summary()
+        print_report_structure(config.email_user)
+
+    return config.email_user, is_successful
+
+
+def main():
+    """Main entry point."""
+    config = Config()
+    account_configs = config.account_configs()
+
+    if not account_configs:
+        raise ValueError(
+            "No account configuration found. Set EMAIL/PIN/NIK or EMAIL_1/PIN_1/NIK_1."
+        )
+
+    if len(account_configs) == 1:
+        run_account(account_configs[0])
+        return
+
+    print(f"Running {len(account_configs)} accounts concurrently using threads.")
+
+    with ThreadPoolExecutor(
+        max_workers=len(account_configs), thread_name_prefix="taskbot-account"
+    ) as executor:
+        future_to_email = {
+            executor.submit(run_account, account_config): account_config.email_user
+            for account_config in account_configs
+        }
+
+        for future in as_completed(future_to_email):
+            email = future_to_email[future]
+            try:
+                _, is_successful = future.result()
+                status = "completed" if is_successful else "completed with errors"
+                print(f"[{email}] Thread {status}.")
+            except Exception as exc:
+                print(f"[{email}] Thread crashed unexpectedly: {exc}")
 
 
 if __name__ == "__main__":

@@ -154,16 +154,13 @@ class MovementGenerator:
     # Public methods
     def generate_path(self, distance_px: int) -> List[int]:
         """Generate smooth movement path with easing."""
-        print(f"[MovementGenerator] Distance: {distance_px}px")
 
         sign = 1 if distance_px >= 0 else -1
         abs_dist = abs(distance_px)
 
         steps = self._calculate_steps(abs_dist)
-        print(f"[MovementGenerator] Steps: {steps}, Sign: {sign}, Distance: {abs_dist}")
 
         path = self._build_path(abs_dist, steps, sign)
-        print(f"[MovementGenerator] Path: {len(path)} steps, Total: {sum(path)}px")
         return path
 
     # Private helpers
@@ -199,7 +196,6 @@ class MovementGenerator:
         if actual_total != expected_total:
             correction = expected_total - actual_total
             path.append(correction)
-            print(f"[MovementGenerator] Correction: {correction}")
 
         return path
 
@@ -227,20 +223,14 @@ class CoordinateMapper:
         boxes: BoundingBoxes,
     ) -> CoordinateMapping:
         """Map puzzle coordinates to screen coordinates."""
-        print("\n[CoordinateMapper] Starting coordinate mapping...")
 
         slot_left_x_img, puzzle_tile_w = self.mask_processor.compute_slot_left_x(
             piece_path, x_piece, tpl_w
         )
-        print(f"  Slot left X (image): {slot_left_x_img:.2f}")
-        print(f"  Puzzle tile width: {puzzle_tile_w}")
 
         max_offset_img = max(1.0, float(bg_img_width - puzzle_tile_w))
         slot_offset_img = max(0.0, min(slot_left_x_img, max_offset_img))
         u_offset = slot_offset_img / max_offset_img
-
-        print(f"  Max offset: {max_offset_img:.2f}")
-        print(f"  U offset: {u_offset:.6f}")
 
         knob_w = boxes.knob["width"]
         knob_h = boxes.knob["height"]
@@ -253,9 +243,6 @@ class CoordinateMapper:
         target_x_screen = rail_x + knob_half + u_offset * knob_travel
         target_y_screen = boxes.bg["y"] + boxes.bg["height"] / 2.0
 
-        print(f"  Knob travel: {knob_travel:.2f}")
-        print(f"  Target X (screen): {target_x_screen:.2f}")
-
         current_x = boxes.knob["x"] + knob_half
         current_y = boxes.knob["y"] + knob_h / 2.0
 
@@ -266,11 +253,8 @@ class CoordinateMapper:
 
         unclamped = current_x + distance_px
         clamped_target_x = max(left_limit, min(unclamped, right_limit))
-        if clamped_target_x != unclamped:
-            print(f"  Clamped: {unclamped:.2f} -> {clamped_target_x:.2f}")
 
         distance_px = clamped_target_x - current_x
-        print(f"  Final distance: {distance_px:.2f}px\n")
 
         return CoordinateMapping(
             slot_left_x_img=slot_left_x_img,
@@ -298,11 +282,9 @@ class ElementResolver:
     # Public methods
     def resolve(self, page: Page) -> SliderElements:
         """Locate and return slider elements."""
-        print("[ElementResolver] Starting resolution...")
 
         bg_el = page.locator(self.config.bg_selector).first
         bg_el.wait_for(state="visible", timeout=self._BG_VISIBLE_TIMEOUT_MS)
-        print("[ElementResolver] Background element found")
 
         root = self._find_root_container(page, bg_el)
         control = self._find_control(root)
@@ -310,14 +292,12 @@ class ElementResolver:
 
         self._prepare_elements(page, root, control, knob)
 
-        print("[ElementResolver] Resolution complete")
         return SliderElements(root=root, bg_el=bg_el, control=control, knob=knob)
 
     # Private helpers
     def _find_root_container(self, page: Page, bg_el: Any) -> Any:
         containers = page.locator(self.config.container_selector)
         count = containers.count()
-        print(f"[ElementResolver] Found {count} container(s)")
 
         if count > 0:
             try:
@@ -327,7 +307,6 @@ class ElementResolver:
             except Exception as exc:
                 print(f"[ElementResolver] Filter error: {exc}")
 
-        print("[ElementResolver] Using XPath fallback")
         return bg_el.locator(
             "xpath=ancestor::div[contains(@class,'rc-slider-captcha')]"
         ).first
@@ -335,14 +314,12 @@ class ElementResolver:
     def _find_control(self, root: Any) -> Any:
         control = root.locator(self.config.rail_selector).first
         if control.count() == 0:
-            print("[ElementResolver] Using fallback control selector")
             control = root.locator("div.rc-slider-captcha-control").first
         return control
 
     def _find_knob(self, root: Any, control: Any) -> Any:
         knob = root.locator(self.config.knob_selector).first
         if knob.count() == 0:
-            print("[ElementResolver] Using fallback knob selector")
             knob = control.locator(
                 "span.rc-slider-captcha-button.rc-slider-captcha-control-button"
             ).first
@@ -382,12 +359,8 @@ class DiagramCreator:
         output_dir: Path,
     ) -> None:
         """Create and save movement diagram."""
-        print("[DiagramCreator] Creating diagram...")
 
         base_img = cv2.imread(str(puzzle_result_path))
-        if base_img is None:
-            print(f"[DiagramCreator] ERROR: Cannot read {puzzle_result_path}")
-            return
 
         base_h, base_w = base_img.shape[:2]
         bar = self._create_bar(base_w, mapping, ctrl_bb_x, ctrl_bb_width, bg_img_width)
@@ -395,7 +368,6 @@ class DiagramCreator:
 
         output_path = output_dir / "movement_diagram.jpg"
         cv2.imwrite(str(output_path), final_img)
-        print(f"[DiagramCreator] Diagram saved to {output_path}")
 
     # Private helpers
     def _create_bar(
@@ -579,9 +551,6 @@ class DragExecutor:
     # Public methods
     def execute_drag(self, page: Page, mapping: CoordinateMapping) -> None:
         """Execute drag movement with human-like behavior."""
-        print("\n[DragExecutor] Executing drag movement...")
-        print(f"  Start: ({mapping.current_x:.1f}, {mapping.current_y:.1f})")
-        print(f"  Target X: {mapping.clamped_target_x:.1f}")
 
         page.wait_for_timeout(
             random.randint(self.config.initial_pause_min, self.config.initial_pause_max)
@@ -589,7 +558,6 @@ class DragExecutor:
 
         page.mouse.move(mapping.current_x, mapping.current_y)
         page.mouse.down()
-        print("[DragExecutor] Mouse down")
 
         int_distance = int(round(mapping.distance_px))
         path = self.movement_gen.generate_path(int_distance)
@@ -606,17 +574,10 @@ class DragExecutor:
                     )
                 )
 
-            if step_idx % 8 == 0:
-                print(f"  Step {step_idx}: x={x_cur:.1f}, dx={dx}")
-
-        print(f"[DragExecutor] Final: x={x_cur:.1f}, y={mapping.current_y:.1f}")
-        print(f"[DragExecutor] Total moved: {x_cur - mapping.current_x:.1f}px")
-
         page.wait_for_timeout(
             random.randint(self.config.release_pause_min, self.config.release_pause_max)
         )
         page.mouse.up()
-        print("[DragExecutor] Mouse up\n")
 
         page.wait_for_timeout(self.config.validation_wait)
 
@@ -632,9 +593,6 @@ class SuccessDetector:
     # Public methods
     def check_success(self, page: Page, root: Any) -> bool:
         """Check if CAPTCHA was solved successfully."""
-        print(
-            f"[SuccessDetector] Checking success (timeout: {self.config.max_wait_success_ms}ms)..."
-        )
 
         if self._check_by_selector(page):
             return True
@@ -643,7 +601,6 @@ class SuccessDetector:
         if self._check_root_hidden(root):
             return True
 
-        print("[SuccessDetector] FAILED: Could not detect success")
         return False
 
     # Private helpers
@@ -651,9 +608,6 @@ class SuccessDetector:
         try:
             page.locator(self.config.success_selector).first.wait_for(
                 timeout=self.config.max_wait_success_ms, state="visible"
-            )
-            print(
-                f"[SuccessDetector] SUCCESS via selector '{self.config.success_selector}'!"
             )
             return True
         except Exception as exc:
@@ -674,7 +628,6 @@ class SuccessDetector:
     def _check_root_hidden(self, root: Any) -> bool:
         try:
             root.wait_for(state="hidden", timeout=self._ROOT_HIDDEN_TIMEOUT_MS)
-            print("[SuccessDetector] SUCCESS! Root disappeared")
             return True
         except Exception as exc:
             print(f"[SuccessDetector] Root timeout: {exc}")
@@ -699,9 +652,6 @@ class SliderSolver:
     # Public methods (external API via solve_slider_with_puzzle)
     def solve(self, page: Page, imgs: Dict[str, Path]) -> bool:
         """Solve slider CAPTCHA."""
-        print(f"\n{'=' * 70}")
-        print("[SliderSolver] STARTING SLIDER CAPTCHA SOLVE")
-        print(f"{'=' * 70}\n")
 
         attempt_dir = self._create_debug_dir()
         elements = self.element_resolver.resolve(page)
@@ -737,7 +687,6 @@ class SliderSolver:
 
         success = self.success_detector.check_success(page, elements.root)
 
-        print(f"{'=' * 70}\n")
         return success
 
     # Private helpers (orchestration steps)
@@ -745,13 +694,11 @@ class SliderSolver:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         attempt_dir = Path(self.config.debug_root) / ts
         attempt_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[SliderSolver] Debug directory: {attempt_dir}")
         return attempt_dir
 
     def _solve_puzzle(
         self, imgs: Dict[str, Path], attempt_dir: Path
     ) -> Tuple[Tuple[int, int, float, float, Tuple[int, int]], Path]:
-        print("[SliderSolver] Solving puzzle...")
 
         puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
         solver = PuzzleSolver(
@@ -761,17 +708,9 @@ class SliderSolver:
         )
 
         result = solver.discern_xy()
-        x_piece, y_piece, score, scale, (tpl_w, tpl_h) = result
-
-        print(f"  Position: ({x_piece}, {y_piece})")
-        print(f"  Score: {score:.4f}")
-        print(f"  Scale: {scale:.2f}")
-        print(f"  Template: {tpl_w}x{tpl_h}")
-
         return result, puzzle_result_path
 
     def _get_bounding_boxes(self, elements: SliderElements) -> BoundingBoxes:
-        print("[SliderSolver] Getting bounding boxes...")
 
         bg_bb = elements.bg_el.bounding_box()
         ctrl_bb = elements.control.bounding_box()
@@ -796,7 +735,6 @@ class SliderSolver:
         bg_dimensions: Tuple[int, int],
         attempt_dir: Path,
     ) -> None:
-        print("[SliderSolver] Creating visualizations...")
 
         x_piece, y_piece, _score, _scale, (tpl_w, tpl_h) = puzzle_result
 

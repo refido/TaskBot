@@ -56,13 +56,8 @@ class PuzzleSolver:
         """
         # 0) Distinctiveness report (unchanged)
         distinctiveness = self._compute_template_distinctiveness(tpl_gray)
-        print(f"[PuzzleSolver] Template distinctiveness: {distinctiveness:.3f}")
 
         low_texture_mode = distinctiveness < 0.35
-        if low_texture_mode:
-            print("[PuzzleSolver] LOW-TEXTURE MODE (sky / smooth piece detected)")
-        else:
-            print("[PuzzleSolver] HIGH-TEXTURE MODE")
 
         # 1) Build gradient-based maps
         tpl_grad = self._multi_scale_gradient(tpl_gray)
@@ -120,7 +115,6 @@ class PuzzleSolver:
                     (th, tw),
                     threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
                 ):
-                    print(f"[PuzzleSolver] REJECTED uniform region at {c['loc']}")
                     continue
 
             # Blend correlation + chamfer at candidate for a final score
@@ -137,9 +131,6 @@ class PuzzleSolver:
             valid.append(c)
 
         if not valid:
-            print(
-                "[PuzzleSolver] WARNING: All candidates rejected, using best-by-map anyway"
-            )
             _, max_val, _, max_loc = cv2.minMaxLoc(combined_map)
             best_loc = (max_loc[0], max_loc[1])
             best_score = float(max_val)
@@ -183,10 +174,6 @@ class PuzzleSolver:
             final_xy = refined_xy
 
         final_x, final_y = int(round(final_xy[0])), int(round(final_xy[1]))
-        print(
-            f"[PuzzleSolver] Final refined position: ({final_x}, {final_y}), "
-            f"fused_score={best_score:.4f}, ncc_score={ncc_score:.4f}"
-        )
 
         # 10) Visualization and return (same signature as before)
         vis = self._draw_match_visualization(
@@ -222,13 +209,11 @@ class PuzzleSolver:
             loc, score = self.find_position_of_slide(
                 tpl_s, bg_gray, raw_mask=mask_s, y_roi=y_roi
             )
-            print(f"[PuzzleSolver] Scale {s:.2f}: score={score:.4f}, loc={loc}")
 
             if score > best[1]:
                 best = (loc, score, s, tpl_s)
 
         coarse_xy, fused_score, best_scale, best_tpl = best
-        print(f"[PuzzleSolver] Best scale: {best_scale:.2f}, score: {fused_score:.4f}")
 
         refined_xy, _chamfer_dist = self._chamfer_refine(
             bg_gray,
@@ -291,12 +276,7 @@ class PuzzleSolver:
         if has_alpha:
             alpha = img[:, :, 3]
             mask = (alpha > 5).astype(np.uint8) * 255
-            print("[PuzzleSolver] Using alpha channel for masking")
         elif is_white:
-            print(
-                f"[PuzzleSolver] White puzzle piece detected ({white_pct:.1f}% bright)"
-            )
-            print("[PuzzleSolver] Using edge-based masking strategy")
 
             gray = self._to_gray(img) if img.ndim == 3 else img
 
@@ -320,7 +300,6 @@ class PuzzleSolver:
                 )
             else:
                 mask = np.ones(gray.shape, dtype=np.uint8) * 255
-                print("[PuzzleSolver] WARNING: No edges found, using full image")
         else:
             bgr = (
                 img
@@ -341,7 +320,6 @@ class PuzzleSolver:
 
         ys, xs = np.where(mask > 0)
         if len(xs) == 0 or len(ys) == 0:
-            print("[PuzzleSolver] WARNING: Empty mask, using full image")
             return img, np.ones(img.shape[:2], dtype=np.uint8) * 255
 
         x0, x1 = xs.min(), xs.max()
@@ -641,26 +619,13 @@ class PuzzleSolver:
                 bg_gray, c["loc"], tpl_shape, threshold=0.02
             ):
                 valid_candidates.append(c)
-            else:
-                print(f"[PuzzleSolver] REJECTED uniform region at {c['loc']}")
 
         if not valid_candidates:
-            print("[PuzzleSolver] WARNING: All candidates rejected, using best anyway")
             valid_candidates = candidates[:1]
 
         best = valid_candidates[0]
         max_loc = best["loc"]
         max_val = best["match_score"]
-
-        print("[PuzzleSolver] Top valid candidates:")
-        for i, c in enumerate(valid_candidates[:3]):
-            print(
-                f"  {i + 1}. loc=({c['loc'][0]}, {c['loc'][1]}), "
-                f"match={c['match_score']:.3f}, complexity={c['complexity']:.3f}, "
-                f"combined={c['combined_score']:.3f}"
-            )
-
-        print(f"[PuzzleSolver] Selected: loc={max_loc}, match_score={max_val:.4f}")
 
         return fused, max_loc, float(max_val)
 
@@ -748,10 +713,6 @@ class PuzzleSolver:
         if best_score < 0:
             return (x0, y0), -1.0
 
-        print(
-            f"[PuzzleSolver] NCC refine: from x={x0} to x={best_x}, "
-            f"best_score={best_score:.4f}"
-        )
         return (best_x, y0), best_score
 
     def _subpixel_refine(self, res_map, max_loc, win=2):

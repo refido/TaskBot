@@ -55,6 +55,20 @@ cp .env.example .env
 # Then, edit the .env file with your credentials
 ```
 
+For concurrent execution, define multiple accounts in `.env`:
+
+```env
+EMAIL_1=first.operator@example.com
+PIN_1=123456
+NIK_1=1234567890123456,2345678901234567
+
+EMAIL_2=second.operator@example.com
+PIN_2=654321
+NIK_2=3456789012345678,4567890123456789
+```
+
+Single-account keys (`EMAIL`, `PIN`, `NIK`) are still supported.
+
 ### 3. Run the Bot
 
 Forget about venv\Scripts\activate. With uv, you simply "run" the command, and it handles the environment in the background.
@@ -64,5 +78,7 @@ To execute the main script:
 ```bash
 uv run main.py
 ```
+
+If multiple numbered accounts are configured, the bot runs each account in its own thread with an isolated browser process.
 
 ## Enjoy automating your tasks! 🎉
