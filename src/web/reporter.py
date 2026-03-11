@@ -458,6 +458,8 @@ class TransactionReporter:
                 "failed": self.get_failed_niks(),
                 "successful": self.get_successful_niks(),
                 "skipped": self.get_skipped_niks_by_type(),
+                "errors_by_reason": self.get_error_niks_by_reason(),
+                "other_statuses": self.get_other_status_niks_by_status(),
                 "puzzle_failed": self.get_puzzle_failed_niks(),
             },
             "puzzle_stats_by_nik": self.get_puzzle_stats_by_nik(),
@@ -499,12 +501,8 @@ class TransactionReporter:
         return [r for r in self.rows if r.status == status]
 
     def get_failed_niks(self) -> List[str]:
-        """Get list of failed NIKs."""
-        return [
-            r.nik
-            for r in self.rows
-            if r.status == "error" or r.status.startswith("skipped_")
-        ]
+        """Get list of failed NIKs (error rows only)."""
+        return [r.nik for r in self.rows if r.status == "error"]
 
     def get_successful_niks(self) -> List[str]:
         """Get list of successful NIKs."""
@@ -518,6 +516,24 @@ class TransactionReporter:
                 skip_type = row.status.replace("skipped_", "")
                 skipped_by_type[skip_type].append(row.nik)
         return dict(skipped_by_type)
+
+    def get_error_niks_by_reason(self) -> Dict[str, List[str]]:
+        """Get failed NIKs grouped by normalized error reason."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != "error":
+                continue
+            grouped[self._normalize_error_reason(row.reason)].append(row.nik)
+        return dict(grouped)
+
+    def get_other_status_niks_by_status(self) -> Dict[str, List[str]]:
+        """Get NIKs grouped by any non-standard status."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status in {"completed", "error"} or row.status.startswith("skipped_"):
+                continue
+            grouped[row.status].append(row.nik)
+        return dict(grouped)
 
     def get_puzzle_failed_niks(self) -> List[str]:
         """Get NIKs where puzzle solving failed."""
@@ -541,6 +557,8 @@ class TransactionReporter:
             "successful_niks": self.get_successful_niks(),
             "failed_niks": self.get_failed_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
+            "errors_by_reason": self.get_error_niks_by_reason(),
+            "other_statuses": self.get_other_status_niks_by_status(),
             "puzzle_failed_niks": self.get_puzzle_failed_niks(),
             "puzzle_stats": self.get_puzzle_stats_by_nik(),
         }
@@ -578,8 +596,9 @@ class TransactionReporter:
         self, out_dir: str, run_name: Optional[str], per_run_subdir: bool
     ) -> None:
         """Setup directory structure for reports organized by operator/email."""
-        run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        day_stamp = datetime.now().strftime("%Y-%m-%d")
+        now_local = datetime.now().astimezone()
+        run_stamp = now_local.strftime("%Y%m%d_%H%M%S")
+        day_stamp = now_local.strftime("%Y-%m-%d")
 
         safe_operator = self._sanitize_folder_name(self.operator)
 
@@ -612,6 +631,14 @@ class TransactionReporter:
         sanitized = sanitized.strip(". ")
         sanitized = sanitized.replace(" ", "_")
         return sanitized if sanitized else "unknown_operator"
+
+    @staticmethod
+    def _normalize_error_reason(reason: str) -> str:
+        """Build a short stable key for grouping errors."""
+        if not reason:
+            return "unknown_error"
+        first_line = reason.splitlines()[0].strip()
+        return first_line if first_line else "unknown_error"
 
     # Private helpers (data recording)
     def _add_row(
@@ -691,6 +718,8 @@ class TransactionReporter:
                 "failed": self.get_failed_niks(),
                 "successful": self.get_successful_niks(),
                 "skipped": self.get_skipped_niks_by_type(),
+                "errors_by_reason": self.get_error_niks_by_reason(),
+                "other_statuses": self.get_other_status_niks_by_status(),
             },
             "files": {
                 "csv": str(self.csv_path),

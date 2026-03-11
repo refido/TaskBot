@@ -85,7 +85,7 @@ If multiple numbered accounts are configured, the bot runs each account in its o
 
 Runtime and report logs are emitted with **Loguru** to:
 
-* `reports/logs/taskbot_<run_id>.jsonl` (structured JSON lines for indexing/search/analytics)
+* `reports/logs/<yyyy-mm-dd>/<yyyymmdd_hhmmss>/taskbot_<run_id>.jsonl` (structured JSON lines for indexing/search/analytics)
 * Console output (human-readable stream)
 
 Optional `.env` controls:

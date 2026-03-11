@@ -1,6 +1,0 @@
-# Structured logging (Loguru)
-# LOG_LEVEL=INFO
-# LOG_FILE_LEVEL=DEBUG
-# LOG_ROTATION=25 MB
-# LOG_RETENTION=30 days
-# LOG_COMPRESSION=gz

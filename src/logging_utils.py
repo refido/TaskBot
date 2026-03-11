@@ -2,14 +2,38 @@ import inspect
 import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
 from loguru import logger as _base_logger
 
+_ASCII_LEVEL_ICONS = {
+    "TRACE": "T",
+    "DEBUG": "D",
+    "INFO": "I",
+    "SUCCESS": "S",
+    "WARNING": "W",
+    "ERROR": "E",
+    "CRITICAL": "C",
+}
+
+
+def _apply_ascii_level_icons() -> None:
+    for level_name, ascii_icon in _ASCII_LEVEL_ICONS.items():
+        level = logger.level(level_name)
+        logger.level(
+            level_name,
+            color=level.color,
+            icon=ascii_icon,
+        )
+
 
 def _inject_default_event(record: Dict[str, Any]) -> None:
     record["extra"].setdefault("event", "application.log")
+    record["extra"].setdefault(
+        "timestamp_iso", record["time"].isoformat(timespec="seconds")
+    )
 
 
 logger = _base_logger.patch(_inject_default_event)
@@ -26,8 +50,11 @@ def configure_logging(
     - Structured JSON lines output for storage/search/analytics
     """
     resolved_run_id = run_id or os.getenv("RUN_ID") or uuid.uuid4().hex[:12]
+    now_local = datetime.now().astimezone()
+    day_stamp = now_local.strftime("%Y-%m-%d")
+    run_stamp = now_local.strftime("%Y%m%d_%H%M%S")
 
-    root = Path(log_dir)
+    root = Path(log_dir) / day_stamp / run_stamp
     root.mkdir(parents=True, exist_ok=True)
     json_log_path = root / f"{app_name}_{resolved_run_id}.jsonl"
 
@@ -36,7 +63,11 @@ def configure_logging(
     rotation = os.getenv("LOG_ROTATION", "25 MB")
     retention = os.getenv("LOG_RETENTION", "30 days")
     compression = os.getenv("LOG_COMPRESSION", "gz")
+    log_line_format = (
+        "{extra[timestamp_iso]} | {level:<8} | {extra[event]} | {message}"
+    )
 
+    _apply_ascii_level_icons()
     logger.remove()
     logger.add(
         sys.stderr,
@@ -45,9 +76,7 @@ def configure_logging(
         backtrace=False,
         diagnose=False,
         colorize=False,
-        format=(
-            "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {extra[event]} | {message}"
-        ),
+        format=log_line_format,
     )
     logger.add(
         str(json_log_path),
@@ -56,6 +85,7 @@ def configure_logging(
         backtrace=False,
         diagnose=False,
         serialize=True,
+        format=log_line_format,
         rotation=rotation,
         retention=retention,
         compression=compression,
