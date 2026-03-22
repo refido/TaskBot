@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.config import Config
 from src.logging_utils import configure_logging, logger
 from src.orchestration.browser_session import BrowserSession
-from src.orchestration.report_structure_printer import print_report_structure
 from src.orchestration.transaction_processor import TransactionProcessor
 from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
@@ -44,7 +43,6 @@ def run_account(config: Config) -> tuple[str, bool]:
     finally:
         reporter.write_files()
         reporter.print_summary()
-        print_report_structure(config.email_user)
 
     logger.bind(
         event="account.run.finished",

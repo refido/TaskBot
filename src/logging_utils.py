@@ -8,6 +8,8 @@ from typing import Any, Dict
 
 from loguru import logger as _base_logger
 
+from src.path_utils import build_timestamped_run_dir
+
 _ASCII_LEVEL_ICONS = {
     "TRACE": "T",
     "DEBUG": "D",
@@ -51,10 +53,8 @@ def configure_logging(
     """
     resolved_run_id = run_id or os.getenv("RUN_ID") or uuid.uuid4().hex[:12]
     now_local = datetime.now().astimezone()
-    day_stamp = now_local.strftime("%Y-%m-%d")
-    run_stamp = now_local.strftime("%Y%m%d_%H%M%S")
 
-    root = Path(log_dir) / day_stamp / run_stamp
+    root = build_timestamped_run_dir(Path(log_dir), now_local)
     root.mkdir(parents=True, exist_ok=True)
     json_log_path = root / f"{app_name}_{resolved_run_id}.jsonl"
 
@@ -63,9 +63,7 @@ def configure_logging(
     rotation = os.getenv("LOG_ROTATION", "25 MB")
     retention = os.getenv("LOG_RETENTION", "30 days")
     compression = os.getenv("LOG_COMPRESSION", "gz")
-    log_line_format = (
-        "{extra[timestamp_iso]} | {level:<8} | {extra[event]} | {message}"
-    )
+    log_line_format = "{extra[timestamp_iso]} | {level:<8} | {extra[event]} | {message}"
 
     _apply_ascii_level_icons()
     logger.remove()

@@ -37,14 +37,21 @@ class Dashboard:
             "button", name="LANJUTKAN TRANSAKSI"
         )
 
-        # Pelanggan Tidak Terdaftar modal (unique button var)
-        self.pelanggan_tidak_terdaftar_modal = page.get_by_role("dialog").filter(
-            has=self.page.get_by_text("Pelanggan Tidak Terdaftar")
-        )
-        self.pelanggan_tidak_terdaftar_tutup = (
-            self.pelanggan_tidak_terdaftar_modal.get_by_role("button").filter(
-                has_text=re.compile(r"^\s*tutup\s*$", re.I)
+        # Target the modal by its visible h5 title so locator matching stays stable.
+        self.pelanggan_tidak_terdaftar_title = (
+            page.locator(
+                "section[role='dialog'] h5.mantine-Text-root.mantine-Title-root"
             )
+            .filter(has_text=re.compile(r"^\s*Pelanggan Tidak Terdaftar\s*$", re.I))
+            .first
+        )
+        self.pelanggan_tidak_terdaftar_modal = page.locator(
+            "section[role='dialog']:has(h5.mantine-Text-root.mantine-Title-root:has-text('Pelanggan Tidak Terdaftar'))"
+        ).first
+        self.pelanggan_tidak_terdaftar_tutup = (
+            self.pelanggan_tidak_terdaftar_modal.get_by_role("button")
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .first
         )
 
         # Perbarui Data Pelanggan modal (use :has instead of has_text)
@@ -159,28 +166,37 @@ class Dashboard:
     # Only run if the "Pelanggan Tidak Terdaftar" modal appears
     def close_pelanggan_tidak_terdaftar_if_needed(
         self, detect_timeout: int = 6000
-    ) -> bool:
+    ) -> str | None:
         try:
-            self.pelanggan_tidak_terdaftar_modal.wait_for(
+            self.pelanggan_tidak_terdaftar_title.wait_for(
                 state="visible", timeout=detect_timeout
             )
         except TimeoutError:
             log_print("Pelanggan Tidak Terdaftar modal not present; continuing.")
-            return False
+            return None
+
+        modal_text = self.pelanggan_tidak_terdaftar_title.inner_text().strip()
+        log_print(f"Detected pelanggan modal title: {modal_text}")
+        self.pelanggan_tidak_terdaftar_modal.wait_for(state="visible", timeout=3000)
 
         expect(self.pelanggan_tidak_terdaftar_tutup).to_be_visible(timeout=5000)
         expect(self.pelanggan_tidak_terdaftar_tutup).to_be_enabled(timeout=5000)
         self.pelanggan_tidak_terdaftar_tutup.click()
-        self.pelanggan_tidak_terdaftar_modal.wait_for(state="hidden", timeout=7000)
+        try:
+            self.pelanggan_tidak_terdaftar_modal.wait_for(state="hidden", timeout=3000)
+        except TimeoutError:
+            log_print(
+                "Pelanggan Tidak Terdaftar modal stayed visible after click; continuing with recovery checks."
+            )
 
         try:
-            expect(self.nik_input).to_be_visible(timeout=3000)
+            self.nik_input.wait_for(state="visible", timeout=3000)
             self.nik_input.fill("")
             log_print("Closed 'Pelanggan Tidak Terdaftar'; NIK input reset.")
         except TimeoutError:
             self.ensure_on_dashboard()
             log_print("Closed 'Pelanggan Tidak Terdaftar'; returned to dashboard.")
-        return True
+        return modal_text
 
     def ensure_on_dashboard(self) -> None:
         """

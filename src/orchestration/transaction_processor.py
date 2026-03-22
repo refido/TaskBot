@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from typing import Callable, Optional
 
 from playwright.sync_api import Page
@@ -162,14 +162,20 @@ class TransactionProcessor:
             )
             return True
 
-        if self.dashboard.close_pelanggan_tidak_terdaftar_if_needed():
+        not_registered_reason = (
+            self.dashboard.close_pelanggan_tidak_terdaftar_if_needed()
+        )
+        if not_registered_reason:
             self._record_skip_and_cooldown(
                 nik=nik,
                 started_at=started_at,
                 skip_callback=lambda: self.reporter.skip_not_registered(
-                    nik, started_at, url=self.page.url
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                    reason=not_registered_reason,
                 ),
-                message=f"Skipping NIK {nik} (not registered).",
+                message=f"Skipping NIK {nik} ({not_registered_reason}).",
             )
             return True
 
@@ -291,4 +297,3 @@ class TransactionProcessor:
             )
         except Exception:
             return False
-

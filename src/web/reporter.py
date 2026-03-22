@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional
 
 from src.logging_utils import log_print, logger
+from src.path_utils import build_dated_dir, build_timestamped_run_dir
+
+_UNREGISTERED_SKIP_TYPE = "not_registered"
+_UNREGISTERED_STATUS = f"skipped_{_UNREGISTERED_SKIP_TYPE}"
+_UNREGISTERED_REASON_MARKERS = ("pelanggan tidak terdaftar", "not registered")
 
 
 def now_iso() -> str:
@@ -157,16 +162,23 @@ class MetricsCalculator:
 
         completed = counts.get("completed", 0)
         errors = counts.get("error", 0)
-        skipped = sum(counts.get(k, 0) for k in counts if k.startswith("skipped_"))
+        unregistered = counts.get(_UNREGISTERED_STATUS, 0)
+        skipped = sum(
+            counts.get(k, 0)
+            for k in counts
+            if k.startswith("skipped_") and k != _UNREGISTERED_STATUS
+        )
 
         return {
             "total_transactions": total,
             "completed": completed,
             "errors": errors,
             "skipped": skipped,
+            "unregistered": unregistered,
             "success_rate_percent": self._safe_percentage(completed, total),
             "error_rate_percent": self._safe_percentage(errors, total),
             "skip_rate_percent": self._safe_percentage(skipped, total),
+            "unregistered_rate_percent": self._safe_percentage(unregistered, total),
         }
 
     def _calculate_performance(self, run_started_at: str) -> Dict[str, Any]:
@@ -273,7 +285,11 @@ class MetricsCalculator:
     def _get_skip_reasons(self) -> Dict[str, int]:
         skip_reasons: DefaultDict[str, int] = defaultdict(int)
         for row in self.rows:
-            if row.status.startswith("skipped_") and row.reason:
+            if (
+                row.status.startswith("skipped_")
+                and row.status != _UNREGISTERED_STATUS
+                and row.reason
+            ):
                 skip_reasons[row.reason] += 1
         return dict(skip_reasons)
 
@@ -308,9 +324,11 @@ class MetricsCalculator:
                 "completed": 0,
                 "errors": 0,
                 "skipped": 0,
+                "unregistered": 0,
                 "success_rate_percent": 0.0,
                 "error_rate_percent": 0.0,
                 "skip_rate_percent": 0.0,
+                "unregistered_rate_percent": 0.0,
             },
             "performance": {
                 "total_runtime_seconds": 0.0,
@@ -426,7 +444,7 @@ class TransactionReporter:
         nik: str,
         started_at: str,
         url: str = "",
-        reason: str = "Not registered",
+        reason: str = "Pelanggan Tidak Terdaftar",
     ) -> None:
         """Record not registered skip."""
         self.skip(nik, started_at, "not_registered", url, reason)
@@ -441,15 +459,22 @@ class TransactionReporter:
         puzzle_attempts: int = 0,
     ) -> None:
         """Record an error."""
+        reason = str(exc)
+        error_details = traceback.format_exc()
+        status = (
+            _UNREGISTERED_STATUS
+            if self._reason_indicates_unregistered(f"{reason}\n{error_details}")
+            else "error"
+        )
         row = self._create_row(
-            status="error",
+            status=status,
             nik=nik,
             started_at=started_at,
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
-            reason=str(exc),
-            error=traceback.format_exc(),
+            reason=reason,
+            error=error_details,
         )
         self._record_row(row)
 
@@ -457,6 +482,7 @@ class TransactionReporter:
         """Write final snapshot files and update operator summary."""
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
+        mapping_report = self.get_mapping_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -464,10 +490,9 @@ class TransactionReporter:
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
             "items": [asdict(r) for r in self.rows],
+            "mapping_report": mapping_report,
             "nik_lists": {
-                "failed": self.get_failed_niks(),
-                "successful": self.get_successful_niks(),
-                "skipped": self.get_skipped_niks_by_type(),
+                **mapping_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
                 "puzzle_failed": self.get_puzzle_failed_niks(),
@@ -512,26 +537,47 @@ class TransactionReporter:
 
     def get_failed_niks(self) -> List[str]:
         """Get list of failed NIKs (error rows only)."""
-        return [r.nik for r in self.rows if r.status == "error"]
+        return [
+            r.nik
+            for r in self.rows
+            if r.status == "error" and not self._is_unregistered_row(r)
+        ]
 
     def get_successful_niks(self) -> List[str]:
         """Get list of successful NIKs."""
         return [r.nik for r in self.rows if r.status == "completed"]
 
-    def get_skipped_niks_by_type(self) -> Dict[str, List[str]]:
+    def get_skipped_niks_by_type(
+        self, include_unregistered: bool = False
+    ) -> Dict[str, List[str]]:
         """Get skipped NIKs grouped by skip type."""
         skipped_by_type: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
             if row.status.startswith("skipped_"):
                 skip_type = row.status.replace("skipped_", "")
+                if skip_type == _UNREGISTERED_SKIP_TYPE and not include_unregistered:
+                    continue
                 skipped_by_type[skip_type].append(row.nik)
         return dict(skipped_by_type)
+
+    def get_unregistered_niks(self) -> List[str]:
+        """Get NIKs flagged as 'Pelanggan Tidak Terdaftar'."""
+        return [r.nik for r in self.rows if self._is_unregistered_row(r)]
+
+    def get_mapping_report(self) -> Dict[str, Any]:
+        """Build the main mapping report buckets for the current run."""
+        return {
+            "failed": self.get_failed_niks(),
+            "successful": self.get_successful_niks(),
+            "skipped": self.get_skipped_niks_by_type(),
+            "unregistered": self.get_unregistered_niks(),
+        }
 
     def get_error_niks_by_reason(self) -> Dict[str, List[str]]:
         """Get failed NIKs grouped by normalized error reason."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status != "error":
+            if row.status != "error" or self._is_unregistered_row(row):
                 continue
             grouped[self._normalize_error_reason(row.reason)].append(row.nik)
         return dict(grouped)
@@ -540,7 +586,9 @@ class TransactionReporter:
         """Get NIKs grouped by any non-standard status."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status in {"completed", "error"} or row.status.startswith("skipped_"):
+            if row.status in {"completed", "error"} or row.status.startswith(
+                "skipped_"
+            ):
                 continue
             grouped[row.status].append(row.nik)
         return dict(grouped)
@@ -564,9 +612,11 @@ class TransactionReporter:
         """Get comprehensive analytics including NIK lists."""
         base_analytics = self.get_analytics()
         base_analytics["nik_details"] = {
+            "mapping_report": self.get_mapping_report(),
             "successful_niks": self.get_successful_niks(),
             "failed_niks": self.get_failed_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
+            "unregistered_niks": self.get_unregistered_niks(),
             "errors_by_reason": self.get_error_niks_by_reason(),
             "other_statuses": self.get_other_status_niks_by_status(),
             "puzzle_failed_niks": self.get_puzzle_failed_niks(),
@@ -586,7 +636,7 @@ class TransactionReporter:
         self._print_section(
             "Success Rates",
             analytics["summary"],
-            ["success", "error", "skip"],
+            ["success", "error", "skip", "unregistered"],
             suffix="_percent",
         )
         self._print_performance(analytics["performance"])
@@ -594,6 +644,7 @@ class TransactionReporter:
         self._print_status_breakdown(analytics["breakdown_by_status"])
         self._print_skip_reasons(analytics["skip_reasons"])
         self._print_skipped_niks()
+        self._print_unregistered_niks()
         self._print_error_analysis(analytics["error_analysis"])
         self._print_nik_statistics()
 
@@ -607,15 +658,22 @@ class TransactionReporter:
     ) -> None:
         """Setup directory structure for reports organized by operator/email."""
         now_local = datetime.now().astimezone()
-        run_stamp = now_local.strftime("%Y%m%d_%H%M%S")
-        day_stamp = now_local.strftime("%Y-%m-%d")
-
         safe_operator = self._sanitize_folder_name(self.operator)
+        self.operator_dir = Path(out_dir) / safe_operator
+        self.base_dir = build_dated_dir(self.operator_dir, now_local)
 
-        self.base_dir = Path(out_dir) / safe_operator / day_stamp
-        self.run_dir = (
-            self.base_dir / (run_name or run_stamp) if per_run_subdir else self.base_dir
-        )
+        if per_run_subdir:
+            run_leaf = (
+                self._sanitize_folder_name(run_name)
+                if run_name
+                else now_local.strftime("%H%M%S")
+            )
+            self.run_dir = build_timestamped_run_dir(
+                self.operator_dir, now_local, run_leaf
+            )
+        else:
+            self.run_dir = self.base_dir
+
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.csv_path = self.run_dir / "items.csv"
@@ -624,7 +682,6 @@ class TransactionReporter:
         self.final_json_path = self.run_dir / "items_snapshot.json"
         self.analytics_path = self.run_dir / "analytics.json"
 
-        self.operator_dir = Path(out_dir) / safe_operator
         self.operator_summary_path = self.operator_dir / "operator_summary.json"
 
     @staticmethod
@@ -649,6 +706,18 @@ class TransactionReporter:
             return "unknown_error"
         first_line = reason.splitlines()[0].strip()
         return first_line if first_line else "unknown_error"
+
+    @staticmethod
+    def _reason_indicates_unregistered(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(marker in normalized for marker in _UNREGISTERED_REASON_MARKERS)
+
+    def _is_unregistered_row(self, row: TransactionRow) -> bool:
+        if row.status == _UNREGISTERED_STATUS:
+            return True
+        if row.status != "error":
+            return False
+        return self._reason_indicates_unregistered(row.reason)
 
     # Private helpers (data recording)
     def _add_row(
@@ -718,16 +787,16 @@ class TransactionReporter:
     # Private helpers (meta + operator summary)
     def _write_meta(self) -> None:
         calculator = MetricsCalculator(self.rows)
+        mapping_report = self.get_mapping_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
             "run_ended_at": now_iso(),
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
+            "mapping_report": mapping_report,
             "nik_lists": {
-                "failed": self.get_failed_niks(),
-                "successful": self.get_successful_niks(),
-                "skipped": self.get_skipped_niks_by_type(),
+                **mapping_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
             },
@@ -777,6 +846,17 @@ class TransactionReporter:
             run.get("counts", {}).get("completed", 0) for run in all_runs
         )
         total_errors = sum(run.get("counts", {}).get("error", 0) for run in all_runs)
+        total_unregistered = sum(
+            run.get("counts", {}).get(_UNREGISTERED_STATUS, 0) for run in all_runs
+        )
+        total_skipped = sum(
+            sum(
+                count
+                for status, count in run.get("counts", {}).items()
+                if status.startswith("skipped_") and status != _UNREGISTERED_STATUS
+            )
+            for run in all_runs
+        )
 
         summary = {
             "operator": self.operator,
@@ -786,6 +866,8 @@ class TransactionReporter:
                 "total_transactions": total_transactions,
                 "total_completed": total_completed,
                 "total_errors": total_errors,
+                "total_skipped": total_skipped,
+                "total_unregistered": total_unregistered,
                 "success_rate_percent": MetricsCalculator._safe_percentage(
                     total_completed, total_transactions
                 ),
@@ -803,6 +885,8 @@ class TransactionReporter:
             total_transactions=total_transactions,
             total_completed=total_completed,
             total_errors=total_errors,
+            total_skipped=total_skipped,
+            total_unregistered=total_unregistered,
             operator_summary_path=str(self.operator_summary_path),
         ).info("Operator summary updated")
         log_print(f"Operator summary updated: {self.operator_summary_path}")
@@ -837,6 +921,21 @@ class TransactionReporter:
                 log_print(f"    First 5: {', '.join(niks[:5])}")
                 log_print(f"    ... and {len(niks) - 5} more")
 
+    def _print_unregistered_niks(self) -> None:
+        unregistered_niks = self.get_unregistered_niks()
+
+        if not unregistered_niks:
+            return
+
+        log_print("\nUnregistered NIKs:")
+        log_print(f"  not_registered: {len(unregistered_niks)} NIKs")
+        if len(unregistered_niks) <= 5:
+            for nik in unregistered_niks:
+                log_print(f"    - {nik}")
+        else:
+            log_print(f"    First 5: {', '.join(unregistered_niks[:5])}")
+            log_print(f"    ... and {len(unregistered_niks) - 5} more")
+
     def _print_nik_statistics(self) -> None:
         log_print("\nNIK Statistics:")
         log_print(f"  Total Successful: {len(self.get_successful_niks())}")
@@ -845,6 +944,7 @@ class TransactionReporter:
         skipped_by_type = self.get_skipped_niks_by_type()
         total_skipped = sum(len(niks) for niks in skipped_by_type.values())
         log_print(f"  Total Skipped: {total_skipped}")
+        log_print(f"  Total Unregistered: {len(self.get_unregistered_niks())}")
 
         puzzle_failed = self.get_puzzle_failed_niks()
         if puzzle_failed:
