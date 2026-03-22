@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from src.vision.puzzle.types import GrayImage, ImageArray, MaskImage, PointF
+from src.vision.puzzle.types import GrayImage, ImageArray, MaskImage, PointF, YRoi
 
 
 def ensure_output_dir(output_image_path: str) -> None:
@@ -25,6 +25,80 @@ def to_gray(img: ImageArray) -> GrayImage:
     if img.shape[2] == 4:
         return cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY)
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+
+def compute_processing_scale(
+    image_shape: tuple[int, int], max_processing_side: int = 420
+) -> float:
+    h, w = image_shape[:2]
+    max_side = max(int(h), int(w))
+    if max_side <= max_processing_side:
+        return 1.0
+    return float(max_processing_side) / float(max_side)
+
+
+def resize_gray(gray: GrayImage, scale: float) -> GrayImage:
+    if abs(scale - 1.0) < 1e-6:
+        return gray
+
+    h, w = gray.shape[:2]
+    new_size = (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(gray, new_size, interpolation=interpolation)
+
+
+def resize_mask(mask: MaskImage, scale: float) -> MaskImage:
+    if abs(scale - 1.0) < 1e-6:
+        return mask
+
+    h, w = mask.shape[:2]
+    new_size = (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
+    return cv2.resize(mask, new_size, interpolation=cv2.INTER_NEAREST)
+
+
+def preprocess_for_matching(gray: GrayImage) -> GrayImage:
+    """
+    Normalize grayscale inputs for matching.
+
+    The pipeline intentionally stays lightweight because this runs per scale:
+    mild denoising, local contrast equalization, then a small unsharp pass.
+    """
+    denoised = cv2.fastNlMeansDenoising(gray, None, h=5, templateWindowSize=7, searchWindowSize=21)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    equalized = clahe.apply(denoised)
+
+    blur = cv2.GaussianBlur(equalized, (0, 0), 1.2)
+    sharpened = cv2.addWeighted(equalized, 1.2, blur, -0.2, 0)
+    return np.clip(sharpened, 0, 255).astype(np.uint8)
+
+
+def build_match_mask(mask: MaskImage | None, erode_iterations: int = 1) -> MaskImage | None:
+    if mask is None:
+        return None
+
+    match_mask = mask.astype(np.uint8)
+    if match_mask.max() <= 1:
+        match_mask = (match_mask > 0).astype(np.uint8) * 255
+
+    match_mask = cv2.morphologyEx(
+        match_mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1
+    )
+    if erode_iterations > 0 and min(match_mask.shape[:2]) >= 12:
+        match_mask = cv2.erode(
+            match_mask, np.ones((3, 3), np.uint8), iterations=erode_iterations
+        )
+
+    if not np.any(match_mask > 0):
+        return None
+    return match_mask
+
+
+def scale_y_roi(y_roi: YRoi, scale: float) -> YRoi:
+    if y_roi is None or abs(scale - 1.0) < 1e-6:
+        return y_roi
+
+    y0, y1 = y_roi
+    return int(round(y0 * scale)), int(round(y1 * scale))
 
 
 def is_predominantly_white(

@@ -3,15 +3,19 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from src.vision.puzzle.types import FloatMap, GrayImage, Point
+from src.vision.puzzle.preprocessing import build_match_mask
+from src.vision.puzzle.types import FloatMap, GrayImage, MaskImage, Point, PointF
 
 
 def local_ncc_refine(
-    bg_gray: GrayImage, tpl_gray: GrayImage, xy: Point, radius: int = 3
+    bg_gray: GrayImage,
+    tpl_gray: GrayImage,
+    xy: Point,
+    radius: int = 3,
+    mask: MaskImage | None = None,
 ) -> tuple[Point, float]:
     """
-    Final refinement in a small horizontal window using raw NCC
-    (TM_CCOEFF_NORMED).
+    Final refinement in a small window using raw correlation.
 
     Returns:
         (best_xy, best_score) where best_xy is (x, y).
@@ -20,35 +24,44 @@ def local_ncc_refine(
     x0, y0 = int(xy[0]), int(xy[1])
     th, tw = tpl_gray.shape[:2]
     h_bg, w_bg = bg_gray.shape[:2]
+    match_mask = build_match_mask(mask, erode_iterations=0)
 
-    if y0 < 0:
-        y0 = 0
-    if y0 + th > h_bg:
-        y0 = max(0, h_bg - th)
-
-    best_x = x0
+    best_xy = (x0, y0)
     best_score = -1.0
 
-    for dx in range(-radius, radius + 1):
-        x = x0 + dx
-        if x < 0 or x + tw > w_bg:
+    for dy in range(-radius, radius + 1):
+        y = y0 + dy
+        if y < 0 or y + th > h_bg:
             continue
 
-        roi = bg_gray[y0 : y0 + th, x : x + tw]
-        res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
-        score = float(res[0, 0])
+        for dx in range(-radius, radius + 1):
+            x = x0 + dx
+            if x < 0 or x + tw > w_bg:
+                continue
 
-        if score > best_score:
-            best_score = score
-            best_x = x
+            roi = bg_gray[y : y + th, x : x + tw]
+            if match_mask is not None:
+                try:
+                    res = cv2.matchTemplate(
+                        roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask
+                    )
+                except cv2.error:
+                    res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
+            else:
+                res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
+
+            score = float(res[0, 0])
+            if score > best_score:
+                best_score = score
+                best_xy = (x, y)
 
     if best_score < 0:
         return (x0, y0), -1.0
 
-    return (best_x, y0), best_score
+    return best_xy, best_score
 
 
-def subpixel_refine(res_map: FloatMap, max_loc: Point, win: int = 2) -> tuple[float, float]:
+def subpixel_refine(res_map: FloatMap, max_loc: Point, win: int = 2) -> PointF:
     """
     Sub-pixel refinement using local 2D quadratic fit around the peak.
     Returns (x_sub, y_sub) in the same coordinates as max_loc.
@@ -94,8 +107,9 @@ def chamfer_refine(
     tpl_gray: GrayImage,
     coarse_xy: Point,
     search_radius: int = 5,
+    mask: MaskImage | None = None,
 ) -> tuple[Point, float]:
-    """Chamfer refinement with minimal radius."""
+    """Chamfer refinement with a local translation search."""
     th, tw = tpl_gray.shape[:2]
     x0 = max(0, coarse_xy[0] - search_radius)
     y0 = max(0, coarse_xy[1] - search_radius)
@@ -120,6 +134,10 @@ def chamfer_refine(
     upper_tpl = int(min(150, (1.0 + sigma) * tpl_median))
 
     tpl_edges = cv2.Canny(tpl_gray, lower_tpl, upper_tpl, L2gradient=True)
+    if mask is not None:
+        match_mask = build_match_mask(mask, erode_iterations=0)
+        if match_mask is not None:
+            tpl_edges = cv2.bitwise_and(tpl_edges, match_mask)
     tpl_edges = (tpl_edges > 0).astype(np.float32)
 
     res = cv2.matchTemplate(dt, tpl_edges, cv2.TM_SQDIFF)
@@ -130,6 +148,58 @@ def chamfer_refine(
     dx = abs(refined[0] - coarse_xy[0])
     dy = abs(refined[1] - coarse_xy[1])
 
-    if dx <= 3 and dy <= 3:
+    if dx <= 4 and dy <= 4:
         return refined, float(min_val)
     return coarse_xy, float(min_val)
+
+
+def ecc_refine(
+    bg_gray: GrayImage,
+    tpl_gray: GrayImage,
+    coarse_xy: Point,
+    mask: MaskImage | None = None,
+    max_shift: float = 3.0,
+) -> tuple[PointF, float]:
+    """
+    Refine a coarse translation estimate with ECC alignment.
+
+    ECC uses a same-size patch centered on the current estimate, which makes it
+    stable for small residual errors after coarse candidate scoring.
+    """
+    th, tw = tpl_gray.shape[:2]
+    x, y = int(coarse_xy[0]), int(coarse_xy[1])
+
+    if (
+        x < 0
+        or y < 0
+        or x + tw > bg_gray.shape[1]
+        or y + th > bg_gray.shape[0]
+    ):
+        return (float(x), float(y)), -1.0
+
+    patch = bg_gray[y : y + th, x : x + tw].astype(np.float32) / 255.0
+    template = tpl_gray.astype(np.float32) / 255.0
+    warp = np.eye(2, 3, dtype=np.float32)
+    criteria = (
+        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+        40,
+        1e-5,
+    )
+    match_mask = build_match_mask(mask, erode_iterations=0)
+
+    try:
+        ecc_score, warp = cv2.findTransformECC(
+            template,
+            patch,
+            warp,
+            cv2.MOTION_TRANSLATION,
+            criteria,
+            inputMask=match_mask,
+            gaussFiltSize=3,
+        )
+    except cv2.error:
+        return (float(x), float(y)), -1.0
+
+    dx = float(np.clip(warp[0, 2], -max_shift, max_shift))
+    dy = float(np.clip(warp[1, 2], -max_shift, max_shift))
+    return (float(x + dx), float(y + dy)), float(ecc_score)
