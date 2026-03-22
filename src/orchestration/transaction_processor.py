@@ -16,11 +16,16 @@ from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
 
 
+class OutOfSellableStockError(RuntimeError):
+    """Raised when the site reports that sellable stock is empty."""
+
+
 class TransactionProcessor:
     """Handles processing of transactions with error handling and recovery."""
 
     _LOAD_STATE: str = "load"
     _MAX_KUOTA_TIMEOUT_MS: int = 1500
+    _ZERO_STOCK_TIMEOUT_MS: int = 1500
     _LOGGED_OUT_CHECK_TIMEOUT_MS: int = 800
     _POST_SKIP_COOLDOWN_MS: int = 300
     _MAX_WAIT_SUCCESS_MS: int = 3500
@@ -45,6 +50,13 @@ class TransactionProcessor:
         for nik in self.config.nik:
             try:
                 self.process_single_nik(nik)
+            except OutOfSellableStockError as exc:
+                logger.bind(
+                    event="transaction.out_of_stock",
+                    operator=self.config.email_user,
+                    nik=str(nik),
+                ).warning(str(exc))
+                break
             except Exception:
                 # Preserve current behavior: continue processing other NIKs.
                 logger.bind(
@@ -69,12 +81,20 @@ class TransactionProcessor:
 
             penjualan = Penjualan(self.page)
 
+            self._check_zero_stock_and_stop(
+                penjualan, nik, started_at, stage="before cek pesanan"
+            )
+
             if self._check_max_kuota(
                 penjualan, nik, started_at, stage="before cek pesanan"
             ):
                 return
 
             penjualan.cek_pesanan()
+
+            self._check_zero_stock_and_stop(
+                penjualan, nik, started_at, stage="after cek pesanan"
+            )
 
             if self._check_max_kuota(
                 penjualan, nik, started_at, stage="after cek pesanan"
@@ -99,6 +119,8 @@ class TransactionProcessor:
             )
             self.limiter.record_success()
 
+        except OutOfSellableStockError:
+            raise
         except Exception as exc:
             logger.bind(
                 event="transaction.failed",
@@ -177,6 +199,32 @@ class TransactionProcessor:
         )
         return True
 
+    def _check_zero_stock_and_stop(
+        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
+    ) -> None:
+        alert_text = penjualan.get_zero_stock_alert_text(
+            timeout=self._ZERO_STOCK_TIMEOUT_MS
+        )
+        if not alert_text:
+            return
+
+        if not penjualan.is_zero_stock_alert_text(alert_text):
+            return
+
+        reason = f"Sellable stock empty {stage}: {alert_text}"
+        self._record_skip_and_cooldown(
+            nik=nik,
+            started_at=started_at,
+            skip_callback=lambda: self.reporter.skip_out_of_stock(
+                nik,
+                started_at,
+                url=self.page.url,
+                reason=reason,
+            ),
+            message=f"Stopping account run for NIK {nik} because sellable stock is empty ({stage}).",
+        )
+        raise OutOfSellableStockError(reason)
+
     def _record_skip_and_cooldown(
         self, nik: str, started_at: str, skip_callback: Callable[[], None], message: str
     ) -> None:
@@ -243,3 +291,4 @@ class TransactionProcessor:
             )
         except Exception:
             return False
+

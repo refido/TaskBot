@@ -401,6 +401,16 @@ class TransactionReporter:
         """Record max kuota skip."""
         self.skip(nik, started_at, "max_kuota", url, reason)
 
+    def skip_out_of_stock(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = "Sellable stock is empty",
+    ) -> None:
+        """Record out-of-stock stop."""
+        self.skip(nik, started_at, "out_of_stock", url, reason)
+
     def skip_needs_update(
         self,
         nik: str,
