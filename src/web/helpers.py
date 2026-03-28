@@ -16,19 +16,23 @@ class Helpers:
         self.piece_img = page.locator("img.rc-slider-captcha-jigsaw-puzzle")
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
 
-    def save_puzzle_piece(self) -> str:
+    def save_puzzle_piece(self, nik: str) -> str:
         return self._save_data_uri_image(
             locator=self.piece_img,
-            output_name=f"{self.stamp}_image_puzzle_piece.png",
+            output_name=self.build_puzzle_output_name(nik, "piece"),
             missing_message="Puzzle piece image not found on the page.",
         )
 
-    def save_puzzle_bg(self) -> str:
+    def save_puzzle_bg(self, nik: str) -> str:
         return self._save_data_uri_image(
             locator=self.piece_bg,
-            output_name=f"{self.stamp}_image_puzzle_bg.png",
+            output_name=self.build_puzzle_output_name(nik, "bg"),
             missing_message="Puzzle background image not found on the page.",
         )
+
+    def build_puzzle_output_name(self, nik: str, image_type: str) -> str:
+        nik_prefix = f"{str(nik).strip()}_" if str(nik).strip() else ""
+        return f"{nik_prefix}{self.stamp}_image_puzzle_{image_type}.png"
 
     def _save_data_uri_image(
         self, *, locator: Locator, output_name: str, missing_message: str

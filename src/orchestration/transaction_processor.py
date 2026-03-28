@@ -104,7 +104,7 @@ class TransactionProcessor:
             cek_penjualan = CekPenjualan(self.page)
             cek_penjualan.proses_penjualan()
 
-            puzzle_solved, puzzle_attempts = self._solve_puzzle()
+            puzzle_solved, puzzle_attempts = self._solve_puzzle(nik)
             if not puzzle_solved:
                 raise Exception("CAPTCHA solving failed")
 
@@ -240,15 +240,14 @@ class TransactionProcessor:
         log_print(message)
         self.page.wait_for_timeout(self._POST_SKIP_COOLDOWN_MS)
 
-    def _solve_puzzle(self) -> tuple[bool, int]:
+    def _solve_puzzle(self, nik: str) -> tuple[bool, int]:
         """Solve CAPTCHA puzzle. Returns (success, attempts)."""
         helpers = Helpers(self.page)
-        piece_path = helpers.save_puzzle_piece()
-        bg_path = helpers.save_puzzle_bg()
+        piece_path = helpers.save_puzzle_piece(nik)
+        bg_path = helpers.save_puzzle_bg(nik)
 
         out_dir = Path(piece_path).parent
-        stamp = Path(piece_path).stem.replace("_image_puzzle_piece", "")
-        result_path = out_dir / f"{stamp}_image_puzzle_result.png"
+        result_path = out_dir / helpers.build_puzzle_output_name(nik, "result")
 
         log_print(f"Result path (abs): {result_path.resolve()}")
 
