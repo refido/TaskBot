@@ -63,6 +63,15 @@ class Dashboard:
                 has_text=re.compile(r"^\s*tutup\s*$", re.I)
             )
         )
+        self.perbarui_data_pelanggan_lanjut_nanti = (
+            self.perbarui_data_pelanggan_modal.locator("button.styles_lightGreen__flYZ5")
+            .filter(
+                has_text=re.compile(
+                    r"^\s*nanti saja,\s*lanjut transaksi\s*$", re.I
+                )
+            )
+            .first
+        )
 
     def get_profile_name(self) -> str:
         expect(self.profile_name).to_be_visible(timeout=5000)
@@ -235,6 +244,25 @@ class Dashboard:
         except TimeoutError:
             log_print("Perbarui Data Pelanggan modal not present; continuing.")
             return False
+
+        try:
+            expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_visible(timeout=2000)
+            expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_enabled(timeout=2000)
+            self.perbarui_data_pelanggan_lanjut_nanti.click()
+            self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
+            log_print(
+                "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
+            )
+            return False
+        except (TimeoutError, AssertionError):
+            log_print(
+                "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
+            )
+        except Exception as exc:
+            log_print(
+                "Failed to continue past 'Perbarui Data Pelanggan'; closing modal instead.",
+                exc,
+            )
 
         expect(self.perbarui_data_pelanggan_tutup).to_be_visible(timeout=5000)
         expect(self.perbarui_data_pelanggan_tutup).to_be_enabled(timeout=5000)
