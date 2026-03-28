@@ -14,6 +14,15 @@ from src.path_utils import build_dated_dir, build_timestamped_run_dir
 _UNREGISTERED_SKIP_TYPE = "not_registered"
 _UNREGISTERED_STATUS = f"skipped_{_UNREGISTERED_SKIP_TYPE}"
 _UNREGISTERED_REASON_MARKERS = ("pelanggan tidak terdaftar", "not registered")
+_NEEDS_UPDATE_SKIP_TYPE = "need updated customer data"
+_NEEDS_UPDATE_STATUS = f"skipped_{_NEEDS_UPDATE_SKIP_TYPE}"
+_NEEDS_UPDATE_REASON = "Need updated customer data"
+_NEEDS_UPDATE_REASON_MARKERS = (
+    "perbarui data pelanggan",
+    "needs data update",
+    "need updated customer data",
+    "close_perbarui_data_pelanggan_if_needed",
+)
 
 
 def now_iso() -> str:
@@ -434,10 +443,10 @@ class TransactionReporter:
         nik: str,
         started_at: str,
         url: str = "",
-        reason: str = "Needs data update",
+        reason: str = _NEEDS_UPDATE_REASON,
     ) -> None:
         """Record needs update skip."""
-        self.skip(nik, started_at, "needs_update", url, reason)
+        self.skip(nik, started_at, _NEEDS_UPDATE_SKIP_TYPE, url, reason)
 
     def skip_not_registered(
         self,
@@ -461,11 +470,14 @@ class TransactionReporter:
         """Record an error."""
         reason = str(exc)
         error_details = traceback.format_exc()
-        status = (
-            _UNREGISTERED_STATUS
-            if self._reason_indicates_unregistered(f"{reason}\n{error_details}")
-            else "error"
-        )
+        combined_reason = f"{reason}\n{error_details}"
+        if self._reason_indicates_unregistered(combined_reason):
+            status = _UNREGISTERED_STATUS
+        elif self._reason_indicates_needs_update(combined_reason):
+            status = _NEEDS_UPDATE_STATUS
+            reason = _NEEDS_UPDATE_REASON
+        else:
+            status = "error"
         row = self._create_row(
             status=status,
             nik=nik,
@@ -483,6 +495,7 @@ class TransactionReporter:
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
+        mapping_error_report = self.get_mapping_error_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -491,8 +504,10 @@ class TransactionReporter:
             "analytics": calculator.get_analytics(self.run_started_at),
             "items": [asdict(r) for r in self.rows],
             "mapping_report": mapping_report,
+            "mapping_error_report": mapping_error_report,
             "nik_lists": {
                 **mapping_report,
+                "mapping_error_report": mapping_error_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
                 "puzzle_failed": self.get_puzzle_failed_niks(),
@@ -573,6 +588,22 @@ class TransactionReporter:
             "unregistered": self.get_unregistered_niks(),
         }
 
+    def get_mapping_error_report(self) -> Dict[str, List[str]]:
+        """Group non-successful NIKs by their reporting reason."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status == "completed" or self._is_unregistered_row(row):
+                continue
+
+            reason = row.reason.strip() if row.reason else ""
+            if row.status == "error":
+                key = self._normalize_error_reason(reason)
+            else:
+                key = reason if reason else row.status
+            grouped[key].append(row.nik)
+
+        return dict(grouped)
+
     def get_error_niks_by_reason(self) -> Dict[str, List[str]]:
         """Get failed NIKs grouped by normalized error reason."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
@@ -613,6 +644,7 @@ class TransactionReporter:
         base_analytics = self.get_analytics()
         base_analytics["nik_details"] = {
             "mapping_report": self.get_mapping_report(),
+            "mapping_error_report": self.get_mapping_error_report(),
             "successful_niks": self.get_successful_niks(),
             "failed_niks": self.get_failed_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
@@ -712,6 +744,11 @@ class TransactionReporter:
         normalized = reason.casefold() if reason else ""
         return any(marker in normalized for marker in _UNREGISTERED_REASON_MARKERS)
 
+    @staticmethod
+    def _reason_indicates_needs_update(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(marker in normalized for marker in _NEEDS_UPDATE_REASON_MARKERS)
+
     def _is_unregistered_row(self, row: TransactionRow) -> bool:
         if row.status == _UNREGISTERED_STATUS:
             return True
@@ -788,6 +825,7 @@ class TransactionReporter:
     def _write_meta(self) -> None:
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
+        mapping_error_report = self.get_mapping_error_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -795,8 +833,10 @@ class TransactionReporter:
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
             "mapping_report": mapping_report,
+            "mapping_error_report": mapping_error_report,
             "nik_lists": {
                 **mapping_report,
+                "mapping_error_report": mapping_error_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
             },

@@ -151,14 +151,18 @@ class TransactionProcessor:
 
     def _handle_pre_checks(self, nik: str, started_at: str) -> bool:
         """Handle pre-transaction checks. Returns True if NIK should be skipped."""
-        if self.dashboard.close_perbarui_data_pelanggan_if_needed():
+        needs_update_reason = self.dashboard.close_perbarui_data_pelanggan_if_needed()
+        if needs_update_reason:
             self._record_skip_and_cooldown(
                 nik=nik,
                 started_at=started_at,
                 skip_callback=lambda: self.reporter.skip_needs_update(
-                    nik, started_at, url=self.page.url
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                    reason=needs_update_reason,
                 ),
-                message=f"Skipping NIK {nik} (needs data update).",
+                message=f"Skipping NIK {nik} ({needs_update_reason})",
             )
             return True
 

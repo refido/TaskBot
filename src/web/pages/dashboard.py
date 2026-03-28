@@ -4,6 +4,13 @@ from playwright.sync_api import Page, TimeoutError, expect
 
 from src.logging_utils import log_print
 
+_PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
+    "Perbarui Data Pelanggan closed; transaction skipped."
+)
+_PERBARUI_DATA_PELANGGAN_CANNOT_CONTINUE_REASON = (
+    "Perbarui Data Pelanggan cannot continue transaction; modal closed."
+)
+
 
 class Dashboard:
     def __init__(self, page: Page) -> None:
@@ -236,15 +243,16 @@ class Dashboard:
 
     def close_perbarui_data_pelanggan_if_needed(
         self, detect_timeout: int = 6000
-    ) -> bool:
+    ) -> str | None:
         try:
             self.perbarui_data_pelanggan_modal.wait_for(
                 state="visible", timeout=detect_timeout
             )
         except TimeoutError:
             log_print("Perbarui Data Pelanggan modal not present; continuing.")
-            return False
+            return None
 
+        close_reason = _PERBARUI_DATA_PELANGGAN_CLOSED_REASON
         try:
             expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_visible(timeout=2000)
             expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_enabled(timeout=2000)
@@ -253,12 +261,13 @@ class Dashboard:
             log_print(
                 "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
             )
-            return False
+            return None
         except (TimeoutError, AssertionError):
             log_print(
                 "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
             )
         except Exception as exc:
+            close_reason = _PERBARUI_DATA_PELANGGAN_CANNOT_CONTINUE_REASON
             log_print(
                 "Failed to continue past 'Perbarui Data Pelanggan'; closing modal instead.",
                 exc,
@@ -269,12 +278,12 @@ class Dashboard:
         self.perbarui_data_pelanggan_tutup.click()
         self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
 
-        # Stay on NIK screen if possible
+        # Stay on NIK screen if possible, otherwise recover back to dashboard.
         try:
-            expect(self.nik_input).to_be_visible(timeout=3000)
+            self.nik_input.wait_for(state="visible", timeout=3000)
             self.nik_input.fill("")
             log_print("Closed 'Perbarui Data Pelanggan'; NIK input reset.")
         except TimeoutError:
             self.ensure_on_dashboard()
             log_print("Closed 'Perbarui Data Pelanggan'; returned to dashboard.")
-        return True
+        return close_reason
