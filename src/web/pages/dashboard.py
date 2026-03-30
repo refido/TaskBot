@@ -10,6 +10,12 @@ _PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
 _PERBARUI_DATA_PELANGGAN_CANNOT_CONTINUE_REASON = (
     "Perbarui Data Pelanggan cannot continue transaction; modal closed."
 )
+_NIK_UNDER_17_VALIDATION_TEXT = "NIK belum 17 tahun"
+_INVALID_REGISTERED_NIK_MODAL_TITLE = "Tidak Dapat Melakukan Transaksi"
+_INVALID_REGISTERED_NIK_MESSAGE = "NIK pelanggan yang didaftarkan tidak valid."
+_CANNOT_TRANSACT_AT_BASE_TITLE = "Pelanggan Tidak Dapat Transaksi di Pangkalan Ini"
+_UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
+_UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan."
 
 
 class Dashboard:
@@ -39,6 +45,11 @@ class Dashboard:
         )
         self.jenis_pelanggan = self.jenis_pelanggan_modal.get_by_text(
             "Rumah Tangga", exact=True
+        )
+        self.jenis_pelanggan_usaha_mikro = (
+            self.jenis_pelanggan_modal.locator("span.styles_label__6NaHc")
+            .filter(has_text=re.compile(r"^\s*Usaha Mikro\s*$", re.I))
+            .first
         )
         self.lanjut_transaksi_button = self.jenis_pelanggan_modal.get_by_role(
             "button", name="LANJUTKAN TRANSAKSI"
@@ -77,6 +88,95 @@ class Dashboard:
                     r"^\s*nanti saja,\s*lanjut transaksi\s*$", re.I
                 )
             )
+            .first
+        )
+        self.nik_under_17_validation = (
+            page.locator("div.mantine-824czz")
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_NIK_UNDER_17_VALIDATION_TEXT)}\s*$", re.I
+                )
+            )
+            .first
+        )
+        self.invalid_registered_nik_modal = page.locator(
+            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Tidak Dapat Melakukan Transaksi')), "
+            "section[role='dialog']:has(div.mantine-Text-root:has-text('NIK pelanggan yang didaftarkan tidak valid.'))"
+        ).first
+        self.invalid_registered_nik_modal_title = (
+            self.invalid_registered_nik_modal.locator(
+                "h6.mantine-Text-root.mantine-Title-root"
+            )
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MODAL_TITLE)}\s*$",
+                    re.I,
+                )
+            )
+            .first
+        )
+        self.invalid_registered_nik_modal_message = (
+            self.invalid_registered_nik_modal.locator("div.mantine-Text-root")
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MESSAGE)}\s*$", re.I
+                )
+            )
+            .first
+        )
+        self.invalid_registered_nik_modal_tutup = (
+            self.invalid_registered_nik_modal.locator("button.styles_root__eZpRx")
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .first
+        )
+
+        self.cannot_transact_at_base_modal = page.locator(
+            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Pelanggan Tidak Dapat Transaksi di Pangkalan Ini'))"
+        ).first
+        self.cannot_transact_at_base_modal_title = (
+            self.cannot_transact_at_base_modal.locator(
+                "h6.mantine-Text-root.mantine-Title-root"
+            )
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_CANNOT_TRANSACT_AT_BASE_TITLE)}\s*$", re.I
+                )
+            )
+            .first
+        )
+        self.cannot_transact_at_base_modal_tutup = (
+            self.cannot_transact_at_base_modal.locator("button.styles_root__eZpRx")
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .first
+        )
+
+        self.unusual_transaction_modal = page.locator(
+            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Tidak Dapat Melanjutkan Transaksi')), "
+            "section[role='dialog']:has(div.mantine-Text-root:has-text('NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan.'))"
+        ).first
+        self.unusual_transaction_modal_title = (
+            self.unusual_transaction_modal.locator(
+                "h6.mantine-Text-root.mantine-Title-root"
+            )
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MODAL_TITLE)}\s*$", re.I
+                )
+            )
+            .first
+        )
+        self.unusual_transaction_modal_message = (
+            self.unusual_transaction_modal.locator("div.mantine-Text-root")
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MESSAGE)}\s*$", re.I
+                )
+            )
+            .first
+        )
+        self.unusual_transaction_modal_tutup = (
+            self.unusual_transaction_modal.locator("button.styles_root__eZpRx")
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
             .first
         )
 
@@ -143,23 +243,42 @@ class Dashboard:
 
     def select_jenis_pelanggan(self) -> None:
         # Assumes modal is visible (gated by select_jenis_pelanggan_if_needed)
-        radio_button = self.jenis_pelanggan
-        expect(radio_button).to_be_visible(
-            timeout=10000
-        )  # Wait for the radio button to be visible
-        expect(radio_button).to_be_enabled(
-            timeout=10000
-        )  # Wait for the radio button to be enabled
-        text = radio_button.inner_text()  # Get the radio button text
-        log_print("Clicking radio_button name:", text)  # Print the radio button name
-        expect(radio_button).to_contain_text(
-            "Rumah Tangga"
-        )  # Assert the radio button text
-        radio_button.click()  # Click the radio button
-        self.page.wait_for_load_state(
-            "networkidle"
-        )  # Wait for the page to load completely
-        log_print("Jenis Pelanggan radio_button clicked")  # Print confirmation
+        selected_option_name = ""
+        selection_errors: list[str] = []
+
+        for option_name, radio_button in [
+            ("Rumah Tangga", self.jenis_pelanggan),
+            ("Usaha Mikro", self.jenis_pelanggan_usaha_mikro),
+        ]:
+            try:
+                expect(radio_button).to_be_visible(
+                    timeout=10000
+                )  # Wait for the radio button to be visible
+                expect(radio_button).to_be_enabled(
+                    timeout=10000
+                )  # Wait for the radio button to be enabled
+                text = radio_button.inner_text()  # Get the radio button text
+                log_print("Clicking radio_button name:", text)
+                expect(radio_button).to_contain_text(option_name)
+                radio_button.click()
+                self.page.wait_for_load_state("networkidle")
+                log_print(
+                    f"Jenis Pelanggan radio_button clicked ({option_name})"
+                )
+                selected_option_name = option_name
+                break
+            except Exception as exc:
+                selection_errors.append(f"{option_name}: {exc}")
+                log_print(
+                    f"Jenis Pelanggan option '{option_name}' was not usable; trying next option.",
+                    exc,
+                )
+
+        if not selected_option_name:
+            raise RuntimeError(
+                "Failed to select any Jenis Pelanggan option: "
+                + " | ".join(selection_errors)
+            )
 
         # Button is modal-scoped; assert presence/enabled then click
         expect(self.lanjut_transaksi_button).to_be_visible(
@@ -213,6 +332,146 @@ class Dashboard:
             self.ensure_on_dashboard()
             log_print("Closed 'Pelanggan Tidak Terdaftar'; returned to dashboard.")
         return modal_text
+
+    def detect_under_17_nik_if_needed(self, detect_timeout: int = 2000) -> str | None:
+        try:
+            self.nik_under_17_validation.wait_for(
+                state="visible", timeout=detect_timeout
+            )
+        except TimeoutError:
+            log_print("Under-17 NIK validation message not present; continuing.")
+            return None
+
+        validation_text = self.nik_under_17_validation.inner_text().strip()
+        if not validation_text:
+            validation_text = _NIK_UNDER_17_VALIDATION_TEXT
+        log_print(f"Detected NIK validation message: {validation_text}")
+
+        try:
+            self.nik_input.wait_for(state="visible", timeout=3000)
+            self.nik_input.fill("")
+            log_print("Cleared NIK input after under-17 validation message.")
+        except TimeoutError:
+            self.ensure_on_dashboard()
+            log_print("Under-17 validation handled; returned to dashboard.")
+        return validation_text
+
+    def _close_simple_warning_modal_if_needed(
+        self,
+        *,
+        modal,
+        close_button,
+        detect_timeout: int,
+        missing_log: str,
+        reset_log: str,
+        dashboard_log: str,
+        title_locator=None,
+        title_fallback: str = "",
+        title_detect_log: str = "Detected modal title",
+        message_locator=None,
+        message_fallback: str = "",
+        message_detect_log: str = "Detected modal message",
+        missing_content_log: str = "Warning modal became visible without the expected title or message.",
+    ) -> str | None:
+        try:
+            modal.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError:
+            log_print(missing_log)
+            return None
+
+        modal_reason = message_fallback or title_fallback
+        detected_content = False
+
+        if message_locator is not None:
+            try:
+                message_locator.wait_for(state="visible", timeout=1500)
+                modal_reason = message_locator.inner_text().strip() or modal_reason
+                log_print(f"{message_detect_log}: {modal_reason}")
+                detected_content = True
+            except TimeoutError:
+                pass
+
+        if not detected_content and title_locator is not None:
+            try:
+                title_locator.wait_for(state="visible", timeout=1000)
+                modal_title = title_locator.inner_text().strip()
+                modal_reason = modal_title or modal_reason or title_fallback
+                log_print(f"{title_detect_log}: {modal_title}")
+                detected_content = True
+            except TimeoutError:
+                pass
+
+        if not detected_content:
+            log_print(missing_content_log)
+            modal_reason = modal_reason or title_fallback or message_fallback
+
+        expect(close_button).to_be_visible(timeout=5000)
+        expect(close_button).to_be_enabled(timeout=5000)
+        close_button.click()
+        modal.wait_for(state="hidden", timeout=7000)
+
+        try:
+            self.nik_input.wait_for(state="visible", timeout=3000)
+            self.nik_input.fill("")
+            log_print(reset_log)
+        except TimeoutError:
+            self.ensure_on_dashboard()
+            log_print(dashboard_log)
+        return modal_reason
+
+    def close_invalid_registered_nik_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._close_simple_warning_modal_if_needed(
+            modal=self.invalid_registered_nik_modal,
+            close_button=self.invalid_registered_nik_modal_tutup,
+            detect_timeout=detect_timeout,
+            missing_log="Invalid registered-customer NIK modal not present; continuing.",
+            reset_log="Closed invalid registered-customer NIK modal; NIK input reset.",
+            dashboard_log="Closed invalid registered-customer NIK modal; returned to dashboard.",
+            title_locator=self.invalid_registered_nik_modal_title,
+            title_fallback=_INVALID_REGISTERED_NIK_MODAL_TITLE,
+            title_detect_log="Detected invalid NIK modal title",
+            message_locator=self.invalid_registered_nik_modal_message,
+            message_fallback=_INVALID_REGISTERED_NIK_MESSAGE,
+            message_detect_log="Detected invalid NIK modal message",
+            missing_content_log="Invalid registered-customer NIK modal became visible without the expected title or message.",
+        )
+
+    def close_unusual_transaction_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._close_simple_warning_modal_if_needed(
+            modal=self.unusual_transaction_modal,
+            close_button=self.unusual_transaction_modal_tutup,
+            detect_timeout=detect_timeout,
+            missing_log="Unusual-transaction modal not present; continuing.",
+            reset_log="Closed unusual-transaction modal; NIK input reset.",
+            dashboard_log="Closed unusual-transaction modal; returned to dashboard.",
+            title_locator=self.unusual_transaction_modal_title,
+            title_fallback=_UNUSUAL_TRANSACTION_MODAL_TITLE,
+            title_detect_log="Detected unusual-transaction modal title",
+            message_locator=self.unusual_transaction_modal_message,
+            message_fallback=_UNUSUAL_TRANSACTION_MESSAGE,
+            message_detect_log="Detected unusual-transaction modal message",
+            missing_content_log="Unusual-transaction modal became visible without the expected title or message.",
+        )
+
+    def close_cannot_transact_at_base_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._close_simple_warning_modal_if_needed(
+            modal=self.cannot_transact_at_base_modal,
+            close_button=self.cannot_transact_at_base_modal_tutup,
+            detect_timeout=detect_timeout,
+            missing_log="Base-restriction modal not present; continuing.",
+            reset_log="Closed base-restriction modal; NIK input reset.",
+            dashboard_log="Closed base-restriction modal; returned to dashboard.",
+            title_locator=self.cannot_transact_at_base_modal_title,
+            title_fallback=_CANNOT_TRANSACT_AT_BASE_TITLE,
+            title_detect_log="Detected base-restriction modal title",
+            missing_content_log="Base-restriction modal became visible without the expected title.",
+        )
 
     def ensure_on_dashboard(self) -> None:
         """

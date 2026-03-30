@@ -151,6 +151,75 @@ class TransactionProcessor:
 
     def _handle_pre_checks(self, nik: str, started_at: str) -> bool:
         """Handle pre-transaction checks. Returns True if NIK should be skipped."""
+        under_17_reason = self.dashboard.detect_under_17_nik_if_needed()
+        if under_17_reason:
+            self._record_skip_and_cooldown(
+                nik=nik,
+                started_at=started_at,
+                skip_callback=lambda: self.reporter.skip_under_17(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                ),
+                message=f"Skipping NIK {nik} ({under_17_reason}).",
+            )
+            return True
+
+        self.dashboard.select_jenis_pelanggan_if_needed()
+
+        invalid_registered_nik_reason = (
+            self.dashboard.close_invalid_registered_nik_if_needed()
+        )
+        if invalid_registered_nik_reason:
+            self._record_skip_and_cooldown(
+                nik=nik,
+                started_at=started_at,
+                skip_callback=lambda: self.reporter.skip_invalid_registered_nik(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                ),
+                message=(
+                    f"Skipping NIK {nik} ({invalid_registered_nik_reason})."
+                ),
+            )
+            return True
+
+        unusual_transaction_reason = (
+            self.dashboard.close_unusual_transaction_if_needed()
+        )
+        if unusual_transaction_reason:
+            self._record_skip_and_cooldown(
+                nik=nik,
+                started_at=started_at,
+                skip_callback=lambda: self.reporter.skip_unusual_transaction_at_other_base(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                ),
+                message=f"Skipping NIK {nik} ({unusual_transaction_reason}).",
+            )
+            return True
+
+        cannot_transact_at_base_reason = (
+            self.dashboard.close_cannot_transact_at_base_if_needed()
+        )
+        if cannot_transact_at_base_reason:
+            self._record_skip_and_cooldown(
+                nik=nik,
+                started_at=started_at,
+                skip_callback=lambda: self.reporter.skip_cannot_transact_at_base(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                ),
+                message=(
+                    "Skipping NIK "
+                    f"{nik} ({cannot_transact_at_base_reason})."
+                ),
+            )
+            return True
+
         needs_update_reason = self.dashboard.close_perbarui_data_pelanggan_if_needed()
         if needs_update_reason:
             self._record_skip_and_cooldown(
@@ -183,7 +252,6 @@ class TransactionProcessor:
             )
             return True
 
-        self.dashboard.select_jenis_pelanggan_if_needed()
         return False
 
     def _check_max_kuota(

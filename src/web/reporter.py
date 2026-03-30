@@ -23,6 +23,34 @@ _NEEDS_UPDATE_REASON_MARKERS = (
     "need updated customer data",
     "close_perbarui_data_pelanggan_if_needed",
 )
+_UNDER_17_SKIP_TYPE = "nik is not yet 17 years old"
+_UNDER_17_STATUS = f"skipped_{_UNDER_17_SKIP_TYPE}"
+_UNDER_17_REASON = "NIK is not yet 17 years old"
+_UNDER_17_REASON_MARKERS = (
+    "nik belum 17 tahun",
+    "not yet 17 years old",
+)
+_INVALID_REGISTERED_NIK_SKIP_TYPE = "The registered customer's NIK is invalid"
+_INVALID_REGISTERED_NIK_STATUS = f"skipped_{_INVALID_REGISTERED_NIK_SKIP_TYPE}"
+_INVALID_REGISTERED_NIK_REASON = "The registered customer's NIK is invalid"
+_INVALID_REGISTERED_NIK_REASON_MARKERS = (
+    "nik pelanggan yang didaftarkan tidak valid",
+    "the registered customer's nik is invalid",
+)
+_CANNOT_TRANSACT_AT_BASE_SKIP_TYPE = "Customers Cannot Transact at This Base"
+_CANNOT_TRANSACT_AT_BASE_STATUS = f"skipped_{_CANNOT_TRANSACT_AT_BASE_SKIP_TYPE}"
+_CANNOT_TRANSACT_AT_BASE_REASON = "Customers Cannot Transact at This Base"
+_CANNOT_TRANSACT_AT_BASE_REASON_MARKERS = (
+    "pelanggan tidak dapat transaksi di pangkalan ini",
+    "customers cannot transact at this base",
+)
+_UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE = "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
+_UNUSUAL_TRANSACTION_OTHER_BASE_STATUS = f"skipped_{_UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE}"
+_UNUSUAL_TRANSACTION_OTHER_BASE_REASON = "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
+_UNUSUAL_TRANSACTION_OTHER_BASE_REASON_MARKERS = (
+    "nik pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan",
+    "the customer's nik indicates an unusual transaction at another base with an unusual distance and close time",
+)
 
 
 def now_iso() -> str:
@@ -448,6 +476,50 @@ class TransactionReporter:
         """Record needs update skip."""
         self.skip(nik, started_at, _NEEDS_UPDATE_SKIP_TYPE, url, reason)
 
+    def skip_under_17(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _UNDER_17_REASON,
+    ) -> None:
+        """Record under-17 NIK skip."""
+        self.skip(nik, started_at, _UNDER_17_SKIP_TYPE, url, reason)
+
+    def skip_invalid_registered_nik(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _INVALID_REGISTERED_NIK_REASON,
+    ) -> None:
+        """Record invalid registered-customer NIK skip."""
+        self.skip(
+            nik, started_at, _INVALID_REGISTERED_NIK_SKIP_TYPE, url, reason
+        )
+
+    def skip_cannot_transact_at_base(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _CANNOT_TRANSACT_AT_BASE_REASON,
+    ) -> None:
+        """Record base-restriction skip."""
+        self.skip(nik, started_at, _CANNOT_TRANSACT_AT_BASE_SKIP_TYPE, url, reason)
+
+    def skip_unusual_transaction_at_other_base(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _UNUSUAL_TRANSACTION_OTHER_BASE_REASON,
+    ) -> None:
+        """Record unusual transaction at another base skip."""
+        self.skip(
+            nik, started_at, _UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE, url, reason
+        )
+
     def skip_not_registered(
         self,
         nik: str,
@@ -476,6 +548,18 @@ class TransactionReporter:
         elif self._reason_indicates_needs_update(combined_reason):
             status = _NEEDS_UPDATE_STATUS
             reason = _NEEDS_UPDATE_REASON
+        elif self._reason_indicates_invalid_registered_nik(combined_reason):
+            status = _INVALID_REGISTERED_NIK_STATUS
+            reason = _INVALID_REGISTERED_NIK_REASON
+        elif self._reason_indicates_unusual_transaction_at_other_base(combined_reason):
+            status = _UNUSUAL_TRANSACTION_OTHER_BASE_STATUS
+            reason = _UNUSUAL_TRANSACTION_OTHER_BASE_REASON
+        elif self._reason_indicates_cannot_transact_at_base(combined_reason):
+            status = _CANNOT_TRANSACT_AT_BASE_STATUS
+            reason = _CANNOT_TRANSACT_AT_BASE_REASON
+        elif self._reason_indicates_under_17(combined_reason):
+            status = _UNDER_17_STATUS
+            reason = _UNDER_17_REASON
         else:
             status = "error"
         row = self._create_row(
@@ -748,6 +832,33 @@ class TransactionReporter:
     def _reason_indicates_needs_update(reason: str) -> bool:
         normalized = reason.casefold() if reason else ""
         return any(marker in normalized for marker in _NEEDS_UPDATE_REASON_MARKERS)
+
+    @staticmethod
+    def _reason_indicates_under_17(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(marker in normalized for marker in _UNDER_17_REASON_MARKERS)
+
+    @staticmethod
+    def _reason_indicates_invalid_registered_nik(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(
+            marker in normalized for marker in _INVALID_REGISTERED_NIK_REASON_MARKERS
+        )
+
+    @staticmethod
+    def _reason_indicates_cannot_transact_at_base(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(
+            marker in normalized for marker in _CANNOT_TRANSACT_AT_BASE_REASON_MARKERS
+        )
+
+    @staticmethod
+    def _reason_indicates_unusual_transaction_at_other_base(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(
+            marker in normalized
+            for marker in _UNUSUAL_TRANSACTION_OTHER_BASE_REASON_MARKERS
+        )
 
     def _is_unregistered_row(self, row: TransactionRow) -> bool:
         if row.status == _UNREGISTERED_STATUS:
