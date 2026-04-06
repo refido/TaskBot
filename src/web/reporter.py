@@ -14,6 +14,9 @@ from src.path_utils import build_dated_dir, build_timestamped_run_dir
 _UNREGISTERED_SKIP_TYPE = "not_registered"
 _UNREGISTERED_STATUS = f"skipped_{_UNREGISTERED_SKIP_TYPE}"
 _UNREGISTERED_REASON_MARKERS = ("pelanggan tidak terdaftar", "not registered")
+_FAILED_PUZZLE_SOLVE_STATUS = "failed_puzzle_solve"
+_FAILED_PUZZLE_SOLVE_REASON = "CAPTCHA solving failed"
+_FAILED_PUZZLE_SOLVE_REASON_MARKERS = ("captcha solving failed",)
 _NEEDS_UPDATE_SKIP_TYPE = "need updated customer data"
 _NEEDS_UPDATE_STATUS = f"skipped_{_NEEDS_UPDATE_SKIP_TYPE}"
 _NEEDS_UPDATE_REASON = "Need updated customer data"
@@ -198,7 +201,8 @@ class MetricsCalculator:
         counts = self.get_summary()
 
         completed = counts.get("completed", 0)
-        errors = counts.get("error", 0)
+        failed = counts.get("error", 0)
+        failed_puzzle_solve = counts.get(_FAILED_PUZZLE_SOLVE_STATUS, 0)
         unregistered = counts.get(_UNREGISTERED_STATUS, 0)
         skipped = sum(
             counts.get(k, 0)
@@ -209,11 +213,15 @@ class MetricsCalculator:
         return {
             "total_transactions": total,
             "completed": completed,
-            "errors": errors,
+            "failed": failed,
+            "failed_puzzle_solve": failed_puzzle_solve,
             "skipped": skipped,
             "unregistered": unregistered,
             "success_rate_percent": self._safe_percentage(completed, total),
-            "error_rate_percent": self._safe_percentage(errors, total),
+            "failed_rate_percent": self._safe_percentage(failed, total),
+            "failed_puzzle_solve_rate_percent": self._safe_percentage(
+                failed_puzzle_solve, total
+            ),
             "skip_rate_percent": self._safe_percentage(skipped, total),
             "unregistered_rate_percent": self._safe_percentage(unregistered, total),
         }
@@ -359,11 +367,13 @@ class MetricsCalculator:
             "summary": {
                 "total_transactions": 0,
                 "completed": 0,
-                "errors": 0,
+                "failed": 0,
+                "failed_puzzle_solve": 0,
                 "skipped": 0,
                 "unregistered": 0,
                 "success_rate_percent": 0.0,
-                "error_rate_percent": 0.0,
+                "failed_rate_percent": 0.0,
+                "failed_puzzle_solve_rate_percent": 0.0,
                 "skip_rate_percent": 0.0,
                 "unregistered_rate_percent": 0.0,
             },
@@ -543,6 +553,17 @@ class TransactionReporter:
         reason = str(exc)
         error_details = traceback.format_exc()
         combined_reason = f"{reason}\n{error_details}"
+        if puzzle_solved is False or self._reason_indicates_failed_puzzle_solve(
+            combined_reason
+        ):
+            self.failed_puzzle_solve(
+                nik,
+                started_at,
+                exc=exc,
+                url=url,
+                puzzle_attempts=puzzle_attempts,
+            )
+            return
         if self._reason_indicates_unregistered(combined_reason):
             status = _UNREGISTERED_STATUS
         elif self._reason_indicates_needs_update(combined_reason):
@@ -574,12 +595,36 @@ class TransactionReporter:
         )
         self._record_row(row)
 
+    def failed_puzzle_solve(
+        self,
+        nik: str,
+        started_at: str,
+        exc: Optional[Exception] = None,
+        url: str = "",
+        puzzle_attempts: int = 0,
+        reason: str = _FAILED_PUZZLE_SOLVE_REASON,
+    ) -> None:
+        """Record a failed puzzle solve separately from actual errors."""
+        error_details = traceback.format_exc() if exc is not None else ""
+        resolved_reason = str(exc).strip() if exc is not None else reason
+        self._add_row(
+            status=_FAILED_PUZZLE_SOLVE_STATUS,
+            nik=nik,
+            started_at=started_at,
+            url=url,
+            puzzle_solved=False,
+            puzzle_attempts=puzzle_attempts,
+            reason=resolved_reason or _FAILED_PUZZLE_SOLVE_REASON,
+            error=error_details,
+        )
+
     def write_files(self, run_name: Optional[str] = None) -> None:
         """Write final snapshot files and update operator summary."""
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
+        mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -589,12 +634,14 @@ class TransactionReporter:
             "items": [asdict(r) for r in self.rows],
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
+            "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
             "nik_lists": {
                 **mapping_report,
                 "mapping_error_report": mapping_error_report,
+                "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
-                "puzzle_failed": self.get_puzzle_failed_niks(),
+                "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
             },
             "puzzle_stats_by_nik": self.get_puzzle_stats_by_nik(),
         }
@@ -667,23 +714,30 @@ class TransactionReporter:
         """Build the main mapping report buckets for the current run."""
         return {
             "failed": self.get_failed_niks(),
+            "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
             "successful": self.get_successful_niks(),
             "skipped": self.get_skipped_niks_by_type(),
             "unregistered": self.get_unregistered_niks(),
         }
 
     def get_mapping_error_report(self) -> Dict[str, List[str]]:
-        """Group non-successful NIKs by their reporting reason."""
+        """Group actual failed NIKs by normalized error reason."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status == "completed" or self._is_unregistered_row(row):
+            if row.status != "error" or self._is_unregistered_row(row):
                 continue
 
-            reason = row.reason.strip() if row.reason else ""
-            if row.status == "error":
-                key = self._normalize_error_reason(reason)
-            else:
-                key = reason if reason else row.status
+            grouped[self._normalize_error_reason(row.reason)].append(row.nik)
+
+        return dict(grouped)
+
+    def get_mapping_failed_puzzle_report(self) -> Dict[str, List[str]]:
+        """Group failed puzzle solves by their reporting reason."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != _FAILED_PUZZLE_SOLVE_STATUS:
+                continue
+            key = row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
             grouped[key].append(row.nik)
 
         return dict(grouped)
@@ -701,16 +755,20 @@ class TransactionReporter:
         """Get NIKs grouped by any non-standard status."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status in {"completed", "error"} or row.status.startswith(
-                "skipped_"
-            ):
+            if row.status in {"completed", "error", _FAILED_PUZZLE_SOLVE_STATUS}:
+                continue
+            if row.status.startswith("skipped_"):
                 continue
             grouped[row.status].append(row.nik)
         return dict(grouped)
 
     def get_puzzle_failed_niks(self) -> List[str]:
         """Get NIKs where puzzle solving failed."""
-        return [r.nik for r in self.rows if r.puzzle_solved is False]
+        return self.get_failed_puzzle_solve_niks()
+
+    def get_failed_puzzle_solve_niks(self) -> List[str]:
+        """Get NIKs where puzzle solving failed."""
+        return [r.nik for r in self.rows if r.status == _FAILED_PUZZLE_SOLVE_STATUS]
 
     def get_puzzle_stats_by_nik(self) -> Dict[str, Dict[str, Any]]:
         """Get puzzle statistics grouped by NIK."""
@@ -729,8 +787,10 @@ class TransactionReporter:
         base_analytics["nik_details"] = {
             "mapping_report": self.get_mapping_report(),
             "mapping_error_report": self.get_mapping_error_report(),
+            "mapping_failed_puzzle_report": self.get_mapping_failed_puzzle_report(),
             "successful_niks": self.get_successful_niks(),
             "failed_niks": self.get_failed_niks(),
+            "failed_puzzle_solve_niks": self.get_failed_puzzle_solve_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
             "unregistered_niks": self.get_unregistered_niks(),
             "errors_by_reason": self.get_error_niks_by_reason(),
@@ -752,7 +812,7 @@ class TransactionReporter:
         self._print_section(
             "Success Rates",
             analytics["summary"],
-            ["success", "error", "skip", "unregistered"],
+            ["success", "failed", "skip", "unregistered"],
             suffix="_percent",
         )
         self._print_performance(analytics["performance"])
@@ -827,6 +887,13 @@ class TransactionReporter:
     def _reason_indicates_unregistered(reason: str) -> bool:
         normalized = reason.casefold() if reason else ""
         return any(marker in normalized for marker in _UNREGISTERED_REASON_MARKERS)
+
+    @staticmethod
+    def _reason_indicates_failed_puzzle_solve(reason: str) -> bool:
+        normalized = reason.casefold() if reason else ""
+        return any(
+            marker in normalized for marker in _FAILED_PUZZLE_SOLVE_REASON_MARKERS
+        )
 
     @staticmethod
     def _reason_indicates_needs_update(reason: str) -> bool:
@@ -937,6 +1004,7 @@ class TransactionReporter:
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
+        mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -945,9 +1013,11 @@ class TransactionReporter:
             "analytics": calculator.get_analytics(self.run_started_at),
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
+            "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
             "nik_lists": {
                 **mapping_report,
                 "mapping_error_report": mapping_error_report,
+                "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
             },
@@ -1091,6 +1161,10 @@ class TransactionReporter:
         log_print("\nNIK Statistics:")
         log_print(f"  Total Successful: {len(self.get_successful_niks())}")
         log_print(f"  Total Failed: {len(self.get_failed_niks())}")
+        log_print(
+            "  Total Failed Puzzle Solve: "
+            f"{len(self.get_failed_puzzle_solve_niks())}"
+        )
 
         skipped_by_type = self.get_skipped_niks_by_type()
         total_skipped = sum(len(niks) for niks in skipped_by_type.values())

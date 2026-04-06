@@ -486,6 +486,7 @@ class Dashboard:
 
         # Try common back actions without throwing
         for candidate in [
+            self.page.get_by_role("button", name="KEMBALI KE HALAMAN UTAMA"),
             self.page.get_by_role("button", name="KEMBALI"),
             self.page.get_by_role("link", name="Beranda"),
             self.page.get_by_role("link", name="Dashboard"),

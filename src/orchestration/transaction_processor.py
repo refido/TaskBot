@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from typing import Callable, Optional
 
 from playwright.sync_api import Page
@@ -20,6 +20,10 @@ class OutOfSellableStockError(RuntimeError):
     """Raised when the site reports that sellable stock is empty."""
 
 
+class PuzzleSolveFailedError(RuntimeError):
+    """Raised when the puzzle challenge could not be solved."""
+
+
 class TransactionProcessor:
     """Handles processing of transactions with error handling and recovery."""
 
@@ -29,6 +33,7 @@ class TransactionProcessor:
     _LOGGED_OUT_CHECK_TIMEOUT_MS: int = 800
     _POST_SKIP_COOLDOWN_MS: int = 300
     _MAX_WAIT_SUCCESS_MS: int = 3500
+    _PUZZLE_SOLVE_FAILED_REASON: str = "CAPTCHA solving failed"
 
     def __init__(
         self,
@@ -106,7 +111,7 @@ class TransactionProcessor:
 
             puzzle_solved, puzzle_attempts = self._solve_puzzle(nik)
             if not puzzle_solved:
-                raise Exception("CAPTCHA solving failed")
+                raise PuzzleSolveFailedError(self._PUZZLE_SOLVE_FAILED_REASON)
 
             self._return_to_dashboard(cek_penjualan)
 
@@ -121,6 +126,20 @@ class TransactionProcessor:
 
         except OutOfSellableStockError:
             raise
+        except PuzzleSolveFailedError as exc:
+            logger.bind(
+                event="transaction.puzzle_failed",
+                operator=self.config.email_user,
+                nik=str(nik),
+            ).warning(str(exc))
+            self.reporter.failed_puzzle_solve(
+                nik,
+                started_at,
+                exc=exc,
+                url=self.page.url,
+                puzzle_attempts=puzzle_attempts,
+            )
+            self._handle_session_recovery()
         except Exception as exc:
             logger.bind(
                 event="transaction.failed",
@@ -179,9 +198,7 @@ class TransactionProcessor:
                     started_at,
                     url=self.page.url,
                 ),
-                message=(
-                    f"Skipping NIK {nik} ({invalid_registered_nik_reason})."
-                ),
+                message=(f"Skipping NIK {nik} ({invalid_registered_nik_reason})."),
             )
             return True
 
@@ -344,15 +361,29 @@ class TransactionProcessor:
     def _handle_session_recovery(self) -> None:
         """Handle session recovery after error."""
         if self._check_if_logged_out():
-            self.page.goto(self.config.url_application)
-            self.login.login(self.config.email_user, self.config.pin_user)
-            self.page.wait_for_load_state(self._LOAD_STATE)
+            self._restore_logged_out_session()
             return
 
         try:
             self.dashboard.ensure_on_dashboard()
+            return
         except Exception:
             self.page.goto(self.config.url_application)
+            self.page.wait_for_load_state(self._LOAD_STATE)
+
+        if self._check_if_logged_out():
+            self._restore_logged_out_session()
+            return
+
+        self.dashboard.ensure_on_dashboard()
+
+    def _restore_logged_out_session(self) -> None:
+        """Restore a valid logged-in dashboard session."""
+        self.page.goto(self.config.url_application)
+        self.page.wait_for_load_state(self._LOAD_STATE)
+        self.login.login(self.config.email_user, self.config.pin_user)
+        self.page.wait_for_load_state(self._LOAD_STATE)
+        self.dashboard.ensure_on_dashboard()
 
     def _check_if_logged_out(self) -> bool:
         """Check if user is logged out."""
