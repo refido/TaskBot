@@ -16,6 +16,7 @@ _INVALID_REGISTERED_NIK_MESSAGE = "NIK pelanggan yang didaftarkan tidak valid."
 _CANNOT_TRANSACT_AT_BASE_TITLE = "Pelanggan Tidak Dapat Transaksi di Pangkalan Ini"
 _UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
 _UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan."
+_FAILED_PUZZLE_MODAL_TITLE = "Cocokan Gambar untuk Proses Keamanan Penjualan"
 
 
 class Dashboard:
@@ -177,6 +178,22 @@ class Dashboard:
         self.unusual_transaction_modal_tutup = (
             self.unusual_transaction_modal.locator("button.styles_root__eZpRx")
             .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .first
+        )
+        self.failed_puzzle_modal = page.locator(
+            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan')), "
+            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan'))"
+        ).first
+        self.failed_puzzle_modal_title = (
+            self.failed_puzzle_modal.locator(
+                "h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2, "
+                "h6.mantine-Text-root.mantine-Title-root"
+            )
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_FAILED_PUZZLE_MODAL_TITLE)}\s*$", re.I
+                )
+            )
             .first
         )
 
@@ -355,6 +372,27 @@ class Dashboard:
             self.ensure_on_dashboard()
             log_print("Under-17 validation handled; returned to dashboard.")
         return validation_text
+
+    def detect_failed_puzzle_modal_if_needed(
+        self, detect_timeout: int = 2500
+    ) -> str | None:
+        try:
+            self.failed_puzzle_modal.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError:
+            log_print("Failed puzzle modal not present; retry will not run.")
+            return None
+
+        modal_title = _FAILED_PUZZLE_MODAL_TITLE
+        try:
+            self.failed_puzzle_modal_title.wait_for(state="visible", timeout=1000)
+            detected_title = self.failed_puzzle_modal_title.inner_text().strip()
+            if detected_title:
+                modal_title = detected_title
+        except TimeoutError:
+            pass
+
+        log_print(f"Detected failed puzzle modal title: {modal_title}")
+        return modal_title
 
     def _close_simple_warning_modal_if_needed(
         self,

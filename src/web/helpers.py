@@ -1,6 +1,7 @@
 import base64
 from datetime import datetime
 from pathlib import Path
+from time import monotonic
 
 from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -9,10 +10,13 @@ from src.logging_utils import log_print
 
 
 class Helpers:
+    _PUZZLE_IMAGE_ATTACH_TIMEOUT_MS: int = 5000
+    _PUZZLE_REFRESH_POLL_MS: int = 150
+
     def __init__(self, page: Page) -> None:
         self.page = page
         self.folder_stamp = datetime.now().strftime("%Y-%m-%d")
-        self.stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.piece_img = page.locator("img.rc-slider-captcha-jigsaw-puzzle")
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
 
@@ -34,18 +38,51 @@ class Helpers:
         nik_prefix = f"{str(nik).strip()}_" if str(nik).strip() else ""
         return f"{nik_prefix}{self.stamp}_image_puzzle_{image_type}.png"
 
+    def get_puzzle_image_sources(self) -> tuple[str, str]:
+        """Return the current background and piece image sources."""
+        bg_src = self._get_image_src(
+            locator=self.piece_bg,
+            missing_message="Puzzle background image not found on the page.",
+        )
+        piece_src = self._get_image_src(
+            locator=self.piece_img,
+            missing_message="Puzzle piece image not found on the page.",
+        )
+        return bg_src, piece_src
+
+    def wait_for_puzzle_refresh(
+        self,
+        *,
+        previous_bg_src: str,
+        previous_piece_src: str,
+        timeout_ms: int,
+    ) -> bool:
+        """Wait until the puzzle challenge rotates to a new image pair."""
+        deadline = monotonic() + (timeout_ms / 1000.0)
+
+        while monotonic() < deadline:
+            try:
+                current_bg_src, current_piece_src = self.get_puzzle_image_sources()
+            except RuntimeError:
+                self.page.wait_for_timeout(self._PUZZLE_REFRESH_POLL_MS)
+                continue
+
+            if (
+                current_bg_src != previous_bg_src
+                or current_piece_src != previous_piece_src
+            ):
+                log_print("Detected refreshed puzzle images for retry.")
+                return True
+
+            self.page.wait_for_timeout(self._PUZZLE_REFRESH_POLL_MS)
+
+        log_print("Puzzle images did not refresh before retry timeout; reusing current challenge state.")
+        return False
+
     def _save_data_uri_image(
         self, *, locator: Locator, output_name: str, missing_message: str
     ) -> str:
-        try:
-            locator.wait_for(state="attached", timeout=5000)
-        except PlaywrightTimeoutError as exc:
-            raise RuntimeError(missing_message) from exc
-
-        src = locator.get_attribute("src")
-        if not src:
-            raise RuntimeError("Image 'src' attribute is missing.")
-
+        src = self._get_image_src(locator=locator, missing_message=missing_message)
         payload = self._extract_base64_payload(src)
 
         try:
@@ -59,6 +96,21 @@ class Helpers:
         out_path.write_bytes(image_bytes)
         log_print(f"Image saved to {out_path}")
         return str(out_path)
+
+    def _get_image_src(self, *, locator: Locator, missing_message: str) -> str:
+        self._wait_for_image(locator=locator, missing_message=missing_message)
+        src = locator.get_attribute("src")
+        if not src:
+            raise RuntimeError("Image 'src' attribute is missing.")
+        return src
+
+    def _wait_for_image(self, *, locator: Locator, missing_message: str) -> None:
+        try:
+            locator.wait_for(
+                state="attached", timeout=self._PUZZLE_IMAGE_ATTACH_TIMEOUT_MS
+            )
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(missing_message) from exc
 
     @staticmethod
     def _extract_base64_payload(src: str) -> str:

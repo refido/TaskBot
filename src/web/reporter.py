@@ -84,6 +84,8 @@ class TransactionRow:
     duration_seconds: float = 0.0
     puzzle_solved: Optional[bool] = None
     puzzle_attempts: int = 0
+    puzzle_retry_count: int = 0
+    puzzle_retry_process: str = ""
     reason: str = ""
 
     def compute_duration(self) -> None:
@@ -112,6 +114,8 @@ class FileWriter:
         "duration_seconds",
         "puzzle_solved",
         "puzzle_attempts",
+        "puzzle_retry_count",
+        "puzzle_retry_process",
         "url",
         "error",
         "reason",
@@ -272,6 +276,8 @@ class MetricsCalculator:
                 "puzzle_failure_rate_percent": 0.0,
                 "avg_attempts": 0.0,
                 "total_attempts": 0,
+                "retried_puzzles": 0,
+                "total_retries": 0,
                 "avg_solved_duration_seconds": 0.0,
                 "avg_failed_duration_seconds": 0.0,
             }
@@ -280,6 +286,8 @@ class MetricsCalculator:
         solved = sum(1 for r in puzzle_rows if r.puzzle_solved is True)
         failed = sum(1 for r in puzzle_rows if r.puzzle_solved is False)
         total_attempts = sum(r.puzzle_attempts for r in puzzle_rows)
+        retried_puzzles = sum(1 for r in puzzle_rows if r.puzzle_retry_count > 0)
+        total_retries = sum(r.puzzle_retry_count for r in puzzle_rows)
 
         solved_durations = [
             r.duration_seconds
@@ -302,6 +310,8 @@ class MetricsCalculator:
             if total_puzzles > 0
             else 0.0,
             "total_attempts": total_attempts,
+            "retried_puzzles": retried_puzzles,
+            "total_retries": total_retries,
             "avg_solved_duration_seconds": self._safe_average(solved_durations),
             "avg_failed_duration_seconds": self._safe_average(failed_durations),
         }
@@ -429,6 +439,8 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
     ) -> None:
         """Record a completed transaction."""
@@ -439,6 +451,8 @@ class TransactionReporter:
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
         )
 
@@ -548,6 +562,8 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
     ) -> None:
         """Record an error."""
         reason = str(exc)
@@ -562,6 +578,8 @@ class TransactionReporter:
                 exc=exc,
                 url=url,
                 puzzle_attempts=puzzle_attempts,
+                puzzle_retry_count=puzzle_retry_count,
+                puzzle_retry_process=puzzle_retry_process,
             )
             return
         if self._reason_indicates_unregistered(combined_reason):
@@ -590,6 +608,8 @@ class TransactionReporter:
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
             error=error_details,
         )
@@ -602,6 +622,8 @@ class TransactionReporter:
         exc: Optional[Exception] = None,
         url: str = "",
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = _FAILED_PUZZLE_SOLVE_REASON,
     ) -> None:
         """Record a failed puzzle solve separately from actual errors."""
@@ -614,6 +636,8 @@ class TransactionReporter:
             url=url,
             puzzle_solved=False,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=resolved_reason or _FAILED_PUZZLE_SOLVE_REASON,
             error=error_details,
         )
@@ -773,12 +797,19 @@ class TransactionReporter:
     def get_puzzle_stats_by_nik(self) -> Dict[str, Dict[str, Any]]:
         """Get puzzle statistics grouped by NIK."""
         nik_stats: DefaultDict[str, Dict[str, Any]] = defaultdict(
-            lambda: {"attempts": 0, "solved": False}
+            lambda: {
+                "attempts": 0,
+                "solved": False,
+                "retry_count": 0,
+                "retry_process": "",
+            }
         )
         for row in self.rows:
             if row.puzzle_solved is not None:
                 nik_stats[row.nik]["attempts"] = row.puzzle_attempts
                 nik_stats[row.nik]["solved"] = row.puzzle_solved
+                nik_stats[row.nik]["retry_count"] = row.puzzle_retry_count
+                nik_stats[row.nik]["retry_process"] = row.puzzle_retry_process
         return dict(nik_stats)
 
     def get_analytics_with_niks(self) -> Dict[str, Any]:
@@ -943,6 +974,8 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
     ) -> None:
@@ -953,6 +986,8 @@ class TransactionReporter:
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
             error=error,
         )
@@ -966,6 +1001,8 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
     ) -> TransactionRow:
@@ -979,6 +1016,8 @@ class TransactionReporter:
             error=error,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
         )
         row.compute_duration()
@@ -996,6 +1035,8 @@ class TransactionReporter:
             duration_seconds=row.duration_seconds,
             puzzle_solved=row.puzzle_solved,
             puzzle_attempts=row.puzzle_attempts,
+            puzzle_retry_count=row.puzzle_retry_count,
+            puzzle_retry_process=row.puzzle_retry_process,
             reason=row.reason,
         ).info("Transaction row recorded")
 
@@ -1221,6 +1262,9 @@ class TransactionReporter:
             f"  Failed: {puzzle['puzzles_failed']} ({puzzle['puzzle_failure_rate_percent']}%)"
         )
         log_print(f"  Avg Attempts: {puzzle['avg_attempts']:.2f}")
+        if puzzle["retried_puzzles"] > 0:
+            log_print(f"  Retried Puzzles: {puzzle['retried_puzzles']}")
+            log_print(f"  Total Retries: {puzzle['total_retries']}")
 
         if puzzle["avg_solved_duration_seconds"] > 0:
             log_print(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
