@@ -16,13 +16,28 @@ class Login(BasePage):
         self.sign_in = page.get_by_role("button", name="Masuk")
 
     def login(self, email_user: str, pin_user: str) -> None:
-        self.fill_input(self.email, str(email_user))
+        self.fill_input(
+            self.email,
+            str(email_user),
+            action_name="filling login email",
+            allow_login_page=True,
+        )
         log_print("Email filled", self._mask_email(email_user))
 
-        self.fill_input(self.pin, str(pin_user))
+        self.fill_input(
+            self.pin,
+            str(pin_user),
+            action_name="filling login PIN",
+            allow_login_page=True,
+        )
         log_print("PIN filled", "***")
 
-        self.click_button_and_wait(self.sign_in, "MASUK", timeout_ms=10000)
+        self.click_button_and_wait(
+            self.sign_in,
+            "MASUK",
+            timeout_ms=10000,
+            allow_login_page=True,
+        )
         log_print("Masuk button clicked")
 
     @staticmethod

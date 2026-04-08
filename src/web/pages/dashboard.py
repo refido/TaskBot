@@ -3,6 +3,7 @@ import re
 from playwright.sync_api import Page, TimeoutError, expect
 
 from src.logging_utils import log_print
+from src.web.pages.base_page import BasePage
 
 _PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
     "Perbarui Data Pelanggan closed; transaction skipped."
@@ -19,9 +20,9 @@ _UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar 
 _FAILED_PUZZLE_MODAL_TITLE = "Cocokan Gambar untuk Proses Keamanan Penjualan"
 
 
-class Dashboard:
+class Dashboard(BasePage):
     def __init__(self, page: Page) -> None:
-        self.page = page
+        super().__init__(page)
         self.profile_name = page.locator(
             "#__next .styles_wrapper__ASq0Q .mantine-Text-root"
         ).first
@@ -225,26 +226,28 @@ class Dashboard:
 
         if not already_on_form:
             tile = self.catat_penjualan_tile
-            expect(tile).to_be_visible(timeout=5000)
-            text = tile.inner_text()
-            log_print("Clicking tile name:", text)
-            expect(tile).to_contain_text("Catat Penjualan")
-            tile.click()
-            self.page.wait_for_load_state("networkidle")
+            self.click_locator(
+                tile,
+                action_name="opening Catat Penjualan",
+                expected_text="Catat Penjualan",
+                timeout_ms=5000,
+            )
             expect(self.nik_input).to_be_visible(timeout=5000)
 
         # Only the input-and-continue steps
-        self.nik_input.click()  # Focus the input
-        self.nik_input.fill("")  # Clear any existing text
-        self.nik_input.type(str(nik), delay=20)  # Type with slight delay
+        self.fill_input(
+            self.nik_input,
+            str(nik),
+            action_name=f"filling NIK {nik}",
+        )
         log_print("NIK input filled with:", nik)
 
-        expect(self.lanjutkan_penjualan_button).to_be_enabled(timeout=5000)
-        text = self.lanjutkan_penjualan_button.inner_text()  # Get the button text
-        log_print("Clicking button name:", text)
-        expect(self.lanjutkan_penjualan_button).to_contain_text("LANJUTKAN PENJUALAN")
-        self.lanjutkan_penjualan_button.click()
-        self.page.wait_for_load_state("networkidle")
+        self.click_locator(
+            self.lanjutkan_penjualan_button,
+            action_name=f"continuing sale for NIK {nik}",
+            expected_text="LANJUTKAN PENJUALAN",
+            timeout_ms=5000,
+        )
         log_print("Lanjutkan Penjualan button clicked")
 
     # Only run if the modal actually appears
@@ -271,14 +274,12 @@ class Dashboard:
                 expect(radio_button).to_be_visible(
                     timeout=10000
                 )  # Wait for the radio button to be visible
-                expect(radio_button).to_be_enabled(
-                    timeout=10000
-                )  # Wait for the radio button to be enabled
-                text = radio_button.inner_text()  # Get the radio button text
-                log_print("Clicking radio_button name:", text)
-                expect(radio_button).to_contain_text(option_name)
-                radio_button.click()
-                self.page.wait_for_load_state("networkidle")
+                self.click_locator(
+                    radio_button,
+                    action_name=f"selecting jenis pelanggan '{option_name}'",
+                    expected_text=option_name,
+                    timeout_ms=10000,
+                )
                 log_print(
                     f"Jenis Pelanggan radio_button clicked ({option_name})"
                 )
@@ -298,21 +299,12 @@ class Dashboard:
             )
 
         # Button is modal-scoped; assert presence/enabled then click
-        expect(self.lanjut_transaksi_button).to_be_visible(
-            timeout=10000
-        )  # Wait for the button to be visible
-        expect(self.lanjut_transaksi_button).to_be_enabled(
-            timeout=10000
-        )  # Wait for the button to be enabled
-        text = self.lanjut_transaksi_button.inner_text()  # Get the button text
-        log_print("Clicking button name:", text)  # Print the button name
-        expect(self.lanjut_transaksi_button).to_contain_text(
-            "LANJUTKAN TRANSAKSI"
-        )  # Assert the button text
-        self.lanjut_transaksi_button.click()  # Click the button
-        self.page.wait_for_load_state(
-            "networkidle"
-        )  # Wait for the page to load completely
+        self.click_locator(
+            self.lanjut_transaksi_button,
+            action_name="continuing Jenis Pelanggan flow",
+            expected_text="LANJUTKAN TRANSAKSI",
+            timeout_ms=10000,
+        )
         log_print("Lanjutkan Transaksi button clicked")  # Print confirmation
 
     # Only run if the "Pelanggan Tidak Terdaftar" modal appears
@@ -331,9 +323,12 @@ class Dashboard:
         log_print(f"Detected pelanggan modal title: {modal_text}")
         self.pelanggan_tidak_terdaftar_modal.wait_for(state="visible", timeout=3000)
 
-        expect(self.pelanggan_tidak_terdaftar_tutup).to_be_visible(timeout=5000)
-        expect(self.pelanggan_tidak_terdaftar_tutup).to_be_enabled(timeout=5000)
-        self.pelanggan_tidak_terdaftar_tutup.click()
+        self.click_locator(
+            self.pelanggan_tidak_terdaftar_tutup,
+            action_name="closing pelanggan tidak terdaftar modal",
+            timeout_ms=5000,
+            load_state=None,
+        )
         try:
             self.pelanggan_tidak_terdaftar_modal.wait_for(state="hidden", timeout=3000)
         except TimeoutError:
@@ -343,7 +338,11 @@ class Dashboard:
 
         try:
             self.nik_input.wait_for(state="visible", timeout=3000)
-            self.nik_input.fill("")
+            self.fill_input(
+                self.nik_input,
+                "",
+                action_name="resetting NIK input after pelanggan modal",
+            )
             log_print("Closed 'Pelanggan Tidak Terdaftar'; NIK input reset.")
         except TimeoutError:
             self.ensure_on_dashboard()
@@ -366,7 +365,11 @@ class Dashboard:
 
         try:
             self.nik_input.wait_for(state="visible", timeout=3000)
-            self.nik_input.fill("")
+            self.fill_input(
+                self.nik_input,
+                "",
+                action_name="clearing NIK input after under-17 validation",
+            )
             log_print("Cleared NIK input after under-17 validation message.")
         except TimeoutError:
             self.ensure_on_dashboard()
@@ -443,14 +446,21 @@ class Dashboard:
             log_print(missing_content_log)
             modal_reason = modal_reason or title_fallback or message_fallback
 
-        expect(close_button).to_be_visible(timeout=5000)
-        expect(close_button).to_be_enabled(timeout=5000)
-        close_button.click()
+        self.click_locator(
+            close_button,
+            action_name="closing warning modal",
+            timeout_ms=5000,
+            load_state=None,
+        )
         modal.wait_for(state="hidden", timeout=7000)
 
         try:
             self.nik_input.wait_for(state="visible", timeout=3000)
-            self.nik_input.fill("")
+            self.fill_input(
+                self.nik_input,
+                "",
+                action_name="resetting NIK input after warning modal",
+            )
             log_print(reset_log)
         except TimeoutError:
             self.ensure_on_dashboard()
@@ -552,9 +562,12 @@ class Dashboard:
 
         close_reason = _PERBARUI_DATA_PELANGGAN_CLOSED_REASON
         try:
-            expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_visible(timeout=2000)
-            expect(self.perbarui_data_pelanggan_lanjut_nanti).to_be_enabled(timeout=2000)
-            self.perbarui_data_pelanggan_lanjut_nanti.click()
+            self.click_locator(
+                self.perbarui_data_pelanggan_lanjut_nanti,
+                action_name="continuing past Perbarui Data Pelanggan modal",
+                timeout_ms=2000,
+                load_state=None,
+            )
             self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
             log_print(
                 "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
@@ -571,15 +584,22 @@ class Dashboard:
                 exc,
             )
 
-        expect(self.perbarui_data_pelanggan_tutup).to_be_visible(timeout=5000)
-        expect(self.perbarui_data_pelanggan_tutup).to_be_enabled(timeout=5000)
-        self.perbarui_data_pelanggan_tutup.click()
+        self.click_locator(
+            self.perbarui_data_pelanggan_tutup,
+            action_name="closing Perbarui Data Pelanggan modal",
+            timeout_ms=5000,
+            load_state=None,
+        )
         self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
 
         # Stay on NIK screen if possible, otherwise recover back to dashboard.
         try:
             self.nik_input.wait_for(state="visible", timeout=3000)
-            self.nik_input.fill("")
+            self.fill_input(
+                self.nik_input,
+                "",
+                action_name="resetting NIK input after Perbarui Data Pelanggan modal",
+            )
             log_print("Closed 'Perbarui Data Pelanggan'; NIK input reset.")
         except TimeoutError:
             self.ensure_on_dashboard()
