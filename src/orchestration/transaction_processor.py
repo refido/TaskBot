@@ -44,7 +44,7 @@ class TransactionProcessor:
     _LOGGED_OUT_CHECK_TIMEOUT_MS: int = 800
     _POST_SKIP_COOLDOWN_MS: int = 300
     _MAX_WAIT_SUCCESS_MS: int = 3500
-    _MAX_PUZZLE_RETRIES: int = 1
+    _MAX_PUZZLE_ATTEMPTS: int = 5
     _PUZZLE_RETRY_MODAL_TIMEOUT_MS: int = 2500
     _PUZZLE_REFRESH_TIMEOUT_MS: int = 5000
     _PUZZLE_RETRY_PROCESS: str = "proses_penjualan"
@@ -402,11 +402,13 @@ class TransactionProcessor:
 
     def _solve_puzzle(self, nik: str) -> PuzzleSolveOutcome:
         """Solve CAPTCHA puzzle with a bounded retry on failed challenges."""
-        max_attempts = 1 + self._MAX_PUZZLE_RETRIES
+        max_attempts = self._MAX_PUZZLE_ATTEMPTS
+        attempts_used = 0
         retry_count = 0
         retry_process = ""
 
         for attempt_number in range(1, max_attempts + 1):
+            attempts_used = attempt_number
             helpers = Helpers(self.page)
             bg_src, piece_src = helpers.get_puzzle_image_sources()
             piece_path = helpers.save_puzzle_piece(nik)
@@ -461,7 +463,7 @@ class TransactionProcessor:
             ).info("Retrying failed puzzle solve")
             log_print(
                 f"Retrying puzzle for NIK {nik} during {retry_process} "
-                f"({retry_count}/{self._MAX_PUZZLE_RETRIES})."
+                f"(attempt {attempt_number + 1}/{self._MAX_PUZZLE_ATTEMPTS})."
             )
             helpers.wait_for_puzzle_refresh(
                 previous_bg_src=bg_src,
@@ -471,7 +473,7 @@ class TransactionProcessor:
 
         return PuzzleSolveOutcome(
             solved=False,
-            attempts=max(1, retry_count + 1),
+            attempts=max(1, attempts_used),
             retry_count=retry_count,
             retry_process=retry_process,
         )

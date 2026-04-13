@@ -17,6 +17,31 @@ _UNREGISTERED_REASON_MARKERS = ("pelanggan tidak terdaftar", "not registered")
 _FAILED_PUZZLE_SOLVE_STATUS = "failed_puzzle_solve"
 _FAILED_PUZZLE_SOLVE_REASON = "CAPTCHA solving failed"
 _FAILED_PUZZLE_SOLVE_REASON_MARKERS = ("captcha solving failed",)
+_APPLICATION_ERROR_LABEL = "application_level_error"
+_NETWORK_ERROR_LABEL = "network_level_error"
+_NETWORK_ERROR_MARKERS = (
+    "net::",
+    "networkerror",
+    "network error",
+    "internet disconnected",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "connection closed",
+    "connection timeout",
+    "connection timed out",
+    "dns",
+    "name not resolved",
+    "proxy error",
+    "econnreset",
+    "econnrefused",
+    "enotfound",
+    "etimedout",
+    "err_connection",
+    "err_internet_disconnected",
+    "err_name_not_resolved",
+    "ns_error_net_timeout",
+)
 _NEEDS_UPDATE_SKIP_TYPE = "need updated customer data"
 _NEEDS_UPDATE_STATUS = f"skipped_{_NEEDS_UPDATE_SKIP_TYPE}"
 _NEEDS_UPDATE_REASON = "Need updated customer data"
@@ -81,6 +106,7 @@ class TransactionRow:
     finished_at: str = ""
     url: str = ""
     error: str = ""
+    error_label: str = ""
     duration_seconds: float = 0.0
     puzzle_solved: Optional[bool] = None
     puzzle_attempts: int = 0
@@ -118,6 +144,7 @@ class FileWriter:
         "puzzle_retry_process",
         "url",
         "error",
+        "error_label",
         "reason",
     ]
 
@@ -350,16 +377,24 @@ class MetricsCalculator:
 
     def _get_error_analysis(self) -> Dict[str, Any]:
         error_types: DefaultDict[str, int] = defaultdict(int)
+        error_labels: DefaultDict[str, int] = defaultdict(int)
         for row in self.rows:
-            if row.status == "error" and row.reason:
-                error_type = row.reason.split("\n")[0][:100]
-                error_types[error_type] += 1
+            if row.status != "error":
+                continue
+
+            error_type = row.reason.split("\n")[0][:100] if row.reason else "unknown_error"
+            error_types[error_type] += 1
+            error_label = row.error_label or _APPLICATION_ERROR_LABEL
+            error_labels[error_label] += 1
 
         return {
             "total_errors": sum(error_types.values()),
             "unique_error_types": len(error_types),
             "error_frequency": dict(
                 sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:10]
+            ),
+            "error_labels": dict(
+                sorted(error_labels.items(), key=lambda item: item[0])
             ),
         }
 
@@ -399,7 +434,12 @@ class MetricsCalculator:
             "puzzle_metrics": {},
             "breakdown_by_status": {},
             "skip_reasons": {},
-            "error_analysis": {},
+            "error_analysis": {
+                "total_errors": 0,
+                "unique_error_types": 0,
+                "error_frequency": {},
+                "error_labels": {},
+            },
         }
 
 
@@ -601,6 +641,11 @@ class TransactionReporter:
             reason = _UNDER_17_REASON
         else:
             status = "error"
+        error_label = (
+            self._classify_error_label(exc, reason, error_details)
+            if status == "error"
+            else ""
+        )
         row = self._create_row(
             status=status,
             nik=nik,
@@ -612,6 +657,7 @@ class TransactionReporter:
             puzzle_retry_process=puzzle_retry_process,
             reason=reason,
             error=error_details,
+            error_label=error_label,
         )
         self._record_row(row)
 
@@ -663,6 +709,7 @@ class TransactionReporter:
                 **mapping_report,
                 "mapping_error_report": mapping_error_report,
                 "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
+                "errors_by_label": self.get_error_niks_by_label(),
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
                 "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
@@ -775,6 +822,15 @@ class TransactionReporter:
             grouped[self._normalize_error_reason(row.reason)].append(row.nik)
         return dict(grouped)
 
+    def get_error_niks_by_label(self) -> Dict[str, List[str]]:
+        """Get failed NIKs grouped by error label."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != "error" or self._is_unregistered_row(row):
+                continue
+            grouped[row.error_label or _APPLICATION_ERROR_LABEL].append(row.nik)
+        return dict(grouped)
+
     def get_other_status_niks_by_status(self) -> Dict[str, List[str]]:
         """Get NIKs grouped by any non-standard status."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
@@ -824,6 +880,7 @@ class TransactionReporter:
             "failed_puzzle_solve_niks": self.get_failed_puzzle_solve_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
             "unregistered_niks": self.get_unregistered_niks(),
+            "errors_by_label": self.get_error_niks_by_label(),
             "errors_by_reason": self.get_error_niks_by_reason(),
             "other_statuses": self.get_other_status_niks_by_status(),
             "puzzle_failed_niks": self.get_puzzle_failed_niks(),
@@ -915,6 +972,18 @@ class TransactionReporter:
         return first_line if first_line else "unknown_error"
 
     @staticmethod
+    def _classify_error_label(exc: Exception, reason: str, error_details: str) -> str:
+        """Classify whether an error came from the app layer or the network layer."""
+        combined = "\n".join(
+            part
+            for part in (type(exc).__name__, reason, error_details)
+            if part
+        ).casefold()
+        if any(marker in combined for marker in _NETWORK_ERROR_MARKERS):
+            return _NETWORK_ERROR_LABEL
+        return _APPLICATION_ERROR_LABEL
+
+    @staticmethod
     def _reason_indicates_unregistered(reason: str) -> bool:
         normalized = reason.casefold() if reason else ""
         return any(marker in normalized for marker in _UNREGISTERED_REASON_MARKERS)
@@ -978,6 +1047,7 @@ class TransactionReporter:
         puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
+        error_label: str = "",
     ) -> None:
         row = self._create_row(
             status=status,
@@ -990,6 +1060,7 @@ class TransactionReporter:
             puzzle_retry_process=puzzle_retry_process,
             reason=reason,
             error=error,
+            error_label=error_label,
         )
         self._record_row(row)
 
@@ -1005,6 +1076,7 @@ class TransactionReporter:
         puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
+        error_label: str = "",
     ) -> TransactionRow:
         row = TransactionRow(
             operator=self.operator,
@@ -1014,6 +1086,7 @@ class TransactionReporter:
             finished_at=now_iso(),
             url=url,
             error=error,
+            error_label=error_label,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
             puzzle_retry_count=puzzle_retry_count,
@@ -1037,6 +1110,7 @@ class TransactionReporter:
             puzzle_attempts=row.puzzle_attempts,
             puzzle_retry_count=row.puzzle_retry_count,
             puzzle_retry_process=row.puzzle_retry_process,
+            error_label=row.error_label,
             reason=row.reason,
         ).info("Transaction row recorded")
 
@@ -1059,6 +1133,7 @@ class TransactionReporter:
                 **mapping_report,
                 "mapping_error_report": mapping_error_report,
                 "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
+                "errors_by_label": self.get_error_niks_by_label(),
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
             },
@@ -1296,6 +1371,10 @@ class TransactionReporter:
         log_print("\nError Analysis:")
         log_print(f"  Total Errors: {analysis['total_errors']}")
         log_print(f"  Unique Error Types: {analysis['unique_error_types']}")
+        if analysis["error_labels"]:
+            log_print("  Error Labels:")
+            for error_label, count in analysis["error_labels"].items():
+                log_print(f"    {error_label}: {count}")
         if analysis["error_frequency"]:
             log_print("  Top Errors:")
             for error, count in list(analysis["error_frequency"].items())[:3]:
