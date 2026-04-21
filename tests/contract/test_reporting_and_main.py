@@ -1,6 +1,6 @@
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import main as taskbot_main
 import src.web.reporter as reporter_module
@@ -120,6 +120,45 @@ def test_run_account_limits_testing_hits_to_three(monkeypatch):
     assert limiter_kwargs["window_seconds"] == 60
     assert limiter_kwargs["min_cooldown"] == 60
     assert limiter_kwargs["jitter_seconds"] == 5
+
+
+def test_main_delegates_account_fanout_to_process_accounts(monkeypatch):
+    calls = {}
+
+    class DummyLogger:
+        def bind(self, **kwargs):
+            return self
+
+        def info(self, *args, **kwargs) -> None:
+            return None
+
+    class FakeConfig:
+        def account_configs(self):
+            return [SimpleNamespace(email_user="tester@example.com", nik=["3174"])]
+
+    def fake_configure_logging():
+        return {
+            "run_id": "run-1",
+            "json_log_path": "logs/run-1.jsonl",
+        }
+
+    def fake_process_accounts(account_configs, *, run_account, log):
+        calls["account_configs"] = account_configs
+        calls["run_account"] = run_account
+        calls["log"] = log
+        return [("tester@example.com", True)]
+
+    monkeypatch.setattr(taskbot_main, "configure_logging", fake_configure_logging)
+    monkeypatch.setattr(taskbot_main, "logger", DummyLogger())
+    monkeypatch.setattr(taskbot_main, "Config", FakeConfig)
+    monkeypatch.setattr(taskbot_main, "process_accounts", fake_process_accounts)
+
+    taskbot_main.main()
+
+    assert len(calls["account_configs"]) == 1
+    assert calls["account_configs"][0].email_user == "tester@example.com"
+    assert calls["run_account"] is taskbot_main.run_account
+    assert calls["log"] is taskbot_main.logger
 
 
 def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):

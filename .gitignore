@@ -164,3 +164,6 @@ reports*
 data_puzzle
 *.png
 *.jpg
+.pytest_tmp/
+pytest-cache-files-*/
+tmp*/
