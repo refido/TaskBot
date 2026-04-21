@@ -17,7 +17,7 @@ def run_account(config: Config) -> tuple[str, bool]:
     """
     reporter = TransactionReporter(operator=config.email_user)
     limiter = SkipRateLimiter(
-        max_skips=5, window_seconds=60, min_cooldown=60, jitter_seconds=5
+        max_skips=3, window_seconds=60, min_cooldown=60, jitter_seconds=5
     )
 
     is_successful = True
