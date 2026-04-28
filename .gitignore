@@ -160,7 +160,10 @@ cython_debug/
 #.idea/
 
 # Add customs ignore here
-reports
+reports*
 data_puzzle
 *.png
 *.jpg
+.pytest_tmp/
+pytest-cache-files-*/
+tmp*/
