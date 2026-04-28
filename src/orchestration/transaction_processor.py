@@ -112,11 +112,7 @@ class TransactionProcessor:
                 penjualan = Penjualan(self.page)
 
                 self._probe_session_if_due(reason=f"before cek pesanan for NIK {nik}")
-                self._check_zero_stock_and_stop(
-                    penjualan, nik, started_at, stage="before cek pesanan"
-                )
-
-                if self._check_max_kuota(
+                if self._check_transaction_blocker(
                     penjualan, nik, started_at, stage="before cek pesanan"
                 ):
                     return
@@ -124,11 +120,7 @@ class TransactionProcessor:
                 penjualan.cek_pesanan()
 
                 self._probe_session_if_due(reason=f"after cek pesanan for NIK {nik}")
-                self._check_zero_stock_and_stop(
-                    penjualan, nik, started_at, stage="after cek pesanan"
-                )
-
-                if self._check_max_kuota(
+                if self._check_transaction_blocker(
                     penjualan, nik, started_at, stage="after cek pesanan"
                 ):
                     return
@@ -238,27 +230,18 @@ class TransactionProcessor:
     def _handle_pre_checks(self, nik: str, started_at: str) -> bool:
         return self._get_precheck_service().handle_pre_checks(nik, started_at)
 
-    def _check_max_kuota(
+    def _check_transaction_blocker(
         self, penjualan: Penjualan, nik: str, started_at: str, stage: str
     ) -> bool:
-        return self._get_precheck_service().check_max_kuota(
+        outcome = self._get_precheck_service().check_transaction_blocker(
             penjualan,
             nik,
             started_at,
             stage,
         )
-
-    def _check_zero_stock_and_stop(
-        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
-    ) -> None:
-        reason = self._get_precheck_service().check_zero_stock(
-            penjualan,
-            nik,
-            started_at,
-            stage,
-        )
-        if reason:
-            raise OutOfSellableStockError(reason)
+        if outcome.stop_reason:
+            raise OutOfSellableStockError(outcome.stop_reason)
+        return outcome.should_skip
 
     def _solve_puzzle(self, nik: str) -> PuzzleSolveOutcome:
         return self._get_puzzle_service().solve(nik)

@@ -87,20 +87,15 @@ class FakePrecheckService:
     def __init__(self, *, should_skip: bool = False) -> None:
         self.should_skip = should_skip
         self.precheck_calls: list[tuple[str, str]] = []
-        self.zero_stock_calls: list[str] = []
-        self.max_kuota_calls: list[str] = []
+        self.blocker_calls: list[str] = []
 
     def handle_pre_checks(self, nik: str, started_at: str) -> bool:
         self.precheck_calls.append((nik, started_at))
         return self.should_skip
 
-    def check_zero_stock(self, penjualan, nik: str, started_at: str, stage: str):
-        self.zero_stock_calls.append(stage)
-        return None
-
-    def check_max_kuota(self, penjualan, nik: str, started_at: str, stage: str) -> bool:
-        self.max_kuota_calls.append(stage)
-        return False
+    def check_transaction_blocker(self, penjualan, nik: str, started_at: str, stage: str):
+        self.blocker_calls.append(stage)
+        return SimpleNamespace(should_skip=False, stop_reason=None)
 
 
 class FakePuzzleService:
@@ -316,11 +311,7 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
     assert limiter.wait_calls == 1
     assert limiter.success_calls == 1
     assert precheck_service.precheck_calls == [("3174", "started-at")]
-    assert precheck_service.zero_stock_calls == [
-        "before cek pesanan",
-        "after cek pesanan",
-    ]
-    assert precheck_service.max_kuota_calls == [
+    assert precheck_service.blocker_calls == [
         "before cek pesanan",
         "after cek pesanan",
     ]

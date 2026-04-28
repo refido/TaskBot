@@ -1,9 +1,13 @@
 import re
+from typing import Literal
 
 from playwright.sync_api import Page
 
 from src.infrastructure.browser.page_objects.base_page import BasePage
 from src.logging_utils import log_print
+
+TransactionBlockerKind = Literal["zero_stock", "max_kuota"]
+TransactionBlockerAlert = tuple[TransactionBlockerKind, str]
 
 
 class Penjualan(BasePage):
@@ -18,6 +22,10 @@ class Penjualan(BasePage):
         self.cek_max_kuota_alert = page.locator("div.mantine-Text-root").filter(
             has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.I | re.S)
         )
+        self.transaction_blocker_alert = page.locator(
+            ".styles_alertInfo__WvEN4 .styles_content__fqQml > span:nth-child(1), "
+            "div.mantine-Text-root"
+        ).filter(has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.I | re.S))
         self.zero_stock_alert_text = page.locator(
             ".styles_alertInfo__WvEN4 .styles_content__fqQml > span:nth-child(1)"
         )
@@ -27,8 +35,29 @@ class Penjualan(BasePage):
         self.click_button_and_wait(self.cek_pesanan_button, "CEK PESANAN")
         log_print("Cek Pesanan button clicked")
 
+    def read_transaction_blocker_alert(
+        self, timeout: int = 1500
+    ) -> TransactionBlockerAlert | None:
+        try:
+            self.transaction_blocker_alert.first.wait_for(
+                state="visible", timeout=timeout
+            )
+        except Exception:
+            log_print("Transaction blocker alert not present")
+            return None
+
+        text = self.transaction_blocker_alert.first.inner_text().strip()
+        if not text:
+            text = "Tidak dapat transaksi"
+            log_print("Transaction blocker alert is visible but empty")
+
+        if self.is_zero_stock_alert_text(text):
+            return ("zero_stock", text)
+
+        log_print("Max kuota alert detected")
+        return ("max_kuota", text)
+
     def is_max_kuota_alert_present(self, timeout: int = 1500) -> bool:
-        log_print(self.page.locator("div.mantine-Text-root").all_text_contents())
         try:
             self.cek_max_kuota_alert.wait_for(state="visible", timeout=timeout)
             log_print("Max kuota alert detected")

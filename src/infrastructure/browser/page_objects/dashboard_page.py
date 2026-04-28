@@ -20,7 +20,23 @@ _UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
 _UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan."
 _FAILED_PUZZLE_MODAL_TITLE = "Cocokan Gambar untuk Proses Keamanan Penjualan"
 
-PerbaruiDataPelangganAction = Literal["not_present", "continued", "close", "cannot_continue"]
+PerbaruiDataPelangganAction = Literal[
+    "not_present", "continued", "close", "cannot_continue"
+]
+CustomerEntryOutcome = Literal[
+    "transaction_ready",
+    "customer_type_selected",
+    "under_17",
+    "precheck_modal",
+    "unknown",
+]
+PrecheckModalName = Literal[
+    "not_registered",
+    "perbarui",
+    "invalid_registered_nik",
+    "cannot_transact_at_base",
+    "unusual_transaction",
+]
 
 
 class Dashboard(BasePage):
@@ -39,6 +55,7 @@ class Dashboard(BasePage):
         self.lanjutkan_penjualan_button = page.get_by_role(
             "button", name="LANJUTKAN PENJUALAN"
         )
+        self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
 
         self.jenis_pelanggan_modal = page.get_by_role("dialog").filter(
             has_text="Jenis Pelanggan"
@@ -242,6 +259,79 @@ class Dashboard(BasePage):
             timeout_ms=5000,
         )
         log_print("Lanjutkan Penjualan button clicked")
+
+    def resolve_customer_entry(
+        self, detect_timeout: int = 4000
+    ) -> CustomerEntryOutcome:
+        try:
+            self._customer_entry_outcome_locator().first.wait_for(
+                state="visible", timeout=detect_timeout
+            )
+        except TimeoutError:
+            log_print("No customer-entry outcome detected yet; continuing checks.")
+            return "unknown"
+
+        if self._is_visible(self.nik_under_17_validation):
+            return "under_17"
+
+        if self._is_visible(self.jenis_pelanggan_modal):
+            self.select_jenis_pelanggan()
+            return "customer_type_selected"
+
+        if self.is_transaction_form_ready(detect_timeout=100):
+            return "transaction_ready"
+
+        if self.get_visible_precheck_modal() is not None:
+            return "precheck_modal"
+
+        return "unknown"
+
+    def is_transaction_form_ready(self, detect_timeout: int = 700) -> bool:
+        try:
+            self.cek_pesanan_button.wait_for(state="visible", timeout=detect_timeout)
+        except TimeoutError:
+            log_print("Transaction form not ready yet; checking blocking modals.")
+            return False
+
+        if self._has_visible_dialog():
+            log_print(
+                "Transaction form is visible with a blocking dialog; resolving modal first."
+            )
+            return False
+
+        log_print("Transaction form ready; skipping rare pre-check modal scan.")
+        return True
+
+    def wait_for_precheck_modal(
+        self, detect_timeout: int = 6000
+    ) -> PrecheckModalName | None:
+        try:
+            self._precheck_modal_locator().first.wait_for(
+                state="visible", timeout=detect_timeout
+            )
+        except TimeoutError:
+            log_print("No known pre-check modal present; continuing transaction.")
+            return None
+
+        modal_name = self.get_visible_precheck_modal()
+        if modal_name is None:
+            log_print("A pre-check modal appeared but did not match known handlers.")
+            return None
+
+        log_print(f"Detected pre-check modal: {modal_name}")
+        return modal_name
+
+    def get_visible_precheck_modal(self) -> PrecheckModalName | None:
+        for modal_name, modal in [
+            ("not_registered", self.pelanggan_tidak_terdaftar_modal),
+            ("perbarui", self.perbarui_data_pelanggan_modal),
+            ("invalid_registered_nik", self.invalid_registered_nik_modal),
+            ("cannot_transact_at_base", self.cannot_transact_at_base_modal),
+            ("unusual_transaction", self.unusual_transaction_modal),
+        ]:
+            if self._is_visible(modal):
+                return modal_name
+        return None
 
     def select_jenis_pelanggan_if_needed(self, detect_timeout: int = 2000) -> bool:
         try:
@@ -570,6 +660,41 @@ class Dashboard(BasePage):
             load_state=None,
         )
         modal.wait_for(state="hidden", timeout=7000)
+
+    def _customer_entry_outcome_locator(self):
+        return (
+            self.nik_under_17_validation.or_(self.jenis_pelanggan_modal)
+            .or_(self.cek_pesanan_button)
+            .or_(self._precheck_modal_locator())
+        )
+
+    def _precheck_modal_locator(self):
+        return (
+            self.pelanggan_tidak_terdaftar_modal.or_(
+                self.perbarui_data_pelanggan_modal
+            )
+            .or_(self.invalid_registered_nik_modal)
+            .or_(self.cannot_transact_at_base_modal)
+            .or_(self.unusual_transaction_modal)
+        )
+
+    @staticmethod
+    def _is_visible(locator) -> bool:
+        try:
+            return locator.is_visible(timeout=100)
+        except TypeError:
+            try:
+                return locator.is_visible()
+            except Exception:
+                return False
+        except Exception:
+            return False
+
+    def _has_visible_dialog(self) -> bool:
+        try:
+            return self.page.locator("[role='dialog']:visible").count() > 0
+        except Exception:
+            return False
 
     # Temporary compatibility wrappers for older callers.
     def close_pelanggan_tidak_terdaftar_if_needed(
