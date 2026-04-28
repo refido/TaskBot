@@ -1,331 +1,71 @@
-import csv
 import json
-import os
 import traceback
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional
 
+from src.infrastructure.reporting.analytics import MetricsCalculator
+from src.infrastructure.reporting.classification import (
+    _APPLICATION_ERROR_LABEL,
+    _CANNOT_TRANSACT_AT_BASE_REASON,
+    _CANNOT_TRANSACT_AT_BASE_SKIP_TYPE,
+    _CANNOT_TRANSACT_AT_BASE_STATUS,
+    _FAILED_PUZZLE_SOLVE_REASON,
+    _FAILED_PUZZLE_SOLVE_STATUS,
+    _INVALID_REGISTERED_NIK_REASON,
+    _INVALID_REGISTERED_NIK_SKIP_TYPE,
+    _INVALID_REGISTERED_NIK_STATUS,
+    _NEEDS_UPDATE_REASON,
+    _NEEDS_UPDATE_SKIP_TYPE,
+    _NEEDS_UPDATE_STATUS,
+    _NETWORK_ERROR_LABEL,
+    _UNDER_17_REASON,
+    _UNDER_17_SKIP_TYPE,
+    _UNDER_17_STATUS,
+    _UNREGISTERED_SKIP_TYPE,
+    _UNREGISTERED_STATUS,
+    _UNUSUAL_TRANSACTION_OTHER_BASE_REASON,
+    _UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE,
+    _UNUSUAL_TRANSACTION_OTHER_BASE_STATUS,
+    classify_error_label,
+    is_unregistered_row,
+    normalize_error_reason,
+    reason_indicates_cannot_transact_at_base,
+    reason_indicates_failed_puzzle_solve,
+    reason_indicates_invalid_registered_nik,
+    reason_indicates_needs_update,
+    reason_indicates_under_17,
+    reason_indicates_unregistered,
+    reason_indicates_unusual_transaction_at_other_base,
+)
+from src.infrastructure.reporting.console_summary import (
+    print_error_analysis,
+    print_nik_statistics,
+    print_performance,
+    print_puzzle_metrics,
+    print_section,
+    print_skip_reasons,
+    print_skipped_niks,
+    print_status_breakdown,
+    print_unregistered_niks,
+)
+from src.infrastructure.reporting.file_writer import FileWriter
+from src.infrastructure.reporting.models import TransactionRow, now_iso, parse_iso
 from src.logging_utils import log_print, logger
+from src.path_utils import build_dated_dir, build_timestamped_run_dir
 
-
-def now_iso() -> str:
-    """Get current timestamp in ISO format."""
-    return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def parse_iso(iso_str: str) -> datetime:
-    """Parse ISO format timestamp to datetime object."""
-    try:
-        return datetime.fromisoformat(iso_str)
-    except Exception:
-        # Preserve original behavior: fallback to "now" on any parsing error.
-        return datetime.now().astimezone()
-
-
-@dataclass
-class TransactionRow:
-    """Data model for a single transaction record."""
-
-    nik: str
-    status: str
-    operator: str = ""
-    started_at: str = ""
-    finished_at: str = ""
-    url: str = ""
-    error: str = ""
-    duration_seconds: float = 0.0
-    puzzle_solved: Optional[bool] = None
-    puzzle_attempts: int = 0
-    reason: str = ""
-
-    def compute_duration(self) -> None:
-        """Calculate duration between started_at and finished_at."""
-        if not (self.started_at and self.finished_at):
-            return
-
-        try:
-            start = parse_iso(self.started_at)
-            finish = parse_iso(self.finished_at)
-            self.duration_seconds = (finish - start).total_seconds()
-        except Exception:
-            # Preserve original behavior: default to 0.0 on error.
-            self.duration_seconds = 0.0
-
-
-class FileWriter:
-    """Handles file I/O operations for transaction data."""
-
-    _CSV_FIELDNAMES: List[str] = [
-        "operator",
-        "nik",
-        "status",
-        "started_at",
-        "finished_at",
-        "duration_seconds",
-        "puzzle_solved",
-        "puzzle_attempts",
-        "url",
-        "error",
-        "reason",
-    ]
-
-    def __init__(self, csv_path: Path, jsonl_path: Path):
-        self.csv_path = csv_path
-        self.jsonl_path = jsonl_path
-        self.fieldnames = list(self._CSV_FIELDNAMES)
-
-    # Public methods
-    def init_csv(self) -> None:
-        """Initialize CSV file with headers if needed."""
-        needs_header = not (self.csv_path.exists() and self.csv_path.stat().st_size > 0)
-        with self.csv_path.open("a", newline="", encoding="utf-8") as file_handle:
-            writer = csv.DictWriter(file_handle, fieldnames=self.fieldnames)
-            if needs_header:
-                writer.writeheader()
-                self._flush_file(file_handle)
-
-    def append_row(self, row: TransactionRow) -> None:
-        """Append a row to both CSV and JSONL files."""
-        self._append_to_csv(row)
-        self._append_to_jsonl(row)
-
-    def write_json(self, path: Path, data: dict) -> None:
-        """Write JSON data to file."""
-        path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
-    # Private helpers
-    def _append_to_csv(self, row: TransactionRow) -> None:
-        with self.csv_path.open("a", newline="", encoding="utf-8") as file_handle:
-            writer = csv.DictWriter(file_handle, fieldnames=self.fieldnames)
-            writer.writerow(asdict(row))
-            self._flush_file(file_handle)
-
-    def _append_to_jsonl(self, row: TransactionRow) -> None:
-        with self.jsonl_path.open("a", encoding="utf-8") as file_handle:
-            file_handle.write(json.dumps(asdict(row), ensure_ascii=False) + "\n")
-            self._flush_file(file_handle)
-
-    @staticmethod
-    def _flush_file(file_handle) -> None:
-        """Flush and sync file to disk."""
-        file_handle.flush()
-        try:
-            os.fsync(file_handle.fileno())
-        except Exception:
-            # Best-effort fsync; preserve original behavior.
-            pass
-
-
-class MetricsCalculator:
-    """Calculates analytics and metrics from transaction data."""
-
-    def __init__(self, rows: List[TransactionRow]):
-        self.rows = rows
-
-    # Public methods
-    def get_summary(self) -> Dict[str, int]:
-        """Get count summary by status."""
-        counts: DefaultDict[str, int] = defaultdict(int)
-        for row in self.rows:
-            counts[row.status] += 1
-        counts["total"] = len(self.rows)
-        return dict(counts)
-
-    def get_analytics(self, run_started_at: str) -> Dict[str, Any]:
-        """Generate comprehensive analytics."""
-        if not self.rows:
-            return self._empty_analytics()
-
-        return {
-            "summary": self._calculate_summary(),
-            "performance": self._calculate_performance(run_started_at),
-            "puzzle_metrics": self._calculate_puzzle_metrics(),
-            "breakdown_by_status": self._get_status_breakdown(),
-            "skip_reasons": self._get_skip_reasons(),
-            "error_analysis": self._get_error_analysis(),
-        }
-
-    # Private helpers
-    def _calculate_summary(self) -> Dict[str, Any]:
-        total = len(self.rows)
-        counts = self.get_summary()
-
-        completed = counts.get("completed", 0)
-        errors = counts.get("error", 0)
-        skipped = sum(counts.get(k, 0) for k in counts if k.startswith("skipped_"))
-
-        return {
-            "total_transactions": total,
-            "completed": completed,
-            "errors": errors,
-            "skipped": skipped,
-            "success_rate_percent": self._safe_percentage(completed, total),
-            "error_rate_percent": self._safe_percentage(errors, total),
-            "skip_rate_percent": self._safe_percentage(skipped, total),
-        }
-
-    def _calculate_performance(self, run_started_at: str) -> Dict[str, Any]:
-        durations = [r.duration_seconds for r in self.rows if r.duration_seconds > 0]
-        completed_durations = [
-            r.duration_seconds
-            for r in self.rows
-            if r.status == "completed" and r.duration_seconds > 0
-        ]
-
-        total_runtime, throughput = self._compute_runtime_and_throughput(run_started_at)
-
-        return {
-            "total_runtime_seconds": round(total_runtime, 2),
-            "total_runtime_minutes": round(total_runtime / 60, 2),
-            "throughput_per_minute": round(throughput, 2),
-            "avg_duration_seconds": self._safe_average(durations),
-            "min_duration_seconds": round(min(durations), 3) if durations else 0.0,
-            "max_duration_seconds": round(max(durations), 3) if durations else 0.0,
-            "avg_completed_duration_seconds": self._safe_average(completed_durations),
-        }
-
-    def _compute_runtime_and_throughput(
-        self, run_started_at: str
-    ) -> tuple[float, float]:
-        try:
-            run_start = parse_iso(run_started_at)
-            run_end = datetime.now().astimezone()
-            total_runtime = (run_end - run_start).total_seconds()
-            throughput = (
-                len(self.rows) / (total_runtime / 60) if total_runtime > 0 else 0.0
-            )
-            return total_runtime, throughput
-        except Exception:
-            # Preserve original behavior.
-            return 0.0, 0.0
-
-    def _calculate_puzzle_metrics(self) -> Dict[str, Any]:
-        puzzle_rows = [r for r in self.rows if r.puzzle_solved is not None]
-        if not puzzle_rows:
-            return {
-                "total_puzzles": 0,
-                "puzzles_solved": 0,
-                "puzzles_failed": 0,
-                "puzzle_success_rate_percent": 0.0,
-                "puzzle_failure_rate_percent": 0.0,
-                "avg_attempts": 0.0,
-                "total_attempts": 0,
-                "avg_solved_duration_seconds": 0.0,
-                "avg_failed_duration_seconds": 0.0,
-            }
-
-        total_puzzles = len(puzzle_rows)
-        solved = sum(1 for r in puzzle_rows if r.puzzle_solved is True)
-        failed = sum(1 for r in puzzle_rows if r.puzzle_solved is False)
-        total_attempts = sum(r.puzzle_attempts for r in puzzle_rows)
-
-        solved_durations = [
-            r.duration_seconds
-            for r in puzzle_rows
-            if r.puzzle_solved is True and r.duration_seconds > 0
-        ]
-        failed_durations = [
-            r.duration_seconds
-            for r in puzzle_rows
-            if r.puzzle_solved is False and r.duration_seconds > 0
-        ]
-
-        return {
-            "total_puzzles": total_puzzles,
-            "puzzles_solved": solved,
-            "puzzles_failed": failed,
-            "puzzle_success_rate_percent": self._safe_percentage(solved, total_puzzles),
-            "puzzle_failure_rate_percent": self._safe_percentage(failed, total_puzzles),
-            "avg_attempts": round(total_attempts / total_puzzles, 2)
-            if total_puzzles > 0
-            else 0.0,
-            "total_attempts": total_attempts,
-            "avg_solved_duration_seconds": self._safe_average(solved_durations),
-            "avg_failed_duration_seconds": self._safe_average(failed_durations),
-        }
-
-    def _get_status_breakdown(self) -> Dict[str, Any]:
-        breakdown: DefaultDict[str, Dict[str, Any]] = defaultdict(
-            lambda: {"count": 0, "durations": []}
-        )
-
-        for row in self.rows:
-            breakdown[row.status]["count"] += 1
-            if row.duration_seconds > 0:
-                breakdown[row.status]["durations"].append(row.duration_seconds)
-
-        total = len(self.rows)
-        result: Dict[str, Any] = {}
-        for status, data in breakdown.items():
-            durations = data["durations"]
-            result[status] = {
-                "count": data["count"],
-                "percentage": self._safe_percentage(data["count"], total),
-                "avg_duration_seconds": self._safe_average(durations),
-            }
-        return result
-
-    def _get_skip_reasons(self) -> Dict[str, int]:
-        skip_reasons: DefaultDict[str, int] = defaultdict(int)
-        for row in self.rows:
-            if row.status.startswith("skipped_") and row.reason:
-                skip_reasons[row.reason] += 1
-        return dict(skip_reasons)
-
-    def _get_error_analysis(self) -> Dict[str, Any]:
-        error_types: DefaultDict[str, int] = defaultdict(int)
-        for row in self.rows:
-            if row.status == "error" and row.reason:
-                error_type = row.reason.split("\n")[0][:100]
-                error_types[error_type] += 1
-
-        return {
-            "total_errors": sum(error_types.values()),
-            "unique_error_types": len(error_types),
-            "error_frequency": dict(
-                sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:10]
-            ),
-        }
-
-    @staticmethod
-    def _safe_percentage(value: int, total: int) -> float:
-        return round((value / total * 100), 2) if total > 0 else 0.0
-
-    @staticmethod
-    def _safe_average(values: List[float]) -> float:
-        return round(sum(values) / len(values), 3) if values else 0.0
-
-    @staticmethod
-    def _empty_analytics() -> Dict[str, Any]:
-        return {
-            "summary": {
-                "total_transactions": 0,
-                "completed": 0,
-                "errors": 0,
-                "skipped": 0,
-                "success_rate_percent": 0.0,
-                "error_rate_percent": 0.0,
-                "skip_rate_percent": 0.0,
-            },
-            "performance": {
-                "total_runtime_seconds": 0.0,
-                "total_runtime_minutes": 0.0,
-                "throughput_per_minute": 0.0,
-                "avg_duration_seconds": 0.0,
-                "min_duration_seconds": 0.0,
-                "max_duration_seconds": 0.0,
-                "avg_completed_duration_seconds": 0.0,
-            },
-            "puzzle_metrics": {},
-            "breakdown_by_status": {},
-            "skip_reasons": {},
-            "error_analysis": {},
-        }
+__all__ = [
+    "FileWriter",
+    "MetricsCalculator",
+    "TransactionReporter",
+    "TransactionRow",
+    "now_iso",
+    "parse_iso",
+    "_APPLICATION_ERROR_LABEL",
+    "_NETWORK_ERROR_LABEL",
+]
 
 
 class TransactionReporter:
@@ -364,6 +104,8 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
     ) -> None:
         """Record a completed transaction."""
@@ -374,6 +116,8 @@ class TransactionReporter:
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
         )
 
@@ -401,22 +145,76 @@ class TransactionReporter:
         """Record max kuota skip."""
         self.skip(nik, started_at, "max_kuota", url, reason)
 
+    def skip_out_of_stock(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = "Sellable stock is empty",
+    ) -> None:
+        """Record out-of-stock stop."""
+        self.skip(nik, started_at, "out_of_stock", url, reason)
+
     def skip_needs_update(
         self,
         nik: str,
         started_at: str,
         url: str = "",
-        reason: str = "Needs data update",
+        reason: str = _NEEDS_UPDATE_REASON,
     ) -> None:
         """Record needs update skip."""
-        self.skip(nik, started_at, "needs_update", url, reason)
+        self.skip(nik, started_at, _NEEDS_UPDATE_SKIP_TYPE, url, reason)
+
+    def skip_under_17(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _UNDER_17_REASON,
+    ) -> None:
+        """Record under-17 NIK skip."""
+        self.skip(nik, started_at, _UNDER_17_SKIP_TYPE, url, reason)
+
+    def skip_invalid_registered_nik(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _INVALID_REGISTERED_NIK_REASON,
+    ) -> None:
+        """Record invalid registered-customer NIK skip."""
+        self.skip(
+            nik, started_at, _INVALID_REGISTERED_NIK_SKIP_TYPE, url, reason
+        )
+
+    def skip_cannot_transact_at_base(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _CANNOT_TRANSACT_AT_BASE_REASON,
+    ) -> None:
+        """Record base-restriction skip."""
+        self.skip(nik, started_at, _CANNOT_TRANSACT_AT_BASE_SKIP_TYPE, url, reason)
+
+    def skip_unusual_transaction_at_other_base(
+        self,
+        nik: str,
+        started_at: str,
+        url: str = "",
+        reason: str = _UNUSUAL_TRANSACTION_OTHER_BASE_REASON,
+    ) -> None:
+        """Record unusual transaction at another base skip."""
+        self.skip(
+            nik, started_at, _UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE, url, reason
+        )
 
     def skip_not_registered(
         self,
         nik: str,
         started_at: str,
         url: str = "",
-        reason: str = "Not registered",
+        reason: str = "Pelanggan Tidak Terdaftar",
     ) -> None:
         """Record not registered skip."""
         self.skip(nik, started_at, "not_registered", url, reason)
@@ -429,24 +227,99 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
     ) -> None:
         """Record an error."""
+        reason = str(exc)
+        error_details = traceback.format_exc()
+        combined_reason = f"{reason}\n{error_details}"
+        if puzzle_solved is False or self._reason_indicates_failed_puzzle_solve(
+            combined_reason
+        ):
+            self.failed_puzzle_solve(
+                nik,
+                started_at,
+                exc=exc,
+                url=url,
+                puzzle_attempts=puzzle_attempts,
+                puzzle_retry_count=puzzle_retry_count,
+                puzzle_retry_process=puzzle_retry_process,
+            )
+            return
+        if self._reason_indicates_unregistered(combined_reason):
+            status = _UNREGISTERED_STATUS
+        elif self._reason_indicates_needs_update(combined_reason):
+            status = _NEEDS_UPDATE_STATUS
+            reason = _NEEDS_UPDATE_REASON
+        elif self._reason_indicates_invalid_registered_nik(combined_reason):
+            status = _INVALID_REGISTERED_NIK_STATUS
+            reason = _INVALID_REGISTERED_NIK_REASON
+        elif self._reason_indicates_unusual_transaction_at_other_base(combined_reason):
+            status = _UNUSUAL_TRANSACTION_OTHER_BASE_STATUS
+            reason = _UNUSUAL_TRANSACTION_OTHER_BASE_REASON
+        elif self._reason_indicates_cannot_transact_at_base(combined_reason):
+            status = _CANNOT_TRANSACT_AT_BASE_STATUS
+            reason = _CANNOT_TRANSACT_AT_BASE_REASON
+        elif self._reason_indicates_under_17(combined_reason):
+            status = _UNDER_17_STATUS
+            reason = _UNDER_17_REASON
+        else:
+            status = "error"
+        error_label = (
+            self._classify_error_label(exc, reason, error_details)
+            if status == "error"
+            else ""
+        )
         row = self._create_row(
-            status="error",
+            status=status,
             nik=nik,
             started_at=started_at,
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
-            reason=str(exc),
-            error=traceback.format_exc(),
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
+            reason=reason,
+            error=error_details,
+            error_label=error_label,
         )
         self._record_row(row)
+
+    def failed_puzzle_solve(
+        self,
+        nik: str,
+        started_at: str,
+        exc: Optional[Exception] = None,
+        url: str = "",
+        puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
+        reason: str = _FAILED_PUZZLE_SOLVE_REASON,
+    ) -> None:
+        """Record a failed puzzle solve separately from actual errors."""
+        error_details = traceback.format_exc() if exc is not None else ""
+        resolved_reason = str(exc).strip() if exc is not None else reason
+        self._add_row(
+            status=_FAILED_PUZZLE_SOLVE_STATUS,
+            nik=nik,
+            started_at=started_at,
+            url=url,
+            puzzle_solved=False,
+            puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
+            reason=resolved_reason or _FAILED_PUZZLE_SOLVE_REASON,
+            error=error_details,
+        )
 
     def write_files(self, run_name: Optional[str] = None) -> None:
         """Write final snapshot files and update operator summary."""
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
+        mapping_report = self.get_mapping_report()
+        mapping_error_report = self.get_mapping_error_report()
+        mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
@@ -454,13 +327,17 @@ class TransactionReporter:
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
             "items": [asdict(r) for r in self.rows],
+            "mapping_report": mapping_report,
+            "mapping_error_report": mapping_error_report,
+            "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
             "nik_lists": {
-                "failed": self.get_failed_niks(),
-                "successful": self.get_successful_niks(),
-                "skipped": self.get_skipped_niks_by_type(),
+                **mapping_report,
+                "mapping_error_report": mapping_error_report,
+                "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
+                "errors_by_label": self.get_error_niks_by_label(),
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
-                "puzzle_failed": self.get_puzzle_failed_niks(),
+                "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
             },
             "puzzle_stats_by_nik": self.get_puzzle_stats_by_nik(),
         }
@@ -502,61 +379,133 @@ class TransactionReporter:
 
     def get_failed_niks(self) -> List[str]:
         """Get list of failed NIKs (error rows only)."""
-        return [r.nik for r in self.rows if r.status == "error"]
+        return [
+            r.nik
+            for r in self.rows
+            if r.status == "error" and not self._is_unregistered_row(r)
+        ]
 
     def get_successful_niks(self) -> List[str]:
         """Get list of successful NIKs."""
         return [r.nik for r in self.rows if r.status == "completed"]
 
-    def get_skipped_niks_by_type(self) -> Dict[str, List[str]]:
+    def get_skipped_niks_by_type(
+        self, include_unregistered: bool = False
+    ) -> Dict[str, List[str]]:
         """Get skipped NIKs grouped by skip type."""
         skipped_by_type: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
             if row.status.startswith("skipped_"):
                 skip_type = row.status.replace("skipped_", "")
+                if skip_type == _UNREGISTERED_SKIP_TYPE and not include_unregistered:
+                    continue
                 skipped_by_type[skip_type].append(row.nik)
         return dict(skipped_by_type)
+
+    def get_unregistered_niks(self) -> List[str]:
+        """Get NIKs flagged as 'Pelanggan Tidak Terdaftar'."""
+        return [r.nik for r in self.rows if self._is_unregistered_row(r)]
+
+    def get_mapping_report(self) -> Dict[str, Any]:
+        """Build the main mapping report buckets for the current run."""
+        return {
+            "failed": self.get_failed_niks(),
+            "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
+            "successful": self.get_successful_niks(),
+            "skipped": self.get_skipped_niks_by_type(),
+            "unregistered": self.get_unregistered_niks(),
+        }
+
+    def get_mapping_error_report(self) -> Dict[str, List[str]]:
+        """Group actual failed NIKs by normalized error reason."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != "error" or self._is_unregistered_row(row):
+                continue
+
+            grouped[self._normalize_error_reason(row.reason)].append(row.nik)
+
+        return dict(grouped)
+
+    def get_mapping_failed_puzzle_report(self) -> Dict[str, List[str]]:
+        """Group failed puzzle solves by their reporting reason."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != _FAILED_PUZZLE_SOLVE_STATUS:
+                continue
+            key = row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
+            grouped[key].append(row.nik)
+
+        return dict(grouped)
 
     def get_error_niks_by_reason(self) -> Dict[str, List[str]]:
         """Get failed NIKs grouped by normalized error reason."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status != "error":
+            if row.status != "error" or self._is_unregistered_row(row):
                 continue
             grouped[self._normalize_error_reason(row.reason)].append(row.nik)
+        return dict(grouped)
+
+    def get_error_niks_by_label(self) -> Dict[str, List[str]]:
+        """Get failed NIKs grouped by error label."""
+        grouped: DefaultDict[str, List[str]] = defaultdict(list)
+        for row in self.rows:
+            if row.status != "error" or self._is_unregistered_row(row):
+                continue
+            grouped[row.error_label or _APPLICATION_ERROR_LABEL].append(row.nik)
         return dict(grouped)
 
     def get_other_status_niks_by_status(self) -> Dict[str, List[str]]:
         """Get NIKs grouped by any non-standard status."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
         for row in self.rows:
-            if row.status in {"completed", "error"} or row.status.startswith("skipped_"):
+            if row.status in {"completed", "error", _FAILED_PUZZLE_SOLVE_STATUS}:
+                continue
+            if row.status.startswith("skipped_"):
                 continue
             grouped[row.status].append(row.nik)
         return dict(grouped)
 
     def get_puzzle_failed_niks(self) -> List[str]:
         """Get NIKs where puzzle solving failed."""
-        return [r.nik for r in self.rows if r.puzzle_solved is False]
+        return self.get_failed_puzzle_solve_niks()
+
+    def get_failed_puzzle_solve_niks(self) -> List[str]:
+        """Get NIKs where puzzle solving failed."""
+        return [r.nik for r in self.rows if r.status == _FAILED_PUZZLE_SOLVE_STATUS]
 
     def get_puzzle_stats_by_nik(self) -> Dict[str, Dict[str, Any]]:
         """Get puzzle statistics grouped by NIK."""
         nik_stats: DefaultDict[str, Dict[str, Any]] = defaultdict(
-            lambda: {"attempts": 0, "solved": False}
+            lambda: {
+                "attempts": 0,
+                "solved": False,
+                "retry_count": 0,
+                "retry_process": "",
+            }
         )
         for row in self.rows:
             if row.puzzle_solved is not None:
                 nik_stats[row.nik]["attempts"] = row.puzzle_attempts
                 nik_stats[row.nik]["solved"] = row.puzzle_solved
+                nik_stats[row.nik]["retry_count"] = row.puzzle_retry_count
+                nik_stats[row.nik]["retry_process"] = row.puzzle_retry_process
         return dict(nik_stats)
 
     def get_analytics_with_niks(self) -> Dict[str, Any]:
         """Get comprehensive analytics including NIK lists."""
         base_analytics = self.get_analytics()
         base_analytics["nik_details"] = {
+            "mapping_report": self.get_mapping_report(),
+            "mapping_error_report": self.get_mapping_error_report(),
+            "mapping_failed_puzzle_report": self.get_mapping_failed_puzzle_report(),
             "successful_niks": self.get_successful_niks(),
             "failed_niks": self.get_failed_niks(),
+            "failed_puzzle_solve_niks": self.get_failed_puzzle_solve_niks(),
             "skipped_by_type": self.get_skipped_niks_by_type(),
+            "unregistered_niks": self.get_unregistered_niks(),
+            "errors_by_label": self.get_error_niks_by_label(),
             "errors_by_reason": self.get_error_niks_by_reason(),
             "other_statuses": self.get_other_status_niks_by_status(),
             "puzzle_failed_niks": self.get_puzzle_failed_niks(),
@@ -576,7 +525,7 @@ class TransactionReporter:
         self._print_section(
             "Success Rates",
             analytics["summary"],
-            ["success", "error", "skip"],
+            ["success", "failed", "skip", "unregistered"],
             suffix="_percent",
         )
         self._print_performance(analytics["performance"])
@@ -584,6 +533,7 @@ class TransactionReporter:
         self._print_status_breakdown(analytics["breakdown_by_status"])
         self._print_skip_reasons(analytics["skip_reasons"])
         self._print_skipped_niks()
+        self._print_unregistered_niks()
         self._print_error_analysis(analytics["error_analysis"])
         self._print_nik_statistics()
 
@@ -597,15 +547,22 @@ class TransactionReporter:
     ) -> None:
         """Setup directory structure for reports organized by operator/email."""
         now_local = datetime.now().astimezone()
-        run_stamp = now_local.strftime("%Y%m%d_%H%M%S")
-        day_stamp = now_local.strftime("%Y-%m-%d")
-
         safe_operator = self._sanitize_folder_name(self.operator)
+        self.operator_dir = Path(out_dir) / safe_operator
+        self.base_dir = build_dated_dir(self.operator_dir, now_local)
 
-        self.base_dir = Path(out_dir) / safe_operator / day_stamp
-        self.run_dir = (
-            self.base_dir / (run_name or run_stamp) if per_run_subdir else self.base_dir
-        )
+        if per_run_subdir:
+            run_leaf = (
+                self._sanitize_folder_name(run_name)
+                if run_name
+                else now_local.strftime("%H%M%S")
+            )
+            self.run_dir = build_timestamped_run_dir(
+                self.operator_dir, now_local, run_leaf
+            )
+        else:
+            self.run_dir = self.base_dir
+
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
         self.csv_path = self.run_dir / "items.csv"
@@ -614,7 +571,6 @@ class TransactionReporter:
         self.final_json_path = self.run_dir / "items_snapshot.json"
         self.analytics_path = self.run_dir / "analytics.json"
 
-        self.operator_dir = Path(out_dir) / safe_operator
         self.operator_summary_path = self.operator_dir / "operator_summary.json"
 
     @staticmethod
@@ -634,11 +590,42 @@ class TransactionReporter:
 
     @staticmethod
     def _normalize_error_reason(reason: str) -> str:
-        """Build a short stable key for grouping errors."""
-        if not reason:
-            return "unknown_error"
-        first_line = reason.splitlines()[0].strip()
-        return first_line if first_line else "unknown_error"
+        return normalize_error_reason(reason)
+
+    @staticmethod
+    def _classify_error_label(exc: Exception, reason: str, error_details: str) -> str:
+        return classify_error_label(exc, reason, error_details)
+
+    @staticmethod
+    def _reason_indicates_unregistered(reason: str) -> bool:
+        return reason_indicates_unregistered(reason)
+
+    @staticmethod
+    def _reason_indicates_failed_puzzle_solve(reason: str) -> bool:
+        return reason_indicates_failed_puzzle_solve(reason)
+
+    @staticmethod
+    def _reason_indicates_needs_update(reason: str) -> bool:
+        return reason_indicates_needs_update(reason)
+
+    @staticmethod
+    def _reason_indicates_under_17(reason: str) -> bool:
+        return reason_indicates_under_17(reason)
+
+    @staticmethod
+    def _reason_indicates_invalid_registered_nik(reason: str) -> bool:
+        return reason_indicates_invalid_registered_nik(reason)
+
+    @staticmethod
+    def _reason_indicates_cannot_transact_at_base(reason: str) -> bool:
+        return reason_indicates_cannot_transact_at_base(reason)
+
+    @staticmethod
+    def _reason_indicates_unusual_transaction_at_other_base(reason: str) -> bool:
+        return reason_indicates_unusual_transaction_at_other_base(reason)
+
+    def _is_unregistered_row(self, row: TransactionRow) -> bool:
+        return is_unregistered_row(row)
 
     # Private helpers (data recording)
     def _add_row(
@@ -649,8 +636,11 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
+        error_label: str = "",
     ) -> None:
         row = self._create_row(
             status=status,
@@ -659,8 +649,11 @@ class TransactionReporter:
             url=url,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
             error=error,
+            error_label=error_label,
         )
         self._record_row(row)
 
@@ -672,8 +665,11 @@ class TransactionReporter:
         url: str = "",
         puzzle_solved: Optional[bool] = None,
         puzzle_attempts: int = 0,
+        puzzle_retry_count: int = 0,
+        puzzle_retry_process: str = "",
         reason: str = "",
         error: str = "",
+        error_label: str = "",
     ) -> TransactionRow:
         row = TransactionRow(
             operator=self.operator,
@@ -683,8 +679,11 @@ class TransactionReporter:
             finished_at=now_iso(),
             url=url,
             error=error,
+            error_label=error_label,
             puzzle_solved=puzzle_solved,
             puzzle_attempts=puzzle_attempts,
+            puzzle_retry_count=puzzle_retry_count,
+            puzzle_retry_process=puzzle_retry_process,
             reason=reason,
         )
         row.compute_duration()
@@ -702,22 +701,32 @@ class TransactionReporter:
             duration_seconds=row.duration_seconds,
             puzzle_solved=row.puzzle_solved,
             puzzle_attempts=row.puzzle_attempts,
+            puzzle_retry_count=row.puzzle_retry_count,
+            puzzle_retry_process=row.puzzle_retry_process,
+            error_label=row.error_label,
             reason=row.reason,
         ).info("Transaction row recorded")
 
     # Private helpers (meta + operator summary)
     def _write_meta(self) -> None:
         calculator = MetricsCalculator(self.rows)
+        mapping_report = self.get_mapping_report()
+        mapping_error_report = self.get_mapping_error_report()
+        mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
             "run_ended_at": now_iso(),
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
+            "mapping_report": mapping_report,
+            "mapping_error_report": mapping_error_report,
+            "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
             "nik_lists": {
-                "failed": self.get_failed_niks(),
-                "successful": self.get_successful_niks(),
-                "skipped": self.get_skipped_niks_by_type(),
+                **mapping_report,
+                "mapping_error_report": mapping_error_report,
+                "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
+                "errors_by_label": self.get_error_niks_by_label(),
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
             },
@@ -767,6 +776,17 @@ class TransactionReporter:
             run.get("counts", {}).get("completed", 0) for run in all_runs
         )
         total_errors = sum(run.get("counts", {}).get("error", 0) for run in all_runs)
+        total_unregistered = sum(
+            run.get("counts", {}).get(_UNREGISTERED_STATUS, 0) for run in all_runs
+        )
+        total_skipped = sum(
+            sum(
+                count
+                for status, count in run.get("counts", {}).items()
+                if status.startswith("skipped_") and status != _UNREGISTERED_STATUS
+            )
+            for run in all_runs
+        )
 
         summary = {
             "operator": self.operator,
@@ -776,6 +796,8 @@ class TransactionReporter:
                 "total_transactions": total_transactions,
                 "total_completed": total_completed,
                 "total_errors": total_errors,
+                "total_skipped": total_skipped,
+                "total_unregistered": total_unregistered,
                 "success_rate_percent": MetricsCalculator._safe_percentage(
                     total_completed, total_transactions
                 ),
@@ -793,6 +815,8 @@ class TransactionReporter:
             total_transactions=total_transactions,
             total_completed=total_completed,
             total_errors=total_errors,
+            total_skipped=total_skipped,
+            total_unregistered=total_unregistered,
             operator_summary_path=str(self.operator_summary_path),
         ).info("Operator summary updated")
         log_print(f"Operator summary updated: {self.operator_summary_path}")
@@ -812,33 +836,13 @@ class TransactionReporter:
 
     # Private helpers (printing)
     def _print_skipped_niks(self) -> None:
-        skipped_by_type = self.get_skipped_niks_by_type()
+        print_skipped_niks(self, log_print)
 
-        if not skipped_by_type:
-            return
-
-        log_print("\nSkipped NIKs by Type:")
-        for skip_type, niks in skipped_by_type.items():
-            log_print(f"  {skip_type}: {len(niks)} NIKs")
-            if len(niks) <= 5:
-                for nik in niks:
-                    log_print(f"    - {nik}")
-            else:
-                log_print(f"    First 5: {', '.join(niks[:5])}")
-                log_print(f"    ... and {len(niks) - 5} more")
+    def _print_unregistered_niks(self) -> None:
+        print_unregistered_niks(self, log_print)
 
     def _print_nik_statistics(self) -> None:
-        log_print("\nNIK Statistics:")
-        log_print(f"  Total Successful: {len(self.get_successful_niks())}")
-        log_print(f"  Total Failed: {len(self.get_failed_niks())}")
-
-        skipped_by_type = self.get_skipped_niks_by_type()
-        total_skipped = sum(len(niks) for niks in skipped_by_type.values())
-        log_print(f"  Total Skipped: {total_skipped}")
-
-        puzzle_failed = self.get_puzzle_failed_niks()
-        if puzzle_failed:
-            log_print(f"  Puzzle Failed: {len(puzzle_failed)}")
+        print_nik_statistics(self, log_print)
 
     def _print_section(
         self,
@@ -847,77 +851,19 @@ class TransactionReporter:
         filters: Optional[List[str]] = None,
         suffix: str = "",
     ) -> None:
-        log_print(f"\n{title}:")
-        for key, value in data.items():
-            if filters:
-                if suffix:
-                    if not any(f in key for f in filters):
-                        continue
-                else:
-                    if any(f in key for f in filters):
-                        continue
-
-            label = key.replace("_", " ").title()
-            if isinstance(value, float):
-                log_print(f"  {label}: {value:.2f}{'%' if '_percent' in key else ''}")
-            else:
-                log_print(f"  {label}: {value}")
+        print_section(title, data, log_print, filters=filters, suffix=suffix)
 
     def _print_performance(self, perf: Dict[str, Any]) -> None:
-        log_print("\nPerformance Metrics:")
-        log_print(f"  Total Runtime: {perf['total_runtime_minutes']:.2f} minutes")
-        log_print(f"  Throughput: {perf['throughput_per_minute']:.2f} items/minute")
-        log_print(f"  Avg Duration: {perf['avg_duration_seconds']:.3f} seconds")
-        if perf["avg_completed_duration_seconds"] > 0:
-            log_print(
-                f"  Avg Completed Duration: {perf['avg_completed_duration_seconds']:.3f} seconds"
-            )
+        print_performance(perf, log_print)
 
     def _print_puzzle_metrics(self, puzzle: Dict[str, Any]) -> None:
-        if puzzle.get("total_puzzles", 0) <= 0:
-            return
-
-        log_print("\nPuzzle Solving Metrics:")
-        log_print(f"  Total Puzzles: {puzzle['total_puzzles']}")
-        log_print(
-            f"  Solved: {puzzle['puzzles_solved']} ({puzzle['puzzle_success_rate_percent']}%)"
-        )
-        log_print(
-            f"  Failed: {puzzle['puzzles_failed']} ({puzzle['puzzle_failure_rate_percent']}%)"
-        )
-        log_print(f"  Avg Attempts: {puzzle['avg_attempts']:.2f}")
-
-        if puzzle["avg_solved_duration_seconds"] > 0:
-            log_print(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
-        if puzzle["avg_failed_duration_seconds"] > 0:
-            log_print(
-                f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s"
-            )
+        print_puzzle_metrics(puzzle, log_print)
 
     def _print_status_breakdown(self, breakdown: Dict[str, Any]) -> None:
-        log_print("\nStatus Breakdown:")
-        for status, data in breakdown.items():
-            log_print(
-                f"  {status}: {data['count']} ({data['percentage']}%) - "
-                f"avg {data['avg_duration_seconds']:.3f}s"
-            )
+        print_status_breakdown(breakdown, log_print)
 
     def _print_skip_reasons(self, reasons: Dict[str, int]) -> None:
-        if not reasons:
-            return
-
-        log_print("\nTop Skip Reasons:")
-        for reason, count in list(reasons.items())[:5]:
-            log_print(f"  {reason}: {count}")
+        print_skip_reasons(reasons, log_print)
 
     def _print_error_analysis(self, analysis: Dict[str, Any]) -> None:
-        if analysis["total_errors"] <= 0:
-            return
-
-        log_print("\nError Analysis:")
-        log_print(f"  Total Errors: {analysis['total_errors']}")
-        log_print(f"  Unique Error Types: {analysis['unique_error_types']}")
-        if analysis["error_frequency"]:
-            log_print("  Top Errors:")
-            for error, count in list(analysis["error_frequency"].items())[:3]:
-                log_print(f"    {error[:80]}...: {count}")
+        print_error_analysis(analysis, log_print)
