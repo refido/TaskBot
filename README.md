@@ -81,4 +81,22 @@ uv run main.py
 
 If multiple numbered accounts are configured, the bot runs each account in its own thread with an isolated browser process.
 
+## Structured JSON Logging
+
+Runtime and report logs are emitted with **Loguru** to:
+
+* `reports/logs/<yyyy>/<mm>/<dd>/<hhmmss>/taskbot_<run_id>.jsonl` (structured JSON lines for indexing/search/analytics)
+* `reports/<operator>/<yyyy>/<mm>/<dd>/<hhmmss>/` (per-operator run reports: CSV, JSONL, analytics, snapshots)
+* Console output (human-readable stream)
+
+Optional `.env` controls:
+
+```env
+LOG_LEVEL=INFO
+LOG_FILE_LEVEL=DEBUG
+LOG_ROTATION=25 MB
+LOG_RETENTION=30 days
+LOG_COMPRESSION=gz
+```
+
 ## Enjoy automating your tasks! 🎉

@@ -1,20 +1,47 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
 import cv2
 import numpy as np
 
-
-@dataclass(frozen=True)
-class _Candidate:
-    loc: Tuple[int, int]  # (x, y)
-    match_score: float
-    complexity: float
-    combined_score: float
-    final_score: Optional[float] = None
+from src.vision.puzzle.features import (
+    adaptive_edge_mask,
+    compute_template_distinctiveness,
+    multi_scale_gradient,
+)
+from src.vision.puzzle.matching import (
+    compute_fused_and_chamfer_maps,
+    compute_orb_match,
+    extract_top_peak_candidates,
+    filter_candidates_by_complexity,
+    is_uniform_region,
+    match_maps_fused,
+    non_max_suppress_candidates,
+    rescore_candidate,
+)
+from src.vision.puzzle.preprocessing import (
+    build_match_mask,
+    center_from_mask,
+    compute_processing_scale,
+    crop_by_mask,
+    ensure_output_dir,
+    imread_any,
+    preprocess_for_matching,
+    resize_gray,
+    resize_mask,
+    scale_template_and_mask,
+    scale_y_roi,
+    to_gray,
+)
+from src.vision.puzzle.refinement import (
+    chamfer_refine,
+    ecc_refine,
+    local_ncc_refine,
+    subpixel_refine,
+)
+from src.vision.puzzle.types import Candidate, GrayImage, MaskImage, Point, PointF, YRoi
+from src.vision.puzzle.visualization import draw_match_visualization
 
 
 class PuzzleSolver:
@@ -30,560 +57,105 @@ class PuzzleSolver:
     _WHITE_BRIGHTNESS_THRESHOLD: int = 240
     _WHITE_PERCENT_THRESHOLD: float = 70.0
 
-    _MAX_K_CANDIDATES: int = 10
+    _MAX_K_CANDIDATES: int = 14
+    _TOP_REFINED_CANDIDATES: int = 3
+    _CANDIDATE_NMS_IOU: float = 0.35
+    _MAX_PROCESSING_SIDE: int = 420
     _UNIFORM_EDGE_DENSITY_THRESHOLD: float = 0.02
     _UNIFORM_STD_THRESHOLD: float = 15.0
 
-    def __init__(self, gap_image_path, bg_image_path, output_image_path):
+    def __init__(
+        self, gap_image_path: str, bg_image_path: str, output_image_path: str
+    ) -> None:
         self.gap_image_path = gap_image_path
         self.bg_image_path = bg_image_path
         self.output_image_path = output_image_path
 
-        # Set during discern_xy (kept for visualization parity with original code)
-        self.tpl_center_local: Optional[Tuple[float, float]] = None
-
-    # Public methods (external API)
-    def find_position_of_slide(self, tpl_gray, bg_gray, raw_mask=None, y_roi=None):
-        """
-        Find position with gradient+chamfer fusion and complexity-based validation.
-
-        For high-texture templates (trees, horizon), use the full
-        gradient+complexity pipeline.
-
-        For low-texture templates (sky pieces, very smooth regions),
-        relax complexity/uniform filtering and trust correlation+chamfer
-        more, otherwise the true sky location gets unfairly penalized.
-        """
-        # 0) Distinctiveness report (unchanged)
-        distinctiveness = self._compute_template_distinctiveness(tpl_gray)
-
-        low_texture_mode = distinctiveness < 0.35
-
-        # 1) Build gradient-based maps
-        tpl_grad = self._multi_scale_gradient(tpl_gray)
-        bg_grad = self._multi_scale_gradient(bg_gray)
-
-        # Edge-derived mask from template content and optional raw mask
-        edge_mask = self._adaptive_edge_mask(tpl_gray, raw_mask)
-
-        # 2) Background edge distance transform (for chamfer)
-        bg_edges_full = self._adaptive_edge_mask(bg_gray, None)
-        inv_full = (bg_edges_full == 0).astype(np.uint8) * 255
-        dt_full = cv2.distanceTransform(inv_full, cv2.DIST_L2, 5).astype(np.float32)
-
-        # Template edges as float "stamp"
-        tpl_edges = self._adaptive_edge_mask(tpl_gray, None)
-        tpl_edges_f = (tpl_edges > 0).astype(np.float32)
-
-        # 3) Fused correlation map on gradients (+ optional y ROI)
-        fused_map, chamfer_sim, bg_gray_for_rank = self._compute_fused_and_chamfer_maps(
-            bg_grad=bg_grad,
-            tpl_grad=tpl_grad,
-            edge_mask=edge_mask,
-            dt_full=dt_full,
-            tpl_edges_f=tpl_edges_f,
-            bg_gray=bg_gray,
-            y_roi=y_roi,
-        )
-
-        # 4) Combine maps
-        if low_texture_mode:
-            w_grad, w_chamfer = 0.5, 0.5
-        else:
-            w_grad, w_chamfer = 0.65, 0.35
-
-        combined_map = w_grad * fused_map + w_chamfer * chamfer_sim
-        combined_map = cv2.normalize(combined_map, None, 0, 1, cv2.NORM_MINMAX)
-
-        # 5) Candidate generation + complexity gating
-        th, tw = tpl_gray.shape[:2]
-        candidates = self._filter_candidates_by_complexity(
-            combined_map,
-            bg_gray_for_rank,
-            (th, tw),
-            top_k=self._MAX_K_CANDIDATES,
-            use_complexity=not low_texture_mode,
-        )
-
-        # 6) Remove uniform/flat areas aggressively ONLY in high-texture mode
-        valid: List[Dict[str, Any]] = []
-        for c in candidates:
-            if not low_texture_mode:
-                if self._is_uniform_region(
-                    bg_gray_for_rank,
-                    c["loc"],
-                    (th, tw),
-                    threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
-                ):
-                    continue
-
-            # Blend correlation + chamfer at candidate for a final score
-            y, x = int(c["loc"][1]), int(c["loc"][0])
-            s_grad = float(fused_map[y, x])
-            s_cham = float(chamfer_sim[y, x])
-
-            if low_texture_mode:
-                final_score = 0.5 * s_grad + 0.5 * s_cham
-            else:
-                final_score = 0.6 * s_grad + 0.4 * s_cham
-
-            c["final_score"] = final_score
-            valid.append(c)
-
-        if not valid:
-            _, max_val, _, max_loc = cv2.minMaxLoc(combined_map)
-            best_loc = (max_loc[0], max_loc[1])
-            best_score = float(max_val)
-        else:
-            valid.sort(key=lambda z: z["final_score"], reverse=True)
-            best = valid[0]
-            best_loc = best["loc"]
-            best_score = float(best["final_score"])
-
-        # 7) Sub-pixel refinement on the combined response
-        loc_sub = self._subpixel_refine(
-            combined_map, (int(best_loc[0]), int(best_loc[1]))
-        )
-
-        # Map back from ROI, if any
-        if y_roi is not None:
-            y0, _ = y_roi
-            tl = (loc_sub[0], loc_sub[1] + y0)
-        else:
-            tl = loc_sub
-
-        # 8) Final chamfer-based geometric refine in a small window
-        refined_xy, _chamfer_dist = self._chamfer_refine(
-            bg_gray,
-            tpl_gray,
-            (int(round(tl[0])), int(round(tl[1]))),
-            search_radius=5,
-        )
-
-        # 9) Local NCC refinement in a +/- 3 px horizontal window
-        refined_xy_ncc, ncc_score = self._local_ncc_refine(
-            bg_gray,
-            tpl_gray,
-            refined_xy,
-            radius=3,
-        )
-
-        if ncc_score > 0:
-            final_xy = refined_xy_ncc
-        else:
-            final_xy = refined_xy
-
-        final_x, final_y = int(round(final_xy[0])), int(round(final_xy[1]))
-
-        # 10) Visualization and return (same signature as before)
-        vis = self._draw_match_visualization(
-            self._multi_scale_gradient(bg_gray),
-            (float(final_x), float(final_y)),
-            tw,
-            th,
-            best_score,
-            tpl_center_local=getattr(self, "tpl_center_local", None),
-        )
-        self._ensure_output_dir()
-        cv2.imwrite(self.output_image_path, vis)
-
-        return (final_x, final_y), float(best_score)
-
-    def discern_xy(self, y_roi=None, scales=(0.95, 1.0, 1.05)):
-        """Main solver with complexity filtering."""
-        gap_raw = self._imread_any(self.gap_image_path)
-        bg_raw = self._imread_any(self.bg_image_path)
-
-        gap_cropped, gap_mask = self._crop_by_mask(gap_raw)
-        tpl_gray = self._to_gray(gap_cropped)
-        bg_gray = self._to_gray(bg_raw)
-
-        # NEW: compute center of the jigsaw shape in template-local coords
-        self.tpl_center_local = self._center_from_mask(gap_mask)
-
-        best = (None, -1.0, None, None)
-
-        for s in scales:
-            tpl_s, mask_s = self._scale_template_and_mask(tpl_gray, gap_mask, s)
-
-            loc, score = self.find_position_of_slide(
-                tpl_s, bg_gray, raw_mask=mask_s, y_roi=y_roi
-            )
-
-            if score > best[1]:
-                best = (loc, score, s, tpl_s)
-
-        coarse_xy, fused_score, best_scale, best_tpl = best
-
-        refined_xy, _chamfer_dist = self._chamfer_refine(
-            bg_gray,
-            best_tpl,
-            (int(round(coarse_xy[0])), int(round(coarse_xy[1]))),
-            search_radius=5,
-        )
-
-        th, tw = best_tpl.shape[:2]
-
-        return (
-            int(round(refined_xy[0])),
-            int(round(refined_xy[1])),
-            float(fused_score),
-            float(best_scale),
-            (int(tw), int(th)),
-        )
-
-    # Private helpers (I/O + filesystem)
-    def _ensure_output_dir(self) -> None:
-        Path(self.output_image_path).parent.mkdir(parents=True, exist_ok=True)
-
-    def _imread_any(self, path):
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise FileNotFoundError(f"Cannot read image file: {path}")
-        return img
-
-    # Private helpers (preprocessing)
-    def _to_gray(self, img):
-        if img.ndim == 2:
-            return img
-        if img.shape[2] == 4:
-            return cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY)
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    def _is_predominantly_white(self, img):
-        """
-        Detect if an image is predominantly white/bright.
-        Returns (is_white, white_percentage)
-        """
-        if img.ndim == 3 and img.shape[2] >= 3:
-            brightness = img[:, :, :3].mean(axis=2)
-        else:
-            brightness = img
-
-        bright_pixels = (brightness > self._WHITE_BRIGHTNESS_THRESHOLD).sum()
-        total_pixels = brightness.size
-        bright_percentage = (bright_pixels / total_pixels) * 100
-
-        return bright_percentage > self._WHITE_PERCENT_THRESHOLD, bright_percentage
-
-    def _crop_by_mask(self, img):
-        """
-        Enhanced mask extraction that handles white puzzle pieces.
-        """
-        has_alpha = img.ndim == 3 and img.shape[2] == 4
-        is_white, white_pct = self._is_predominantly_white(img)
-
-        if has_alpha:
-            alpha = img[:, :, 3]
-            mask = (alpha > 5).astype(np.uint8) * 255
-        elif is_white:
-
-            gray = self._to_gray(img) if img.ndim == 3 else img
-
-            edges1 = cv2.Canny(gray, 10, 50, L2gradient=True)
-            edges2 = cv2.Canny(gray, 30, 100, L2gradient=True)
-            edges = cv2.bitwise_or(edges1, edges2)
-
-            kernel = np.ones((5, 5), np.uint8)
-            edges = cv2.dilate(edges, kernel, iterations=2)
-
-            contours, _ = cv2.findContours(
-                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-
-            mask = np.zeros(gray.shape, dtype=np.uint8)
-            if contours:
-                largest_contour = max(contours, key=cv2.contourArea)
-                cv2.drawContours(mask, [largest_contour], -1, 255, -1)
-                mask = cv2.morphologyEx(
-                    mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2
-                )
-            else:
-                mask = np.ones(gray.shape, dtype=np.uint8) * 255
-        else:
-            bgr = (
-                img
-                if (img.ndim == 3 and img.shape[2] >= 3)
-                else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            )
-            hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-            _h, s, v = cv2.split(hsv)
-            white = (v > 245) & (s < 20)
-            mask = (~white).astype(np.uint8) * 255
-
-        mask = cv2.morphologyEx(
-            mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1
-        )
-        mask = cv2.morphologyEx(
-            mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1
-        )
-
-        ys, xs = np.where(mask > 0)
-        if len(xs) == 0 or len(ys) == 0:
-            return img, np.ones(img.shape[:2], dtype=np.uint8) * 255
-
-        x0, x1 = xs.min(), xs.max()
-        y0, y1 = ys.min(), ys.max()
-
-        return img[y0 : y1 + 1, x0 : x1 + 1], mask[y0 : y1 + 1, x0 : x1 + 1]
-
-    def _center_from_mask(self, mask):
-        """
-        Compute geometric center of the puzzle shape from its binary mask.
-        Returns (cx, cy) in template-local coordinates (float).
-        """
-        bin_mask = (mask > 0).astype(np.uint8)
-
-        m = cv2.moments(bin_mask)
-        if m["m00"] == 0:
-            h, w = mask.shape[:2]
-            return w / 2.0, h / 2.0
-
-        cx = m["m10"] / m["m00"]
-        cy = m["m01"] / m["m00"]
-        return cx, cy
-
-    def _scale_template_and_mask(self, tpl_gray, gap_mask, scale: float):
-        if scale == 1.0:
-            return tpl_gray, gap_mask
-
-        th, tw = tpl_gray.shape[:2]
-        new_size = (max(1, int(tw * scale)), max(1, int(th * scale)))
-        tpl_s = cv2.resize(tpl_gray, new_size, interpolation=cv2.INTER_CUBIC)
-        mask_s = (
-            cv2.resize(gap_mask, new_size, interpolation=cv2.INTER_NEAREST)
-            if gap_mask is not None
-            else None
-        )
-        return tpl_s, mask_s
-
-    # Private helpers (feature construction)
-    def _compute_texture_variance(self, gray, window_size=15):
-        """
-        Compute local texture variance to identify high-information regions.
-        Low-texture areas (like grass) will have low variance.
-        """
-        mean = cv2.blur(gray.astype(np.float32), (window_size, window_size))
-        sqr_mean = cv2.blur((gray.astype(np.float32) ** 2), (window_size, window_size))
-        variance = sqr_mean - (mean**2)
-        variance = np.sqrt(np.maximum(variance, 0))
-        return variance
-
-    def _enhance_texture(self, gray):
-        """Enhanced texture enhancement with better edge preservation."""
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(gray)
-
-        bilateral = cv2.bilateralFilter(enhanced, 9, 75, 75)
-
-        gaussian = cv2.GaussianBlur(bilateral, (5, 5), 2.0)
-        unsharp = cv2.addWeighted(bilateral, 1.8, gaussian, -0.8, 0)
-
-        return np.clip(unsharp, 0, 255).astype(np.uint8)
-
-    def _multi_scale_gradient(self, gray):
-        """Multi-scale gradient with texture-aware weighting (NaN-safe)."""
-        enhanced = self._enhance_texture(gray).astype(np.float32)
-
-        texture_var = self._compute_texture_variance(enhanced, window_size=15).astype(
+        self.tpl_center_local: Optional[PointF] = None
+
+    @staticmethod
+    def _normalize_map(res_map: np.ndarray) -> np.ndarray:
+        res_map = res_map.astype(np.float32)
+        if res_map.size == 0:
+            return res_map
+
+        min_val = float(np.min(res_map))
+        max_val = float(np.max(res_map))
+        if max_val - min_val < 1e-6:
+            return np.zeros_like(res_map, dtype=np.float32)
+
+        return cv2.normalize(res_map, None, 0.0, 1.0, cv2.NORM_MINMAX).astype(
             np.float32
         )
 
-        min_val, max_val, _, _ = cv2.minMaxLoc(texture_var)
-        if max_val - min_val < 1e-6:
-            texture_weight = np.ones_like(texture_var, dtype=np.float32)
-        else:
-            texture_weight = cv2.normalize(
-                texture_var, None, 0.0, 1.0, cv2.NORM_MINMAX
-            ).astype(np.float32)
+    @staticmethod
+    def _local_peak_score(res_map: np.ndarray, loc: Point, radius: int = 1) -> float:
+        x, y = int(loc[0]), int(loc[1])
+        y0 = max(0, y - radius)
+        y1 = min(res_map.shape[0], y + radius + 1)
+        x0 = max(0, x - radius)
+        x1 = min(res_map.shape[1], x + radius + 1)
+        patch = res_map[y0:y1, x0:x1]
+        if patch.size == 0:
+            return 0.0
+        return float(np.max(patch))
 
-        texture_weight = np.nan_to_num(texture_weight, nan=0.0, posinf=1.0, neginf=0.0)
-        texture_weight = np.clip(texture_weight, 0.0, 1.0)
+    @staticmethod
+    def _point_template_score(
+        bg_gray: GrayImage,
+        tpl_gray: GrayImage,
+        loc: Point,
+        mask: MaskImage | None = None,
+    ) -> float:
+        th, tw = tpl_gray.shape[:2]
+        x, y = int(loc[0]), int(loc[1])
+        if (
+            x < 0
+            or y < 0
+            or x + tw > bg_gray.shape[1]
+            or y + th > bg_gray.shape[0]
+        ):
+            return -1.0
 
-        gx1 = cv2.Sobel(enhanced, cv2.CV_32F, 1, 0, ksize=3)
-        gy1 = cv2.Sobel(enhanced, cv2.CV_32F, 0, 1, ksize=3)
-        mag1 = cv2.magnitude(gx1, gy1)
+        roi = bg_gray[y : y + th, x : x + tw]
+        match_mask = build_match_mask(mask, erode_iterations=1)
 
-        blur2 = cv2.GaussianBlur(enhanced, (3, 3), 1.0)
-        gx2 = cv2.Sobel(blur2, cv2.CV_32F, 1, 0, ksize=5)
-        gy2 = cv2.Sobel(blur2, cv2.CV_32F, 0, 1, ksize=5)
-        mag2 = cv2.magnitude(gx2, gy2)
+        if match_mask is not None:
+            try:
+                corr = float(
+                    cv2.matchTemplate(
+                        roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask
+                    )[0, 0]
+                )
+                sqdiff = float(
+                    1.0
+                    - cv2.matchTemplate(
+                        roi, tpl_gray, cv2.TM_SQDIFF_NORMED, mask=match_mask
+                    )[0, 0]
+                )
+                return 0.60 * corr + 0.40 * sqdiff
+            except cv2.error:
+                pass
 
-        blur3 = cv2.GaussianBlur(enhanced, (5, 5), 2.0)
-        gx3 = cv2.Sobel(blur3, cv2.CV_32F, 1, 0, ksize=7)
-        gy3 = cv2.Sobel(blur3, cv2.CV_32F, 0, 1, ksize=7)
-        mag3 = cv2.magnitude(gx3, gy3)
+        return float(cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)[0, 0])
 
-        combined = (0.5 * mag1 + 0.3 * mag2 + 0.2 * mag3).astype(np.float32)
-        combined *= np.sqrt(texture_weight + 1e-6)
-
-        combined = cv2.normalize(combined, None, 0.0, 255.0, cv2.NORM_MINMAX)
-        combined = np.nan_to_num(combined, nan=0.0, posinf=255.0, neginf=0.0).astype(
-            np.uint8
-        )
-
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-        combined = clahe.apply(combined)
-
-        return combined
-
-    def _adaptive_edge_mask(self, gray, mask=None):
-        """Adaptive edge detection with texture filtering."""
-        median = np.median(gray)
-        sigma = 0.33
-        lower = int(max(0, (1.0 - sigma) * median))
-        upper = int(min(255, (1.0 + sigma) * median))
-
-        lower = max(20, lower)
-        upper = max(60, upper)
-
-        edges = cv2.Canny(gray, lower, upper, L2gradient=True)
-
-        kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
-
-        edge_density = cv2.blur(edges.astype(np.float32), (15, 15))
-        threshold = edge_density.max() * 0.1
-        edges = np.where(edge_density > threshold, edges, 0).astype(np.uint8)
+    @staticmethod
+    def _legacy_match_maps_fused(
+        bg_gray: GrayImage, tpl_gray: GrayImage, tpl_mask: MaskImage | None
+    ) -> np.ndarray:
+        mask = None
+        if tpl_mask is not None:
+            mask = tpl_mask.astype(np.uint8)
+            if mask.max() <= 1:
+                mask = (mask > 0).astype(np.uint8) * 255
 
         if mask is not None:
-            rm = (mask > 0).astype(np.uint8) * 255
-            edges = cv2.bitwise_and(edges, rm)
-
-        return edges
-
-    # Private helpers (matching + validation)
-    def _compute_structural_complexity(self, gray, loc, template_shape):
-        """
-        Measure structural complexity at a given location.
-        Returns higher values for regions with more features.
-        """
-        th, tw = template_shape
-        y, x = int(loc[1]), int(loc[0])
-
-        y0 = max(0, y)
-        y1 = min(gray.shape[0], y + th)
-        x0 = max(0, x)
-        x1 = min(gray.shape[1], x + tw)
-
-        if y1 - y0 < th // 2 or x1 - x0 < tw // 2:
-            return 0.0
-
-        region = gray[y0:y1, x0:x1]
-
-        edges = cv2.Canny(region, 30, 100, L2gradient=True)
-        edge_density = np.sum(edges > 0) / (region.shape[0] * region.shape[1])
-
-        texture_var = np.std(region)
-
-        gx = cv2.Sobel(region, cv2.CV_32F, 1, 0, ksize=3)
-        gy = cv2.Sobel(region, cv2.CV_32F, 0, 1, ksize=3)
-        grad_mag = np.mean(cv2.magnitude(gx, gy))
-
-        hist = cv2.calcHist([region], [0], None, [256], [0, 256])
-        hist = hist / (hist.sum() + 1e-7)
-        entropy = -np.sum(hist * np.log2(hist + 1e-7))
-
-        complexity = (
-            edge_density * 0.3
-            + (texture_var / 128.0) * 0.25
-            + (grad_mag / 255.0) * 0.25
-            + (entropy / 8.0) * 0.2
-        )
-        return complexity
-
-    def _filter_candidates_by_complexity(
-        self,
-        res_map,
-        bg_gray,
-        tpl_shape,
-        top_k: int = 10,
-        use_complexity: bool = True,
-    ):
-        """
-        Get top-k candidates and validate with complexity thresholds.
-
-        When use_complexity=False (low-texture templates like sky),
-        ranking is based almost purely on match score and complexity
-        only provides a tiny bonus. This avoids penalizing valid
-        matches in smooth regions.
-        """
-        res_flat = res_map.flatten()
-        top_indices = np.argpartition(res_flat, -top_k)[-top_k:]
-        top_indices = top_indices[np.argsort(-res_flat[top_indices])]
-
-        h, w = res_map.shape
-        candidates: List[Dict[str, Any]] = []
-
-        for idx in top_indices:
-            y = idx // w
-            x = idx % w
-            score = float(res_map[y, x])
-
-            complexity = self._compute_structural_complexity(bg_gray, (x, y), tpl_shape)
-
-            if use_complexity:
-                if complexity < 0.15:
-                    complexity_penalty = -0.15
-                elif complexity < 0.25:
-                    complexity_penalty = -0.05
-                else:
-                    complexity_penalty = min(0.10, complexity * 0.2)
-                combined_score = score + complexity_penalty
-            else:
-                complexity_bonus = min(0.05, max(0.0, complexity) * 0.1)
-                combined_score = score + complexity_bonus
-
-            candidates.append(
-                {
-                    "loc": (x, y),
-                    "match_score": score,
-                    "complexity": float(complexity),
-                    "combined_score": float(combined_score),
-                }
+            res_corr = cv2.matchTemplate(
+                bg_gray, tpl_gray, cv2.TM_CCORR_NORMED, mask=mask
             )
+        else:
+            res_corr = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_CCORR_NORMED)
 
-        candidates.sort(key=lambda c: c["combined_score"], reverse=True)
-        return candidates
-
-    def _is_uniform_region(self, gray, loc, template_shape, threshold=0.02):
-        """
-        Detect uniform/low-detail regions (grass, solid colors).
-        Returns True if region is too uniform to be a valid match.
-        """
-        th, tw = template_shape
-        y, x = int(loc[1]), int(loc[0])
-
-        y0 = max(0, y)
-        y1 = min(gray.shape[0], y + th)
-        x0 = max(0, x)
-        x1 = min(gray.shape[1], x + tw)
-
-        if y1 - y0 < th // 2 or x1 - x0 < tw // 2:
-            return True
-
-        region = gray[y0:y1, x0:x1]
-
-        edges = cv2.Canny(region, 30, 100, L2gradient=True)
-        edge_density = np.sum(edges > 0) / (region.shape[0] * region.shape[1])
-
-        std_dev = np.std(region)
-        is_uniform = (edge_density < threshold) and (
-            std_dev < self._UNIFORM_STD_THRESHOLD
-        )
-        return is_uniform
-
-    def _match_maps_fused(self, bg_gray, tpl_gray, tpl_mask):
-        """Enhanced matching with uniform region filtering."""
-        m = None
-        if tpl_mask is not None:
-            m = tpl_mask
-            if m.dtype != np.uint8:
-                m = m.astype(np.uint8)
-            if m.max() <= 1:
-                m = (m > 0).astype(np.uint8) * 255
-
-        res_corr = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_CCORR_NORMED, mask=m)
         res_coef = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_CCOEFF_NORMED)
         res_sqdiff = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_SQDIFF_NORMED)
         res_sqdiff = 1.0 - res_sqdiff
@@ -592,9 +164,9 @@ class PuzzleSolver:
         res_coef = cv2.normalize(res_coef, None, 0, 1, cv2.NORM_MINMAX)
         res_sqdiff = cv2.normalize(res_sqdiff, None, 0, 1, cv2.NORM_MINMAX)
 
-        max_corr = res_corr.max()
-        max_coef = res_coef.max()
-        max_sqdiff = res_sqdiff.max()
+        max_corr = float(res_corr.max())
+        max_coef = float(res_coef.max())
+        max_sqdiff = float(res_sqdiff.max())
 
         total = max_corr + max_coef + max_sqdiff + 1e-7
         w_corr = max(0.3, max_corr / total)
@@ -606,267 +178,579 @@ class PuzzleSolver:
         w_coef /= total_w
         w_sqdiff /= total_w
 
-        fused = w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff
+        return (
+            w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff
+        ).astype(np.float32)
 
-        tpl_shape = tpl_gray.shape[:2]
-        candidates = self._filter_candidates_by_complexity(
-            fused, bg_gray, tpl_shape, top_k=10
+    def _refine_candidate_loc(
+        self,
+        bg_gray: GrayImage,
+        tpl_gray: GrayImage,
+        coarse_xy: Point,
+        score_map: np.ndarray,
+        raw_mask: MaskImage | None = None,
+        search_radius: int = 4,
+        score_offset: Point = (0, 0),
+    ) -> tuple[Point, float, float]:
+        local_x = int(
+            np.clip(
+                coarse_xy[0] - score_offset[0],
+                0,
+                max(0, score_map.shape[1] - 1),
+            )
+        )
+        local_y = int(
+            np.clip(
+                coarse_xy[1] - score_offset[1],
+                0,
+                max(0, score_map.shape[0] - 1),
+            )
+        )
+        loc_sub = subpixel_refine(score_map, (local_x, local_y))
+
+        coarse_from_sub = (
+            int(round(loc_sub[0] + score_offset[0])),
+            int(round(loc_sub[1] + score_offset[1])),
+        )
+        chamfer_xy, _ = chamfer_refine(
+            bg_gray,
+            tpl_gray,
+            coarse_from_sub,
+            search_radius=search_radius,
+            mask=raw_mask,
         )
 
-        valid_candidates = []
-        for c in candidates:
-            if not self._is_uniform_region(
-                bg_gray, c["loc"], tpl_shape, threshold=0.02
-            ):
-                valid_candidates.append(c)
+        ecc_xy, ecc_score = ecc_refine(
+            bg_gray,
+            tpl_gray,
+            chamfer_xy,
+            mask=raw_mask,
+        )
+        ecc_xy_int = (int(round(ecc_xy[0])), int(round(ecc_xy[1])))
 
-        if not valid_candidates:
-            valid_candidates = candidates[:1]
+        ncc_xy, ncc_score = local_ncc_refine(
+            bg_gray,
+            tpl_gray,
+            ecc_xy_int,
+            radius=2,
+            mask=raw_mask,
+        )
 
-        best = valid_candidates[0]
-        max_loc = best["loc"]
-        max_val = best["match_score"]
+        if ncc_score > 0:
+            final_xy = ncc_xy
+        else:
+            final_xy = ecc_xy_int
 
-        return fused, max_loc, float(max_val)
+        return final_xy, float(max(0.0, ecc_score)), float(max(0.0, ncc_score))
 
-    def _compute_template_distinctiveness(self, tpl_gray):
-        """
-        Measure how distinctive the template is.
-        Low distinctiveness = harder to match accurately.
-        """
-        edges = cv2.Canny(tpl_gray, 30, 100)
-        edge_density = np.sum(edges > 0) / (tpl_gray.shape[0] * tpl_gray.shape[1])
-
-        variance = np.std(tpl_gray) / 128.0
-
-        hist = cv2.calcHist([tpl_gray], [0], None, [256], [0, 256])
-        hist = hist / (hist.sum() + 1e-7)
-        entropy = -np.sum(hist * np.log2(hist + 1e-7)) / 8.0
-
-        distinctiveness = edge_density * 0.4 + variance * 0.3 + entropy * 0.3
-        return distinctiveness
-
-    def _compute_fused_and_chamfer_maps(
+    def _refine_original_resolution(
         self,
-        bg_grad,
-        tpl_grad,
-        edge_mask,
-        dt_full,
-        tpl_edges_f,
-        bg_gray,
-        y_roi,
-    ):
+        bg_gray: GrayImage,
+        tpl_gray: GrayImage,
+        raw_mask: MaskImage | None,
+        coarse_xy: Point,
+        base_score: float,
+    ) -> tuple[Point, float]:
+        th, tw = tpl_gray.shape[:2]
+        radius = 6
+
+        x0 = max(0, coarse_xy[0] - radius)
+        y0 = max(0, coarse_xy[1] - radius)
+        x1 = min(bg_gray.shape[1], coarse_xy[0] + tw + radius)
+        y1 = min(bg_gray.shape[0], coarse_xy[1] + th + radius)
+
+        if y1 - y0 < th or x1 - x0 < tw:
+            return coarse_xy, float(base_score)
+
+        roi = bg_gray[y0:y1, x0:x1]
+        roi_match = preprocess_for_matching(roi)
+        tpl_match = preprocess_for_matching(tpl_gray)
+
+        local_map = match_maps_fused(roi_match, tpl_match, raw_mask)
+        _min_val, max_val, _min_loc, local_best = cv2.minMaxLoc(local_map)
+        loc_sub = subpixel_refine(local_map, (int(local_best[0]), int(local_best[1])))
+        coarse_local_xy = (int(round(x0 + loc_sub[0])), int(round(y0 + loc_sub[1])))
+
+        refined_xy, ecc_score, ncc_score = self._refine_candidate_loc(
+            bg_gray,
+            tpl_gray,
+            coarse_local_xy,
+            self._normalize_map(local_map),
+            raw_mask=raw_mask,
+            search_radius=4,
+            score_offset=(x0, y0),
+        )
+
+        coarse_score = self._point_template_score(bg_gray, tpl_gray, coarse_xy, raw_mask)
+        refined_template_score = self._point_template_score(
+            bg_gray, tpl_gray, refined_xy, raw_mask
+        )
+        if (
+            refined_template_score < coarse_score + 0.01
+            and abs(refined_xy[0] - coarse_xy[0]) > max(4, tw // 8)
+        ) or refined_template_score < coarse_score:
+            refined_xy = coarse_xy
+            refined_template_score = coarse_score
+
+        final_score = float(
+            np.clip(
+                0.60 * base_score
+                + 0.20 * max(float(max_val), max(0.0, refined_template_score))
+                + 0.08 * ecc_score
+                + 0.07 * ncc_score,
+                0.0,
+                1.0,
+            )
+        )
+        return refined_xy, final_score
+
+    def _legacy_find_position(
+        self,
+        tpl_gray: GrayImage,
+        bg_gray: GrayImage,
+        raw_mask: MaskImage | None = None,
+        y_roi: YRoi = None,
+    ) -> tuple[Point, float]:
+        distinctiveness = compute_template_distinctiveness(tpl_gray)
+        low_texture_mode = distinctiveness < 0.35
+
+        tpl_grad = multi_scale_gradient(tpl_gray)
+        bg_grad = multi_scale_gradient(bg_gray)
+
+        edge_mask = adaptive_edge_mask(tpl_gray, raw_mask)
+        bg_edges_full = adaptive_edge_mask(bg_gray, None)
+        inv_full = (bg_edges_full == 0).astype(np.uint8) * 255
+        dt_full = cv2.distanceTransform(inv_full, cv2.DIST_L2, 5).astype(np.float32)
+
+        tpl_edges = adaptive_edge_mask(tpl_gray, None)
+        tpl_edges_f = (tpl_edges > 0).astype(np.float32)
+
         if y_roi is not None:
             y0, y1 = y_roi
-            fused_map, _, _ = self._match_maps_fused(
+            fused_map = self._legacy_match_maps_fused(
                 bg_grad[y0:y1, :], tpl_grad, edge_mask
             )
-            dt_roi = dt_full[y0:y1, :]
-            res_dt = cv2.matchTemplate(dt_roi, tpl_edges_f, cv2.TM_SQDIFF)
+            res_dt = cv2.matchTemplate(dt_full[y0:y1, :], tpl_edges_f, cv2.TM_SQDIFF)
             res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray[y0:y1, :]
         else:
-            fused_map, _, _ = self._match_maps_fused(bg_grad, tpl_grad, edge_mask)
+            y0 = 0
+            fused_map = self._legacy_match_maps_fused(bg_grad, tpl_grad, edge_mask)
             res_dt = cv2.matchTemplate(dt_full, tpl_edges_f, cv2.TM_SQDIFF)
             res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray
 
-        return fused_map, chamfer_sim, bg_gray_for_rank
+        if low_texture_mode:
+            w_grad, w_chamfer = 0.50, 0.50
+        else:
+            w_grad, w_chamfer = 0.65, 0.35
 
-    # Private helpers (refinements)
-    def _local_ncc_refine(self, bg_gray, tpl_gray, xy, radius: int = 3):
-        """
-        Final refinement in a small horizontal window using raw NCC
-        (TM_CCOEFF_NORMED).
+        combined_map = self._normalize_map(w_grad * fused_map + w_chamfer * chamfer_sim)
 
-        Returns:
-            (best_xy, best_score) where best_xy is (x, y).
-            If no valid candidate is found, returns (xy, -1.0).
-        """
-        x0, y0 = int(xy[0]), int(xy[1])
         th, tw = tpl_gray.shape[:2]
-        h_bg, w_bg = bg_gray.shape[:2]
+        candidates = filter_candidates_by_complexity(
+            combined_map,
+            bg_gray_for_rank,
+            (th, tw),
+            top_k=self._MAX_K_CANDIDATES,
+            use_complexity=not low_texture_mode,
+        )
 
-        if y0 < 0:
-            y0 = 0
-        if y0 + th > h_bg:
-            y0 = max(0, h_bg - th)
-
-        best_x = x0
-        best_score = -1.0
-
-        for dx in range(-radius, radius + 1):
-            x = x0 + dx
-            if x < 0 or x + tw > w_bg:
+        valid: list[Candidate] = []
+        for candidate in candidates:
+            if (
+                not low_texture_mode
+                and is_uniform_region(
+                    bg_gray_for_rank,
+                    candidate.loc,
+                    (th, tw),
+                    threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
+                    uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
+                )
+            ):
                 continue
 
-            roi = bg_gray[y0 : y0 + th, x : x + tw]
-            res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
-            score = float(res[0, 0])
+            y, x = int(candidate.loc[1]), int(candidate.loc[0])
+            s_grad = float(fused_map[y, x])
+            s_chamfer = float(chamfer_sim[y, x])
+            candidate.final_score = (
+                0.50 * s_grad + 0.50 * s_chamfer
+                if low_texture_mode
+                else 0.60 * s_grad + 0.40 * s_chamfer
+            )
+            valid.append(candidate)
+
+        if not valid:
+            _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(combined_map)
+            best_loc = (int(max_loc[0]), int(max_loc[1]))
+            best_score = float(max_val)
+        else:
+            valid.sort(key=lambda item: float(item.final_score or 0.0), reverse=True)
+            best_loc = valid[0].loc
+            best_score = float(valid[0].final_score or 0.0)
+
+        loc_sub = subpixel_refine(combined_map, (int(best_loc[0]), int(best_loc[1])))
+
+        if y_roi is not None:
+            y0, _y1 = y_roi
+            coarse_xy = (int(round(loc_sub[0])), int(round(loc_sub[1] + y0)))
+        else:
+            y0 = 0
+            coarse_xy = (int(round(loc_sub[0])), int(round(loc_sub[1])))
+
+        refined_loc, _ = chamfer_refine(
+            bg_gray,
+            tpl_gray,
+            coarse_xy,
+            search_radius=5,
+            mask=None,
+        )
+
+        refined_loc_ncc, ncc_score = local_ncc_refine(
+            bg_gray,
+            tpl_gray,
+            refined_loc,
+            radius=3,
+            mask=None,
+        )
+        final_loc = refined_loc_ncc if ncc_score > 0 else refined_loc
+        final_score = float(
+            np.clip(0.82 * best_score + 0.18 * max(0.0, ncc_score), 0.0, 1.0)
+        )
+        return final_loc, final_score
+
+    def find_position_of_slide(
+        self,
+        tpl_gray: GrayImage,
+        bg_gray: GrayImage,
+        raw_mask: Optional[MaskImage] = None,
+        y_roi: YRoi = None,
+    ) -> tuple[Point, float]:
+        """
+        Find position using coarse candidate generation plus multi-cue rescoring.
+
+        The detector first builds a candidate pool from fast matchers and ORB,
+        then reranks those locations with stronger masked/template/edge signals,
+        then refines the top candidates with subpixel, chamfer, ECC, and NCC.
+        """
+        distinctiveness = compute_template_distinctiveness(tpl_gray)
+        low_texture_mode = distinctiveness < 0.35
+
+        tpl_match = preprocess_for_matching(tpl_gray)
+        bg_match = preprocess_for_matching(bg_gray)
+
+        tpl_grad = multi_scale_gradient(tpl_match)
+        bg_grad = multi_scale_gradient(bg_match)
+
+        edge_mask = adaptive_edge_mask(tpl_match, raw_mask)
+        tpl_edges = adaptive_edge_mask(tpl_match, raw_mask)
+        tpl_edges_f = (tpl_edges > 0).astype(np.float32)
+
+        bg_edges_full = adaptive_edge_mask(bg_match, None)
+        inv_full = (bg_edges_full == 0).astype(np.uint8) * 255
+        dt_full = cv2.distanceTransform(inv_full, cv2.DIST_L2, 5).astype(np.float32)
+
+        if y_roi is not None:
+            y0, y1 = y_roi
+            bg_match_search = bg_match[y0:y1, :]
+            bg_edges_search = bg_edges_full[y0:y1, :]
+        else:
+            y0 = 0
+            bg_match_search = bg_match
+            bg_edges_search = bg_edges_full
+
+        template_map = match_maps_fused(bg_match_search, tpl_match, raw_mask)
+        fused_map, chamfer_sim, bg_gray_for_rank = compute_fused_and_chamfer_maps(
+            bg_grad=bg_grad,
+            tpl_grad=tpl_grad,
+            edge_mask=edge_mask,
+            dt_full=dt_full,
+            tpl_edges_f=tpl_edges_f,
+            bg_gray=bg_match,
+            y_roi=y_roi,
+        )
+
+        if low_texture_mode:
+            w_tpl, w_grad, w_chamfer = 0.45, 0.20, 0.35
+        else:
+            w_tpl, w_grad, w_chamfer = 0.34, 0.33, 0.33
+
+        combined_map = self._normalize_map(
+            w_tpl * template_map + w_grad * fused_map + w_chamfer * chamfer_sim
+        )
+
+        th, tw = tpl_gray.shape[:2]
+        candidate_pool: list[Candidate] = []
+        suppression_radius = max(6, min(tw, th) // 5)
+
+        for res_map, top_k in (
+            (template_map, 6),
+            (fused_map, 5),
+            (chamfer_sim, 5),
+            (combined_map, 8),
+        ):
+            candidate_pool.extend(
+                extract_top_peak_candidates(
+                    res_map,
+                    top_k=top_k,
+                    suppression_radius=suppression_radius,
+                )
+            )
+
+        candidate_pool.extend(
+            filter_candidates_by_complexity(
+                combined_map,
+                bg_gray_for_rank,
+                (th, tw),
+                top_k=6,
+                use_complexity=not low_texture_mode,
+            )
+        )
+
+        orb_match = compute_orb_match(bg_match_search, tpl_match, raw_mask)
+        if orb_match is not None:
+            candidate_pool.append(
+                Candidate(
+                    loc=orb_match.loc,
+                    match_score=orb_match.score,
+                    combined_score=orb_match.score,
+                )
+            )
+
+        candidate_pool = non_max_suppress_candidates(
+            candidate_pool,
+            (th, tw),
+            iou_threshold=self._CANDIDATE_NMS_IOU,
+            limit=self._MAX_K_CANDIDATES,
+        )
+
+        rescored: list[Candidate] = []
+        for candidate in candidate_pool:
+            rescored_candidate = rescore_candidate(
+                bg_gray=bg_match_search,
+                tpl_gray=tpl_match,
+                tpl_mask=raw_mask,
+                template_map=template_map,
+                gradient_map=fused_map,
+                chamfer_map=chamfer_sim,
+                bg_edges=bg_edges_search,
+                tpl_edges=tpl_edges,
+                bg_gray_for_rank=bg_gray_for_rank,
+                initial_loc=candidate.loc,
+                orb_match=orb_match,
+                distinctiveness=distinctiveness,
+                search_radius=4,
+            )
+
+            if (
+                not low_texture_mode
+                and is_uniform_region(
+                    bg_gray_for_rank,
+                    rescored_candidate.loc,
+                    (th, tw),
+                    threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
+                    uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
+                )
+            ):
+                continue
+
+            rescored.append(rescored_candidate)
+
+        if not rescored:
+            _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(combined_map)
+            best_loc = (int(max_loc[0]), int(max_loc[1]))
+            final_loc = (best_loc[0], best_loc[1] + y0)
+            return final_loc, float(max_val)
+
+        rescored = non_max_suppress_candidates(
+            rescored,
+            (th, tw),
+            iou_threshold=self._CANDIDATE_NMS_IOU,
+            limit=self._TOP_REFINED_CANDIDATES,
+        )
+
+        refined_candidates: list[Candidate] = []
+        for candidate in rescored:
+            refined_xy, ecc_score, ncc_score = self._refine_candidate_loc(
+                bg_match_search,
+                tpl_match,
+                candidate.loc,
+                combined_map,
+                raw_mask=raw_mask,
+                search_radius=4,
+            )
+
+            refined_candidate = rescore_candidate(
+                bg_gray=bg_match_search,
+                tpl_gray=tpl_match,
+                tpl_mask=raw_mask,
+                template_map=template_map,
+                gradient_map=fused_map,
+                chamfer_map=chamfer_sim,
+                bg_edges=bg_edges_search,
+                tpl_edges=tpl_edges,
+                bg_gray_for_rank=bg_gray_for_rank,
+                initial_loc=refined_xy,
+                orb_match=orb_match,
+                distinctiveness=distinctiveness,
+                search_radius=1,
+            )
+            refined_candidate.final_score = float(
+                np.clip(
+                    0.78 * refined_candidate.confidence
+                    + 0.12 * ecc_score
+                    + 0.10 * ncc_score,
+                    0.0,
+                    1.0,
+                )
+            )
+            refined_candidate.confidence = float(refined_candidate.final_score)
+            refined_candidates.append(refined_candidate)
+
+        refined_candidates.sort(
+            key=lambda candidate: float(candidate.final_score or 0.0), reverse=True
+        )
+        best = refined_candidates[0]
+        runner_up_score = (
+            float(refined_candidates[1].final_score or 0.0)
+            if len(refined_candidates) > 1
+            else 0.0
+        )
+
+        margin = max(0.0, float(best.final_score or 0.0) - runner_up_score)
+        best_score = float(
+            np.clip(
+                0.90 * float(best.final_score or 0.0)
+                + 0.10 * min(1.0, margin / 0.12),
+                0.0,
+                1.0,
+            )
+        )
+
+        final_loc = best.loc
+        if y_roi is not None:
+            final_loc = (final_loc[0], final_loc[1] + y0)
+
+        legacy_loc, legacy_score = self._legacy_find_position(
+            tpl_gray,
+            bg_gray,
+            raw_mask=raw_mask,
+            y_roi=y_roi,
+        )
+
+        new_loc_search = (final_loc[0], final_loc[1] - y0)
+        legacy_loc_search = (legacy_loc[0], legacy_loc[1] - y0)
+
+        new_template_support = self._local_peak_score(template_map, new_loc_search, 1)
+        legacy_template_support = self._local_peak_score(
+            template_map, legacy_loc_search, 1
+        )
+
+        new_selection_score = 0.65 * best_score + 0.35 * new_template_support
+        legacy_selection_score = 0.65 * legacy_score + 0.35 * legacy_template_support
+
+        if (
+            legacy_selection_score > new_selection_score + 0.02
+            or (
+                abs(legacy_loc[0] - final_loc[0]) > max(4, tw // 8)
+                and legacy_template_support > new_template_support + 0.05
+                and legacy_score >= best_score - 0.03
+            )
+        ):
+            return legacy_loc, float(np.clip(legacy_selection_score, 0.0, 1.0))
+
+        return final_loc, float(np.clip(new_selection_score, 0.0, 1.0))
+
+    def discern_xy(
+        self,
+        y_roi: YRoi = None,
+        scales: tuple[float, ...] = (0.95, 1.0, 1.05),
+    ) -> tuple[int, int, float, float, tuple[int, int]]:
+        """Main solver with preprocessing, coarse localization, and final refinement."""
+        gap_raw = imread_any(self.gap_image_path)
+        bg_raw = imread_any(self.bg_image_path)
+
+        gap_cropped, gap_mask = crop_by_mask(
+            gap_raw, self._WHITE_BRIGHTNESS_THRESHOLD, self._WHITE_PERCENT_THRESHOLD
+        )
+        tpl_gray_raw = to_gray(gap_cropped)
+        bg_gray_raw = to_gray(bg_raw)
+
+        self.tpl_center_local = center_from_mask(gap_mask)
+
+        processing_scale = compute_processing_scale(
+            bg_gray_raw.shape[:2], max_processing_side=self._MAX_PROCESSING_SIDE
+        )
+        bg_gray_proc = resize_gray(bg_gray_raw, processing_scale)
+        tpl_gray_proc = resize_gray(tpl_gray_raw, processing_scale)
+        gap_mask_proc = resize_mask(gap_mask, processing_scale)
+        y_roi_proc = scale_y_roi(y_roi, processing_scale)
+
+        best_loc_proc: Point | None = None
+        best_score = -1.0
+        best_scale: float | None = None
+
+        for scale in scales:
+            tpl_s_proc, mask_s_proc = scale_template_and_mask(
+                tpl_gray_proc, gap_mask_proc, scale
+            )
+            loc_proc, score = self.find_position_of_slide(
+                tpl_s_proc,
+                bg_gray_proc,
+                raw_mask=mask_s_proc,
+                y_roi=y_roi_proc,
+            )
 
             if score > best_score:
+                best_loc_proc = loc_proc
                 best_score = score
-                best_x = x
+                best_scale = scale
 
-        if best_score < 0:
-            return (x0, y0), -1.0
+        if best_loc_proc is None or best_scale is None:
+            raise RuntimeError("No valid puzzle match found")
 
-        return (best_x, y0), best_score
-
-    def _subpixel_refine(self, res_map, max_loc, win=2):
-        """
-        Sub-pixel refinement using local 2D quadratic fit around the peak.
-        Returns (x_sub, y_sub) in the same coordinates as max_loc.
-        """
-        x, y = max_loc
-        h, w = res_map.shape
-
-        x0 = max(0, x - win)
-        x1 = min(w, x + win + 1)
-        y0 = max(0, y - win)
-        y1 = min(h, y + win + 1)
-
-        patch = res_map[y0:y1, x0:x1].astype(np.float32)
-
-        ys, xs = np.mgrid[y0:y1, x0:x1].reshape(2, -1)
-        xs = xs.astype(np.float32) - float(x)
-        ys = ys.astype(np.float32) - float(y)
-        Z = patch.reshape(-1)
-
-        A = np.vstack([xs * xs, ys * ys, xs * ys, xs, ys, np.ones_like(xs)]).T
-        try:
-            coeff, _, _, _ = np.linalg.lstsq(A, Z, rcond=None)
-        except np.linalg.LinAlgError:
-            return float(x), float(y)
-
-        a, b, c, d, e, _f = coeff
-
-        denom = 4 * a * b - c * c
-        if abs(denom) < 1e-6:
-            return float(x), float(y)
-
-        dx = (c * e - 2 * b * d) / denom
-        dy = (c * d - 2 * a * e) / denom
-
-        dx = float(np.clip(dx, -0.5, 0.5))
-        dy = float(np.clip(dy, -0.5, 0.5))
-
-        return x + dx, y + dy
-
-    def _chamfer_refine(self, bg_gray, tpl_gray, coarse_xy, search_radius=5):
-        """Chamfer refinement with minimal radius."""
-        th, tw = tpl_gray.shape[:2]
-        x0 = max(0, coarse_xy[0] - search_radius)
-        y0 = max(0, coarse_xy[1] - search_radius)
-        x1 = min(bg_gray.shape[1], coarse_xy[0] + tw + search_radius)
-        y1 = min(bg_gray.shape[0], coarse_xy[1] + th + search_radius)
-        roi = bg_gray[y0:y1, x0:x1]
-
-        if roi.shape[0] < th or roi.shape[1] < tw:
-            return coarse_xy, float("inf")
-
-        roi_median = np.median(roi)
-        sigma = 0.33
-        lower_canny = int(max(15, (1.0 - sigma) * roi_median))
-        upper_canny = int(min(150, (1.0 + sigma) * roi_median))
-
-        roi_edges = cv2.Canny(roi, lower_canny, upper_canny, L2gradient=True)
-        inv = (roi_edges == 0).astype(np.uint8) * 255
-        dt = cv2.distanceTransform(inv, cv2.DIST_L2, 5).astype(np.float32)
-
-        tpl_median = np.median(tpl_gray)
-        lower_tpl = int(max(15, (1.0 - sigma) * tpl_median))
-        upper_tpl = int(min(150, (1.0 + sigma) * tpl_median))
-
-        tpl_edges = cv2.Canny(tpl_gray, lower_tpl, upper_tpl, L2gradient=True)
-        tpl_edges = (tpl_edges > 0).astype(np.float32)
-
-        res = cv2.matchTemplate(dt, tpl_edges, cv2.TM_SQDIFF)
-        min_val, _, min_loc, _ = cv2.minMaxLoc(res)
-
-        refined = (x0 + min_loc[0], y0 + min_loc[1])
-
-        dx = abs(refined[0] - coarse_xy[0])
-        dy = abs(refined[1] - coarse_xy[1])
-
-        if dx <= 3 and dy <= 3:
-            return refined, float(min_val)
-        return coarse_xy, float(min_val)
-
-    # Private helpers (visualization)
-    def _draw_match_visualization(
-        self, bg_gray, tl, tw, th, score, tpl_center_local=None
-    ):
-        """
-        Visualization with confidence color and true jigsaw center.
-
-        tl: (x, y) top-left of template in background (float).
-        tpl_center_local: (cx, cy) center in template-local coordinates (float).
-        """
-        vis = cv2.cvtColor(bg_gray, cv2.COLOR_GRAY2BGR)
-
-        tl_int = (int(round(tl[0])), int(round(tl[1])))
-        br = (int(round(tl[0] + tw)), int(round(tl[1] + th)))
-
-        if score > 0.85:
-            color = (0, 255, 0)
-        elif score > 0.75:
-            color = (0, 255, 255)
-        else:
-            color = (0, 165, 255)
-
-        cv2.rectangle(vis, tl_int, br, color, 2)
-
-        if tpl_center_local is not None:
-            center_x = tl[0] + tpl_center_local[0]
-            center_y = tl[1] + tpl_center_local[1]
-        else:
-            center_x = tl[0] + tw / 2.0
-            center_y = tl[1] + th / 2.0
-
-        center_int = (int(round(center_x)), int(round(center_y)))
-
-        cv2.circle(vis, center_int, radius=8, color=color, thickness=-1)
-        cv2.circle(vis, center_int, radius=8, color=(255, 255, 255), thickness=2)
-
-        crosshair_size = 15
-        cv2.line(
-            vis,
-            (center_int[0] - crosshair_size, center_int[1]),
-            (center_int[0] + crosshair_size, center_int[1]),
-            (255, 255, 255),
-            2,
-        )
-        cv2.line(
-            vis,
-            (center_int[0], center_int[1] - crosshair_size),
-            (center_int[0], center_int[1] + crosshair_size),
-            (255, 255, 255),
-            2,
+        best_tpl_orig, best_mask_orig = scale_template_and_mask(
+            tpl_gray_raw, gap_mask, best_scale
         )
 
-        score_text = f"Score: {score:.4f}"
-        cv2.putText(
-            vis,
-            score_text,
-            (tl_int[0], tl_int[1] - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            color,
-            2,
+        coarse_xy_orig = (
+            int(round(best_loc_proc[0] / processing_scale)),
+            int(round(best_loc_proc[1] / processing_scale)),
         )
 
-        coords_text = f"Pos: ({int(round(center_x))}, {int(round(center_y))})"
-        cv2.putText(
-            vis,
-            coords_text,
-            (tl_int[0], br[1] + 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 0),
-            1,
+        refined_xy, refined_score = self._refine_original_resolution(
+            bg_gray_raw,
+            best_tpl_orig,
+            best_mask_orig,
+            coarse_xy_orig,
+            best_score,
         )
 
-        return vis
+        th, tw = best_tpl_orig.shape[:2]
+        tpl_center_for_vis = None
+        if self.tpl_center_local is not None:
+            tpl_center_for_vis = (
+                float(self.tpl_center_local[0] * best_scale),
+                float(self.tpl_center_local[1] * best_scale),
+            )
+
+        vis = draw_match_visualization(
+            bg_gray_raw,
+            (float(refined_xy[0]), float(refined_xy[1])),
+            tw,
+            th,
+            refined_score,
+            tpl_center_local=tpl_center_for_vis,
+        )
+        ensure_output_dir(self.output_image_path)
+        cv2.imwrite(self.output_image_path, vis)
+
+        return (
+            int(round(refined_xy[0])),
+            int(round(refined_xy[1])),
+            float(refined_score),
+            float(best_scale),
+            (int(tw), int(th)),
+        )

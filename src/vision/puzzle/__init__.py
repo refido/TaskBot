@@ -1,0 +1,67 @@
+from src.vision.puzzle.features import (
+    adaptive_edge_mask,
+    compute_template_distinctiveness,
+    multi_scale_gradient,
+)
+from src.vision.puzzle.matching import (
+    compute_fused_and_chamfer_maps,
+    compute_orb_match,
+    compute_template_similarity_map,
+    extract_top_peak_candidates,
+    filter_candidates_by_complexity,
+    is_uniform_region,
+    non_max_suppress_candidates,
+    rescore_candidate,
+)
+from src.vision.puzzle.preprocessing import (
+    build_match_mask,
+    center_from_mask,
+    compute_processing_scale,
+    crop_by_mask,
+    ensure_output_dir,
+    imread_any,
+    preprocess_for_matching,
+    resize_gray,
+    resize_mask,
+    scale_template_and_mask,
+    scale_y_roi,
+    to_gray,
+)
+from src.vision.puzzle.refinement import (
+    chamfer_refine,
+    ecc_refine,
+    local_ncc_refine,
+    subpixel_refine,
+)
+from src.vision.puzzle.visualization import draw_match_visualization
+
+__all__ = [
+    "adaptive_edge_mask",
+    "build_match_mask",
+    "center_from_mask",
+    "chamfer_refine",
+    "compute_fused_and_chamfer_maps",
+    "compute_orb_match",
+    "compute_processing_scale",
+    "compute_template_distinctiveness",
+    "compute_template_similarity_map",
+    "crop_by_mask",
+    "draw_match_visualization",
+    "ecc_refine",
+    "ensure_output_dir",
+    "extract_top_peak_candidates",
+    "filter_candidates_by_complexity",
+    "imread_any",
+    "is_uniform_region",
+    "local_ncc_refine",
+    "multi_scale_gradient",
+    "non_max_suppress_candidates",
+    "preprocess_for_matching",
+    "resize_gray",
+    "resize_mask",
+    "rescore_candidate",
+    "scale_template_and_mask",
+    "scale_y_roi",
+    "subpixel_refine",
+    "to_gray",
+]
