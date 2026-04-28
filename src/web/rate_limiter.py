@@ -12,7 +12,7 @@ from src.logging_utils import log_print
 class SkipRateLimiter:
     def __init__(
         self,
-        max_skips: int = 10,
+        max_skips: int = 5,
         window_seconds: int = 60,
         min_cooldown: int = 60,
         jitter_seconds: int = 5,

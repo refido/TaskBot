@@ -1,3 +1,5 @@
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -14,6 +16,7 @@ from src.web.pages.login import Login
 from src.web.pages.penjualan import Penjualan
 from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
+from src.web.session_state import SessionExpiredError, is_login_page
 
 
 class OutOfSellableStockError(RuntimeError):
@@ -22,6 +25,14 @@ class OutOfSellableStockError(RuntimeError):
 
 class PuzzleSolveFailedError(RuntimeError):
     """Raised when the puzzle challenge could not be solved."""
+
+
+@dataclass(slots=True)
+class PuzzleSolveOutcome:
+    solved: bool
+    attempts: int
+    retry_count: int = 0
+    retry_process: str = ""
 
 
 class TransactionProcessor:
@@ -33,7 +44,13 @@ class TransactionProcessor:
     _LOGGED_OUT_CHECK_TIMEOUT_MS: int = 800
     _POST_SKIP_COOLDOWN_MS: int = 300
     _MAX_WAIT_SUCCESS_MS: int = 3500
+    _MAX_PUZZLE_ATTEMPTS: int = 5
+    _PUZZLE_RETRY_MODAL_TIMEOUT_MS: int = 2500
+    _PUZZLE_REFRESH_TIMEOUT_MS: int = 5000
+    _PUZZLE_RETRY_PROCESS: str = "proses_penjualan"
     _PUZZLE_SOLVE_FAILED_REASON: str = "CAPTCHA solving failed"
+    _SESSION_PROBE_INTERVAL_MS: int = 10 * 60 * 1000
+    _MAX_SESSION_RECOVERY_RETRIES_PER_NIK: int = 1
 
     def __init__(
         self,
@@ -49,6 +66,7 @@ class TransactionProcessor:
 
         self.dashboard = Dashboard(page)
         self.login = Login(page)
+        self._last_session_probe_at = time.monotonic()
 
     def process_all_niks(self) -> None:
         """Process all NIKs from configuration."""
@@ -74,87 +92,140 @@ class TransactionProcessor:
     def process_single_nik(self, nik: str) -> None:
         """Process a single NIK transaction."""
         started_at = self.reporter.start_item(nik)
-        puzzle_solved: Optional[bool] = None
-        puzzle_attempts = 0
 
-        try:
-            self._wait_for_rate_limit()
-            self._navigate_to_transaction(nik)
+        for attempt_number in range(1, self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK + 2):
+            puzzle_solved: Optional[bool] = None
+            puzzle_attempts = 0
+            puzzle_retry_count = 0
+            puzzle_retry_process = ""
 
-            if self._handle_pre_checks(nik, started_at):
+            try:
+                self._probe_session_if_due(
+                    reason=f"before processing NIK {nik}",
+                    force=attempt_number > 1,
+                )
+                self._wait_for_rate_limit()
+                self._probe_session_if_due(
+                    reason=f"after wait before NIK {nik} navigation"
+                )
+                self._navigate_to_transaction(nik)
+
+                if self._handle_pre_checks(nik, started_at):
+                    return
+
+                penjualan = Penjualan(self.page)
+
+                self._probe_session_if_due(reason=f"before cek pesanan for NIK {nik}")
+                self._check_zero_stock_and_stop(
+                    penjualan, nik, started_at, stage="before cek pesanan"
+                )
+
+                if self._check_max_kuota(
+                    penjualan, nik, started_at, stage="before cek pesanan"
+                ):
+                    return
+
+                penjualan.cek_pesanan()
+
+                self._probe_session_if_due(reason=f"after cek pesanan for NIK {nik}")
+                self._check_zero_stock_and_stop(
+                    penjualan, nik, started_at, stage="after cek pesanan"
+                )
+
+                if self._check_max_kuota(
+                    penjualan, nik, started_at, stage="after cek pesanan"
+                ):
+                    return
+
+                cek_penjualan = CekPenjualan(self.page)
+                cek_penjualan.proses_penjualan()
+
+                puzzle_outcome = self._solve_puzzle(nik)
+                puzzle_solved = puzzle_outcome.solved
+                puzzle_attempts = puzzle_outcome.attempts
+                puzzle_retry_count = puzzle_outcome.retry_count
+                puzzle_retry_process = puzzle_outcome.retry_process
+                if not puzzle_solved:
+                    raise PuzzleSolveFailedError(
+                        self._build_puzzle_failure_reason(puzzle_attempts)
+                    )
+
+                self._return_to_dashboard(cek_penjualan)
+
+                self.reporter.complete(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                    puzzle_solved=puzzle_solved,
+                    puzzle_attempts=puzzle_attempts,
+                    puzzle_retry_count=puzzle_retry_count,
+                    puzzle_retry_process=puzzle_retry_process,
+                )
+                self.limiter.record_success()
                 return
 
-            penjualan = Penjualan(self.page)
-
-            self._check_zero_stock_and_stop(
-                penjualan, nik, started_at, stage="before cek pesanan"
-            )
-
-            if self._check_max_kuota(
-                penjualan, nik, started_at, stage="before cek pesanan"
-            ):
+            except OutOfSellableStockError:
+                raise
+            except PuzzleSolveFailedError as exc:
+                logger.bind(
+                    event="transaction.puzzle_failed",
+                    operator=self.config.email_user,
+                    nik=str(nik),
+                ).warning(str(exc))
+                self.reporter.failed_puzzle_solve(
+                    nik,
+                    started_at,
+                    exc=exc,
+                    url=self.page.url,
+                    puzzle_attempts=puzzle_attempts,
+                    puzzle_retry_count=puzzle_retry_count,
+                    puzzle_retry_process=puzzle_retry_process,
+                )
+                self._handle_session_recovery()
                 return
+            except SessionExpiredError as exc:
+                logger.bind(
+                    event="transaction.session_expired",
+                    operator=self.config.email_user,
+                    nik=str(nik),
+                    attempt_number=attempt_number,
+                    retry_limit=self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK,
+                ).warning(str(exc))
 
-            penjualan.cek_pesanan()
+                if attempt_number > self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK:
+                    self.reporter.error(
+                        nik,
+                        started_at,
+                        exc=exc,
+                        url=self.page.url,
+                        puzzle_solved=puzzle_solved,
+                        puzzle_attempts=puzzle_attempts,
+                        puzzle_retry_count=puzzle_retry_count,
+                        puzzle_retry_process=puzzle_retry_process,
+                    )
+                    self._handle_session_recovery()
+                    return
 
-            self._check_zero_stock_and_stop(
-                penjualan, nik, started_at, stage="after cek pesanan"
-            )
-
-            if self._check_max_kuota(
-                penjualan, nik, started_at, stage="after cek pesanan"
-            ):
+                self._handle_session_recovery()
+                continue
+            except Exception as exc:
+                logger.bind(
+                    event="transaction.failed",
+                    operator=self.config.email_user,
+                    nik=str(nik),
+                ).exception("Failed processing NIK")
+                self.reporter.error(
+                    nik,
+                    started_at,
+                    exc=exc,
+                    url=self.page.url,
+                    puzzle_solved=puzzle_solved,
+                    puzzle_attempts=puzzle_attempts,
+                    puzzle_retry_count=puzzle_retry_count,
+                    puzzle_retry_process=puzzle_retry_process,
+                )
+                self._handle_session_recovery()
                 return
-
-            cek_penjualan = CekPenjualan(self.page)
-            cek_penjualan.proses_penjualan()
-
-            puzzle_solved, puzzle_attempts = self._solve_puzzle(nik)
-            if not puzzle_solved:
-                raise PuzzleSolveFailedError(self._PUZZLE_SOLVE_FAILED_REASON)
-
-            self._return_to_dashboard(cek_penjualan)
-
-            self.reporter.complete(
-                nik,
-                started_at,
-                url=self.page.url,
-                puzzle_solved=puzzle_solved,
-                puzzle_attempts=puzzle_attempts,
-            )
-            self.limiter.record_success()
-
-        except OutOfSellableStockError:
-            raise
-        except PuzzleSolveFailedError as exc:
-            logger.bind(
-                event="transaction.puzzle_failed",
-                operator=self.config.email_user,
-                nik=str(nik),
-            ).warning(str(exc))
-            self.reporter.failed_puzzle_solve(
-                nik,
-                started_at,
-                exc=exc,
-                url=self.page.url,
-                puzzle_attempts=puzzle_attempts,
-            )
-            self._handle_session_recovery()
-        except Exception as exc:
-            logger.bind(
-                event="transaction.failed",
-                operator=self.config.email_user,
-                nik=str(nik),
-            ).exception("Failed processing NIK")
-            self.reporter.error(
-                nik,
-                started_at,
-                exc=exc,
-                url=self.page.url,
-                puzzle_solved=puzzle_solved,
-                puzzle_attempts=puzzle_attempts,
-            )
-            self._handle_session_recovery()
 
     def _wait_for_rate_limit(self) -> None:
         self.limiter.wait_if_needed(self.page)
@@ -329,37 +400,92 @@ class TransactionProcessor:
         log_print(message)
         self.page.wait_for_timeout(self._POST_SKIP_COOLDOWN_MS)
 
-    def _solve_puzzle(self, nik: str) -> tuple[bool, int]:
-        """Solve CAPTCHA puzzle. Returns (success, attempts)."""
-        helpers = Helpers(self.page)
-        piece_path = helpers.save_puzzle_piece(nik)
-        bg_path = helpers.save_puzzle_bg(nik)
+    def _solve_puzzle(self, nik: str) -> PuzzleSolveOutcome:
+        """Solve CAPTCHA puzzle with a bounded retry on failed challenges."""
+        max_attempts = self._MAX_PUZZLE_ATTEMPTS
+        attempts_used = 0
+        retry_count = 0
+        retry_process = ""
 
-        out_dir = Path(piece_path).parent
-        result_path = out_dir / helpers.build_puzzle_output_name(nik, "result")
+        for attempt_number in range(1, max_attempts + 1):
+            attempts_used = attempt_number
+            helpers = Helpers(self.page)
+            bg_src, piece_src = helpers.get_puzzle_image_sources()
+            piece_path = helpers.save_puzzle_piece(nik)
+            bg_path = helpers.save_puzzle_bg(nik)
 
-        log_print(f"Result path (abs): {result_path.resolve()}")
+            out_dir = Path(piece_path).parent
+            result_path = out_dir / helpers.build_puzzle_output_name(nik, "result")
 
-        solver = PuzzleSolver(
-            gap_image_path=piece_path,
-            bg_image_path=bg_path,
-            output_image_path=str(result_path),
+            log_print(f"Result path (abs): {result_path.resolve()}")
+
+            solver = PuzzleSolver(
+                gap_image_path=piece_path,
+                bg_image_path=bg_path,
+                output_image_path=str(result_path),
+            )
+            position = solver.discern_xy()
+            log_print(f"The position of the slide is: {position}")
+
+            success = solve_slider_with_puzzle(
+                self.page,
+                imgs={"background": Path(bg_path), "piece": Path(piece_path)},
+                max_wait_success_ms=self._MAX_WAIT_SUCCESS_MS,
+            )
+            log_print(f"Slider solved on attempt {attempt_number}: {success}")
+
+            if success:
+                return PuzzleSolveOutcome(
+                    solved=True,
+                    attempts=attempt_number,
+                    retry_count=retry_count,
+                    retry_process=retry_process,
+                )
+
+            if attempt_number >= max_attempts:
+                break
+
+            modal_title = self.dashboard.detect_failed_puzzle_modal_if_needed(
+                detect_timeout=self._PUZZLE_RETRY_MODAL_TIMEOUT_MS
+            )
+            if not modal_title:
+                break
+
+            retry_count += 1
+            retry_process = self._PUZZLE_RETRY_PROCESS
+            logger.bind(
+                event="transaction.puzzle_retry",
+                operator=self.config.email_user,
+                nik=str(nik),
+                retry_count=retry_count,
+                retry_process=retry_process,
+                modal_title=modal_title,
+            ).info("Retrying failed puzzle solve")
+            log_print(
+                f"Retrying puzzle for NIK {nik} during {retry_process} "
+                f"(attempt {attempt_number + 1}/{self._MAX_PUZZLE_ATTEMPTS})."
+            )
+            helpers.wait_for_puzzle_refresh(
+                previous_bg_src=bg_src,
+                previous_piece_src=piece_src,
+                timeout_ms=self._PUZZLE_REFRESH_TIMEOUT_MS,
+            )
+
+        return PuzzleSolveOutcome(
+            solved=False,
+            attempts=max(1, attempts_used),
+            retry_count=retry_count,
+            retry_process=retry_process,
         )
-        position = solver.discern_xy()
-        log_print(f"The position of the slide is: {position}")
 
-        success = solve_slider_with_puzzle(
-            self.page,
-            imgs={"background": Path(bg_path), "piece": Path(piece_path)},
-            max_wait_success_ms=self._MAX_WAIT_SUCCESS_MS,
-        )
-        log_print(f"Slider solved: {success}")
-
-        # Preserve original behavior: always return attempts=1.
-        return success, 1
+    def _build_puzzle_failure_reason(self, attempts: int) -> str:
+        if attempts <= 1:
+            return self._PUZZLE_SOLVE_FAILED_REASON
+        return f"{self._PUZZLE_SOLVE_FAILED_REASON} after {attempts} attempts"
 
     def _handle_session_recovery(self) -> None:
         """Handle session recovery after error."""
+        self._reset_session_probe()
         if self._check_if_logged_out():
             self._restore_logged_out_session()
             return
@@ -384,18 +510,32 @@ class TransactionProcessor:
         self.login.login(self.config.email_user, self.config.pin_user)
         self.page.wait_for_load_state(self._LOAD_STATE)
         self.dashboard.ensure_on_dashboard()
+        self._reset_session_probe()
 
     def _check_if_logged_out(self) -> bool:
         """Check if user is logged out."""
-        try:
-            return (
-                "login" in self.page.url
-                or self.page.get_by_placeholder("Email").is_visible(
-                    timeout=self._LOGGED_OUT_CHECK_TIMEOUT_MS
-                )
-                or self.page.get_by_role("button", name="MASUK").is_visible(
-                    timeout=self._LOGGED_OUT_CHECK_TIMEOUT_MS
-                )
-            )
-        except Exception:
-            return False
+        return is_login_page(
+            self.page, timeout_ms=self._LOGGED_OUT_CHECK_TIMEOUT_MS
+        )
+
+    def _probe_session_if_due(self, *, reason: str, force: bool = False) -> None:
+        now = time.monotonic()
+        elapsed_ms = (now - self._last_session_probe_at) * 1000
+
+        if not force and elapsed_ms < self._SESSION_PROBE_INTERVAL_MS:
+            return
+
+        self._last_session_probe_at = now
+        if not self._check_if_logged_out():
+            return
+
+        logger.bind(
+            event="transaction.session_probe.login_detected",
+            operator=self.config.email_user,
+            reason=reason,
+            elapsed_ms=int(elapsed_ms),
+        ).warning("Login page detected during periodic session probe")
+        self._restore_logged_out_session()
+
+    def _reset_session_probe(self) -> None:
+        self._last_session_probe_at = time.monotonic()
