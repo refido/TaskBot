@@ -25,6 +25,7 @@ class Config:
         self.run_context = RunContext.from_settings(self._settings)
 
         self.url_application: str = self._settings.url_application
+        self.puzzle_debug_artifacts: bool = self._settings.puzzle_debug_artifacts
         self.accounts: list[AccountConfig] = [
             AccountConfig.from_settings(
                 account.email_user,
