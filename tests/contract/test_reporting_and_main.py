@@ -51,7 +51,48 @@ def test_reporter_labels_network_and_application_errors(monkeypatch):
     }
 
 
-def test_run_account_limits_testing_hits_to_three(monkeypatch):
+def test_reporter_records_retry_report_without_bursting_rows(monkeypatch):
+    monkeypatch.setattr(reporter_module, "log_print", lambda *args, **kwargs: None)
+    reporter = reporter_module.TransactionReporter.__new__(
+        reporter_module.TransactionReporter
+    )
+    reporter.operator = "tester@example.com"
+    reporter.run_started_at = reporter_module.now_iso()
+    reporter.rows = []
+    reporter.retry_events = []
+    reporter._write_meta = lambda: None
+
+    try:
+        raise RuntimeError("Page.goto: net::ERR_CONNECTION_RESET")
+    except RuntimeError as exc:
+        reporter.record_retry(
+            "3174",
+            process="process_single_nik",
+            trigger="general_error",
+            attempt_number=1,
+            retry_number=1,
+            max_retries=2,
+            exc=exc,
+            url="https://app",
+        )
+
+    retry_report = reporter.get_retry_report()
+    assert reporter.rows == []
+    assert retry_report["operator"] == "tester@example.com"
+    assert retry_report["total_retry_events"] == 1
+    assert retry_report["total_retried_niks"] == 1
+    assert retry_report["retried_niks"] == ["3174"]
+    assert retry_report["by_process"] == {"process_single_nik": ["3174"]}
+    assert retry_report["by_trigger"] == {"general_error": ["3174"]}
+    assert retry_report["events"][0]["retry_number"] == 1
+    assert retry_report["events"][0]["max_retries"] == 2
+    assert (
+        retry_report["events"][0]["error_label"]
+        == reporter_module._NETWORK_ERROR_LABEL
+    )
+
+
+def test_run_account_uses_configured_skip_rate_limiter(monkeypatch):
     limiter_kwargs = {}
 
     class DummyLogger:
@@ -116,9 +157,9 @@ def test_run_account_limits_testing_hits_to_three(monkeypatch):
 
     assert email == "tester@example.com"
     assert is_successful is True
-    assert limiter_kwargs["max_skips"] == 3
-    assert limiter_kwargs["window_seconds"] == 60
-    assert limiter_kwargs["min_cooldown"] == 60
+    assert limiter_kwargs["max_skips"] == 8
+    assert limiter_kwargs["window_seconds"] == 48
+    assert limiter_kwargs["min_cooldown"] == 48
     assert limiter_kwargs["jitter_seconds"] == 5
 
 
@@ -195,6 +236,7 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
         "run_ended_at",
         "counts",
         "analytics",
+        "retry_report",
         "items",
         "mapping_report",
         "mapping_error_report",
@@ -204,6 +246,8 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
     }
     assert snapshot_payload["counts"]["completed"] == 1
     assert snapshot_payload["mapping_report"]["successful"] == ["3174"]
+    assert snapshot_payload["retry_report"]["total_retry_events"] == 0
+    assert snapshot_payload["nik_lists"]["retried"] == []
 
     analytics_payload = json.loads(
         reporter.analytics_path.read_text(encoding="utf-8")
@@ -224,6 +268,7 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
         "run_ended_at",
         "counts",
         "analytics",
+        "retry_report",
         "mapping_report",
         "mapping_error_report",
         "mapping_failed_puzzle_report",
@@ -233,3 +278,4 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
     }
     assert meta_payload["files"]["csv"].endswith("items.csv")
     assert meta_payload["paths"]["run_dir"] == str(reporter.run_dir)
+    assert meta_payload["retry_report"]["total_retry_events"] == 0

@@ -45,6 +45,8 @@ class TransactionProcessor:
     _PUZZLE_SOLVE_FAILED_REASON: str = "CAPTCHA solving failed"
     _SESSION_PROBE_INTERVAL_MS: int = 10 * 60 * 1000
     _MAX_SESSION_RECOVERY_RETRIES_PER_NIK: int = 1
+    _MAX_GENERAL_ERROR_RETRIES_PER_NIK: int = 2
+    _RETRY_PROCESS: str = "process_single_nik"
 
     def __init__(
         self,
@@ -88,8 +90,11 @@ class TransactionProcessor:
     def process_single_nik(self, nik: str) -> None:
         """Process a single NIK transaction."""
         started_at = self.reporter.start_item(nik)
+        session_retries_used = 0
+        general_error_retries_used = 0
+        attempt_number = 1
 
-        for attempt_number in range(1, self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK + 2):
+        while True:
             puzzle_solved: Optional[bool] = None
             puzzle_attempts = 0
             puzzle_retry_count = 0
@@ -177,10 +182,14 @@ class TransactionProcessor:
                     operator=self.config.email_user,
                     nik=str(nik),
                     attempt_number=attempt_number,
+                    retries_used=session_retries_used,
                     retry_limit=self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK,
                 ).warning(str(exc))
 
-                if attempt_number > self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK:
+                if (
+                    session_retries_used
+                    >= self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK
+                ):
                     self.reporter.error(
                         nik,
                         started_at,
@@ -194,13 +203,51 @@ class TransactionProcessor:
                     self._handle_session_recovery()
                     return
 
+                session_retries_used += 1
+                self._record_retry(
+                    nik=nik,
+                    exc=exc,
+                    trigger="session_expired",
+                    attempt_number=attempt_number,
+                    retry_number=session_retries_used,
+                    max_retries=self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK,
+                )
                 self._handle_session_recovery()
+                attempt_number += 1
                 continue
             except Exception as exc:
+                if (
+                    general_error_retries_used
+                    < self._MAX_GENERAL_ERROR_RETRIES_PER_NIK
+                ):
+                    general_error_retries_used += 1
+                    logger.bind(
+                        event="transaction.retrying_after_general_error",
+                        operator=self.config.email_user,
+                        nik=str(nik),
+                        attempt_number=attempt_number,
+                        retry_number=general_error_retries_used,
+                        retry_limit=self._MAX_GENERAL_ERROR_RETRIES_PER_NIK,
+                    ).warning(str(exc))
+                    self._record_retry(
+                        nik=nik,
+                        exc=exc,
+                        trigger="general_error",
+                        attempt_number=attempt_number,
+                        retry_number=general_error_retries_used,
+                        max_retries=self._MAX_GENERAL_ERROR_RETRIES_PER_NIK,
+                    )
+                    self._handle_session_recovery()
+                    attempt_number += 1
+                    continue
+
                 logger.bind(
                     event="transaction.failed",
                     operator=self.config.email_user,
                     nik=str(nik),
+                    attempt_number=attempt_number,
+                    retries_used=general_error_retries_used,
+                    retry_limit=self._MAX_GENERAL_ERROR_RETRIES_PER_NIK,
                 ).exception("Failed processing NIK")
                 self.reporter.error(
                     nik,
@@ -214,6 +261,31 @@ class TransactionProcessor:
                 )
                 self._handle_session_recovery()
                 return
+
+    def _record_retry(
+        self,
+        *,
+        nik: str,
+        exc: Exception,
+        trigger: str,
+        attempt_number: int,
+        retry_number: int,
+        max_retries: int,
+    ) -> None:
+        record_retry = getattr(self.reporter, "record_retry", None)
+        if record_retry is None:
+            return
+
+        record_retry(
+            nik,
+            process=self._RETRY_PROCESS,
+            trigger=trigger,
+            attempt_number=attempt_number,
+            retry_number=retry_number,
+            max_retries=max_retries,
+            exc=exc,
+            url=self.page.url,
+        )
 
     def _wait_for_rate_limit(self) -> None:
         self.limiter.wait_if_needed(self.page)

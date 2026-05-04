@@ -50,3 +50,20 @@ class TransactionRow:
         except Exception:
             # Preserve original behavior: default to 0.0 on error.
             self.duration_seconds = 0.0
+
+
+@dataclass
+class RetryEvent:
+    """Metadata for a retry attempt without adding a transaction row."""
+
+    operator: str
+    nik: str
+    process: str
+    trigger: str
+    attempt_number: int
+    retry_number: int
+    max_retries: int
+    recorded_at: str
+    url: str = ""
+    reason: str = ""
+    error_label: str = ""

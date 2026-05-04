@@ -29,6 +29,7 @@ class FakeReporter:
         self.complete_calls: list[tuple[str, str, dict]] = []
         self.error_calls: list[tuple[str, str, Exception, dict]] = []
         self.failed_puzzle_calls: list[tuple[str, str, Exception, dict]] = []
+        self.retry_calls: list[tuple[str, dict]] = []
 
     def start_item(self, nik: str) -> str:
         self.started.append(nik)
@@ -44,6 +45,9 @@ class FakeReporter:
         self, nik: str, started_at: str, exc: Exception, **kwargs
     ) -> None:
         self.failed_puzzle_calls.append((nik, started_at, exc, kwargs))
+
+    def record_retry(self, nik: str, **kwargs) -> None:
+        self.retry_calls.append((nik, kwargs))
 
 
 class FakeLimiter:
@@ -430,3 +434,100 @@ def test_process_single_nik_retries_once_after_session_expired_then_errors():
     assert payload["puzzle_solved"] is None
     assert payload["puzzle_attempts"] == 0
     assert session_recovery_service.recovery_calls == 2
+
+
+def test_process_single_nik_retries_general_errors_twice_then_completes(monkeypatch):
+    class FlakyPenjualan:
+        cek_pesanan_calls = 0
+
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def cek_pesanan(self) -> None:
+            FlakyPenjualan.cek_pesanan_calls += 1
+            if FlakyPenjualan.cek_pesanan_calls <= 2:
+                raise RuntimeError(
+                    f"transient attempt {FlakyPenjualan.cek_pesanan_calls}"
+                )
+
+    class FakeCekPenjualan:
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def proses_penjualan(self) -> None:
+            return None
+
+        def kembali_ke_dashboard(self) -> None:
+            return None
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", FlakyPenjualan)
+    monkeypatch.setattr(transaction_processor, "CekPenjualan", FakeCekPenjualan)
+
+    reporter = FakeReporter()
+    limiter = FakeLimiter()
+    puzzle_service = FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1))
+    session_recovery_service = FakeSessionRecoveryService()
+    processor = _build_processor(
+        reporter=reporter,
+        limiter=limiter,
+        precheck_service=FakePrecheckService(),
+        puzzle_service=puzzle_service,
+        session_recovery_service=session_recovery_service,
+    )
+
+    processor.process_single_nik("3174")
+
+    assert len(reporter.retry_calls) == 2
+    assert [call[0] for call in reporter.retry_calls] == ["3174", "3174"]
+    first_retry = reporter.retry_calls[0][1]
+    second_retry = reporter.retry_calls[1][1]
+    assert first_retry["trigger"] == "general_error"
+    assert first_retry["process"] == "process_single_nik"
+    assert first_retry["attempt_number"] == 1
+    assert first_retry["retry_number"] == 1
+    assert first_retry["max_retries"] == 2
+    assert second_retry["attempt_number"] == 2
+    assert second_retry["retry_number"] == 2
+    assert reporter.error_calls == []
+    assert len(reporter.complete_calls) == 1
+    assert limiter.wait_calls == 3
+    assert puzzle_service.calls == ["3174"]
+    assert session_recovery_service.recovery_calls == 2
+
+
+def test_process_single_nik_errors_after_general_retry_limit(monkeypatch):
+    class FailingPenjualan:
+        cek_pesanan_calls = 0
+
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def cek_pesanan(self) -> None:
+            FailingPenjualan.cek_pesanan_calls += 1
+            raise RuntimeError(f"still failing {FailingPenjualan.cek_pesanan_calls}")
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", FailingPenjualan)
+
+    reporter = FakeReporter()
+    limiter = FakeLimiter()
+    session_recovery_service = FakeSessionRecoveryService()
+    processor = _build_processor(
+        reporter=reporter,
+        limiter=limiter,
+        precheck_service=FakePrecheckService(),
+        puzzle_service=FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1)),
+        session_recovery_service=session_recovery_service,
+    )
+
+    processor.process_single_nik("3174")
+
+    assert FailingPenjualan.cek_pesanan_calls == 3
+    assert len(reporter.retry_calls) == 2
+    assert [call[1]["retry_number"] for call in reporter.retry_calls] == [1, 2]
+    assert len(reporter.error_calls) == 1
+    nik, started_at, exc, payload = reporter.error_calls[0]
+    assert (nik, started_at) == ("3174", "started-at")
+    assert isinstance(exc, RuntimeError)
+    assert payload["puzzle_solved"] is None
+    assert limiter.wait_calls == 3
+    assert session_recovery_service.recovery_calls == 3

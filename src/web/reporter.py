@@ -45,6 +45,7 @@ from src.infrastructure.reporting.console_summary import (
     print_nik_statistics,
     print_performance,
     print_puzzle_metrics,
+    print_retry_report,
     print_section,
     print_skip_reasons,
     print_skipped_niks,
@@ -52,7 +53,12 @@ from src.infrastructure.reporting.console_summary import (
     print_unregistered_niks,
 )
 from src.infrastructure.reporting.file_writer import FileWriter
-from src.infrastructure.reporting.models import TransactionRow, now_iso, parse_iso
+from src.infrastructure.reporting.models import (
+    RetryEvent,
+    TransactionRow,
+    now_iso,
+    parse_iso,
+)
 from src.logging_utils import log_print, logger
 from src.path_utils import build_dated_dir, build_timestamped_run_dir
 
@@ -61,6 +67,7 @@ __all__ = [
     "MetricsCalculator",
     "TransactionReporter",
     "TransactionRow",
+    "RetryEvent",
     "now_iso",
     "parse_iso",
     "_APPLICATION_ERROR_LABEL",
@@ -81,6 +88,7 @@ class TransactionReporter:
         self.operator = operator or ""
         self.run_started_at = now_iso()
         self.rows: List[TransactionRow] = []
+        self.retry_events: List[RetryEvent] = []
 
         self._setup_directories(out_dir, run_name, per_run_subdir)
 
@@ -313,6 +321,54 @@ class TransactionReporter:
             error=error_details,
         )
 
+    def record_retry(
+        self,
+        nik: str,
+        *,
+        process: str,
+        trigger: str,
+        attempt_number: int,
+        retry_number: int,
+        max_retries: int,
+        exc: Optional[Exception] = None,
+        url: str = "",
+    ) -> None:
+        """Record retry telemetry without adding another transaction row."""
+        reason = str(exc).strip() if exc is not None else ""
+        error_details = traceback.format_exc() if exc is not None else ""
+        error_label = (
+            self._classify_error_label(exc, reason, error_details)
+            if exc is not None
+            else ""
+        )
+        event = RetryEvent(
+            operator=self.operator,
+            nik=nik,
+            process=process,
+            trigger=trigger,
+            attempt_number=attempt_number,
+            retry_number=retry_number,
+            max_retries=max_retries,
+            recorded_at=now_iso(),
+            url=url,
+            reason=reason,
+            error_label=error_label,
+        )
+        self._get_retry_events().append(event)
+        self._write_meta()
+        logger.bind(
+            event="report.retry_recorded",
+            operator=self.operator,
+            nik=nik,
+            process=process,
+            trigger=trigger,
+            attempt_number=attempt_number,
+            retry_number=retry_number,
+            max_retries=max_retries,
+            error_label=error_label,
+            reason=reason,
+        ).info("Transaction retry recorded")
+
     def write_files(self, run_name: Optional[str] = None) -> None:
         """Write final snapshot files and update operator summary."""
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
@@ -320,12 +376,14 @@ class TransactionReporter:
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
         mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
+        retry_report = self.get_retry_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
             "run_ended_at": now_iso(),
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
+            "retry_report": retry_report,
             "items": [asdict(r) for r in self.rows],
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
@@ -338,6 +396,7 @@ class TransactionReporter:
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
                 "failed_puzzle_solve": self.get_failed_puzzle_solve_niks(),
+                "retried": retry_report["retried_niks"],
             },
             "puzzle_stats_by_nik": self.get_puzzle_stats_by_nik(),
         }
@@ -438,6 +497,29 @@ class TransactionReporter:
 
         return dict(grouped)
 
+    def get_retry_report(self) -> Dict[str, Any]:
+        """Build retry telemetry for the current operator run."""
+        events = self._get_retry_events()
+        retried_niks: List[str] = []
+        by_process: DefaultDict[str, List[str]] = defaultdict(list)
+        by_trigger: DefaultDict[str, List[str]] = defaultdict(list)
+
+        for event in events:
+            self._append_unique(retried_niks, event.nik)
+            self._append_unique(by_process[event.process], event.nik)
+            self._append_unique(by_trigger[event.trigger], event.nik)
+
+        return {
+            "operator": self.operator,
+            "run_started_at": self.run_started_at,
+            "total_retry_events": len(events),
+            "total_retried_niks": len(retried_niks),
+            "retried_niks": retried_niks,
+            "by_process": dict(by_process),
+            "by_trigger": dict(by_trigger),
+            "events": [asdict(event) for event in events],
+        }
+
     def get_error_niks_by_reason(self) -> Dict[str, List[str]]:
         """Get failed NIKs grouped by normalized error reason."""
         grouped: DefaultDict[str, List[str]] = defaultdict(list)
@@ -510,6 +592,7 @@ class TransactionReporter:
             "other_statuses": self.get_other_status_niks_by_status(),
             "puzzle_failed_niks": self.get_puzzle_failed_niks(),
             "puzzle_stats": self.get_puzzle_stats_by_nik(),
+            "retry_report": self.get_retry_report(),
         }
         return base_analytics
 
@@ -535,6 +618,7 @@ class TransactionReporter:
         self._print_skipped_niks()
         self._print_unregistered_niks()
         self._print_error_analysis(analytics["error_analysis"])
+        self._print_retry_report()
         self._print_nik_statistics()
 
         log_print("\n" + "=" * 60)
@@ -591,6 +675,18 @@ class TransactionReporter:
     @staticmethod
     def _normalize_error_reason(reason: str) -> str:
         return normalize_error_reason(reason)
+
+    def _get_retry_events(self) -> List[RetryEvent]:
+        retry_events = getattr(self, "retry_events", None)
+        if retry_events is None:
+            retry_events = []
+            self.retry_events = retry_events
+        return retry_events
+
+    @staticmethod
+    def _append_unique(values: List[str], value: str) -> None:
+        if value not in values:
+            values.append(value)
 
     @staticmethod
     def _classify_error_label(exc: Exception, reason: str, error_details: str) -> str:
@@ -713,12 +809,14 @@ class TransactionReporter:
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
         mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
+        retry_report = self.get_retry_report()
         payload = {
             "operator": self.operator,
             "run_started_at": self.run_started_at,
             "run_ended_at": now_iso(),
             "counts": calculator.get_summary(),
             "analytics": calculator.get_analytics(self.run_started_at),
+            "retry_report": retry_report,
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
             "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
@@ -729,6 +827,7 @@ class TransactionReporter:
                 "errors_by_label": self.get_error_niks_by_label(),
                 "errors_by_reason": self.get_error_niks_by_reason(),
                 "other_statuses": self.get_other_status_niks_by_status(),
+                "retried": retry_report["retried_niks"],
             },
             "files": {
                 "csv": str(self.csv_path),
@@ -757,11 +856,20 @@ class TransactionReporter:
             run_data = self._try_read_json(meta_file)
             if run_data is None:
                 continue
+            retry_report = run_data.get("retry_report", {})
             all_runs.append(
                 {
                     "run_started_at": run_data.get("run_started_at"),
                     "run_ended_at": run_data.get("run_ended_at"),
                     "counts": run_data.get("counts", {}),
+                    "retry_report": {
+                        "total_retry_events": retry_report.get(
+                            "total_retry_events", 0
+                        ),
+                        "total_retried_niks": retry_report.get(
+                            "total_retried_niks", 0
+                        ),
+                    },
                     "run_dir": str(meta_file.parent),
                 }
             )
@@ -787,6 +895,14 @@ class TransactionReporter:
             )
             for run in all_runs
         )
+        total_retry_events = sum(
+            run.get("retry_report", {}).get("total_retry_events", 0)
+            for run in all_runs
+        )
+        total_retried_niks = sum(
+            run.get("retry_report", {}).get("total_retried_niks", 0)
+            for run in all_runs
+        )
 
         summary = {
             "operator": self.operator,
@@ -798,6 +914,8 @@ class TransactionReporter:
                 "total_errors": total_errors,
                 "total_skipped": total_skipped,
                 "total_unregistered": total_unregistered,
+                "total_retry_events": total_retry_events,
+                "total_retried_niks": total_retried_niks,
                 "success_rate_percent": MetricsCalculator._safe_percentage(
                     total_completed, total_transactions
                 ),
@@ -817,6 +935,8 @@ class TransactionReporter:
             total_errors=total_errors,
             total_skipped=total_skipped,
             total_unregistered=total_unregistered,
+            total_retry_events=total_retry_events,
+            total_retried_niks=total_retried_niks,
             operator_summary_path=str(self.operator_summary_path),
         ).info("Operator summary updated")
         log_print(f"Operator summary updated: {self.operator_summary_path}")
@@ -843,6 +963,9 @@ class TransactionReporter:
 
     def _print_nik_statistics(self) -> None:
         print_nik_statistics(self, log_print)
+
+    def _print_retry_report(self) -> None:
+        print_retry_report(self, log_print)
 
     def _print_section(
         self,

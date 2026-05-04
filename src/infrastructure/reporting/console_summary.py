@@ -55,6 +55,25 @@ def print_nik_statistics(reporter: Any, log_print_fn: Callable[..., None]) -> No
         log_print_fn(f"  Puzzle Failed: {len(puzzle_failed)}")
 
 
+def print_retry_report(reporter: Any, log_print_fn: Callable[..., None]) -> None:
+    retry_report = reporter.get_retry_report()
+
+    if retry_report["total_retry_events"] <= 0:
+        return
+
+    log_print_fn("\nRetry Report:")
+    log_print_fn(f"  Retried NIKs: {retry_report['total_retried_niks']}")
+    log_print_fn(f"  Retry Events: {retry_report['total_retry_events']}")
+    for process, niks in retry_report["by_process"].items():
+        log_print_fn(f"  {process}: {len(niks)} NIKs")
+        if len(niks) <= 5:
+            for nik in niks:
+                log_print_fn(f"    - {nik}")
+        else:
+            log_print_fn(f"    First 5: {', '.join(niks[:5])}")
+            log_print_fn(f"    ... and {len(niks) - 5} more")
+
+
 def print_section(
     title: str,
     data: dict[str, Any],
