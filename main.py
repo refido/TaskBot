@@ -10,9 +10,9 @@ from src.web.reporter import TransactionReporter
 
 def _build_skip_rate_limiter() -> SkipRateLimiter:
     return SkipRateLimiter(
-        max_skips=3,
-        window_seconds=60,
-        min_cooldown=60,
+        max_skips=8,
+        window_seconds=48,
+        min_cooldown=48,
         jitter_seconds=5,
     )
 
