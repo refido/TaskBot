@@ -163,6 +163,7 @@ class MetadataWriter:
         puzzle_result: PuzzleResult,
         mapping: CoordinateMapping,
         bg_dimensions: tuple[int, int],
+        solver_timing_ms: dict[str, float] | None = None,
     ) -> None:
         """Save solving metadata."""
         x_piece, y_piece, score, scale, (tpl_w, tpl_h) = puzzle_result
@@ -200,6 +201,11 @@ class MetadataWriter:
             "rail_bounds_x": list(mapping.rail_limits),
             "drag_y": float(mapping.current_y),
         }
+        if solver_timing_ms:
+            metadata["solver_timing_ms"] = {
+                key: round(float(value), 3)
+                for key, value in sorted(solver_timing_ms.items())
+            }
 
         (output_dir / "meta.json").write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"

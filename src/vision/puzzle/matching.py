@@ -85,9 +85,16 @@ def filter_candidates_by_complexity(
     only provides a tiny bonus. This avoids penalizing valid
     matches in smooth regions.
     """
-    res_flat = res_map.flatten()
-    top_indices = np.argpartition(res_flat, -top_k)[-top_k:]
-    top_indices = top_indices[np.argsort(-res_flat[top_indices])]
+    if res_map.size == 0:
+        return []
+
+    res_flat = res_map.ravel()
+    top_k = min(max(1, int(top_k)), int(res_flat.size))
+    if top_k == res_flat.size:
+        top_indices = np.argsort(-res_flat)
+    else:
+        top_indices = np.argpartition(res_flat, -top_k)[-top_k:]
+        top_indices = top_indices[np.argsort(-res_flat[top_indices])]
 
     _h, w = res_map.shape
     candidates: list[Candidate] = []
@@ -204,21 +211,8 @@ def compute_template_similarity_map(
 def match_maps_fused(
     bg_gray: GrayImage, tpl_gray: GrayImage, tpl_mask: MaskImage | None
 ) -> FloatMap:
-    """Enhanced matching with uniform region filtering."""
-    fused = compute_template_similarity_map(bg_gray, tpl_gray, tpl_mask)
-
-    tpl_shape = tpl_gray.shape[:2]
-    candidates = filter_candidates_by_complexity(fused, bg_gray, tpl_shape, top_k=10)
-    valid_candidates = [
-        c for c in candidates if not is_uniform_region(bg_gray, c.loc, tpl_shape)
-    ]
-
-    if not valid_candidates:
-        valid_candidates = candidates[:1]
-
-    # Keep behavior: when all maps are ambiguous, still force one valid region.
-    # The returned map is unchanged; this pass only preserves filtering parity.
-    return fused
+    """Build the fused template score map without redundant candidate scans."""
+    return compute_template_similarity_map(bg_gray, tpl_gray, tpl_mask)
 
 
 def compute_fused_and_chamfer_maps(

@@ -1,7 +1,8 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import src.orchestration.transaction_processor as transaction_processor
-from src.application.services.puzzle_service import PuzzleSolveOutcome
+from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
 from src.web.session_state import SessionExpiredError
 
 
@@ -248,6 +249,77 @@ def test_solve_puzzle_stops_after_five_attempts(monkeypatch):
     assert solve_calls["count"] == 5
     assert processor.dashboard.modal_checks == 4
     assert FakeHelpers.refresh_calls == 4
+
+
+def test_puzzle_service_reuses_single_solver_result_with_in_memory_images():
+    piece_img = object()
+    bg_img = object()
+    puzzle_result = (12, 34, 0.91, 1.0, (42, 33))
+
+    class FakeHelpers:
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def capture_puzzle_images(self, nik: str):
+            return SimpleNamespace(
+                background_src=f"bg-{nik}",
+                piece_src=f"piece-{nik}",
+                background_path=Path("data_puzzle/bg.png"),
+                piece_path=Path("data_puzzle/piece.png"),
+                arrays={"background": bg_img, "piece": piece_img},
+            )
+
+        def build_puzzle_output_name(self, nik: str, image_type: str) -> str:
+            return f"{nik}_{image_type}.png"
+
+    solver_instances = []
+
+    class FakePuzzleSolver:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+            self.timing_metrics = {"total": 12.5}
+            solver_instances.append(self)
+
+        def discern_xy(self):
+            return puzzle_result
+
+    slider_calls = []
+
+    def fake_slider(page, imgs, max_wait_success_ms: int, **kwargs) -> bool:
+        slider_calls.append((page, imgs, max_wait_success_ms, kwargs))
+        return True
+
+    service = PuzzleService(
+        page=object(),
+        dashboard=object(),
+        operator_email="tester@example.com",
+        helpers_factory=FakeHelpers,
+        puzzle_solver_factory=FakePuzzleSolver,
+        slider_solver=fake_slider,
+        max_attempts=5,
+        max_wait_success_ms=3500,
+        retry_modal_timeout_ms=2500,
+        refresh_timeout_ms=5000,
+        retry_process="proses_penjualan",
+        log_func=lambda *args, **kwargs: None,
+    )
+
+    outcome = service.solve("3174")
+
+    assert outcome == PuzzleSolveOutcome(solved=True, attempts=1)
+    assert len(solver_instances) == 1
+    assert solver_instances[0].kwargs["gap_image"] is piece_img
+    assert solver_instances[0].kwargs["bg_image"] is bg_img
+    assert len(slider_calls) == 1
+    _page, imgs, max_wait_success_ms, kwargs = slider_calls[0]
+    assert imgs == {
+        "background": Path("data_puzzle/bg.png"),
+        "piece": Path("data_puzzle/piece.png"),
+    }
+    assert max_wait_success_ms == 3500
+    assert kwargs["image_arrays"] == {"background": bg_img, "piece": piece_img}
+    assert kwargs["puzzle_result"] == puzzle_result
+    assert kwargs["solver_timing_ms"] == {"total": 12.5}
 
 
 def test_process_single_nik_completes_and_records_success(monkeypatch):
