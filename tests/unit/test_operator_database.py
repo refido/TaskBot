@@ -1,0 +1,224 @@
+from datetime import datetime
+
+from src.infrastructure.database.operator_store import (
+    DatabaseConfig,
+    OperatorDatabaseManager,
+    OperatorDbRecord,
+    OperatorTargets,
+    format_db_datetime,
+    read_report_payloads,
+)
+
+
+def test_database_config_loads_required_env_values():
+    config = DatabaseConfig.from_env(
+        {
+            "DB_HOST": "localhost",
+            "DB_PORT": "5432",
+            "DB_NAME": "taskbot",
+            "DB_USER": "taskbot_user",
+            "DB_PASSWORD": "secret",
+        },
+        load_env_file=False,
+    )
+
+    assert config.host == "localhost"
+    assert config.port == 5432
+    assert config.name == "taskbot"
+    assert config.user == "taskbot_user"
+    assert config.password == "secret"
+    assert config.maintenance_name == "postgres"
+
+
+def test_operator_targets_resolve_by_name_email_and_forced_table():
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "EMAIL_1": "first@example.com",
+            "NAME_OPERATORS_2": "Second Operator",
+            "EMAIL_2": "second@example.com",
+        },
+        load_env_file=False,
+    )
+
+    assert targets.resolve("First Operator").table_name == "OPERATOR_1"
+    assert targets.resolve("first@example.com").table_name == "OPERATOR_1"
+    assert targets.resolve("second@example.com").table_name == "OPERATOR_2"
+    assert (
+        targets.resolve("", table_name="OPERATOR_2").operator_name == "Second Operator"
+    )
+
+
+def test_operator_record_from_successful_report_uses_operator_name_for_nama():
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "EMAIL_1": "first@example.com",
+            "NAME_OPERATORS_2": "Second Operator",
+        },
+        load_env_file=False,
+    )
+    target = targets.resolve("first@example.com")
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator": "first@example.com",
+            "nik": "001234",
+            "status": "completed",
+            "finished_at": "20260525 101112",
+        },
+        target,
+    )
+
+    assert record.nik == 1234
+    assert record.nama == "First Operator"
+    assert record.kuota_delta == 1
+    assert record.conflict is False
+    assert record.problem == ""
+    assert format_db_datetime(record.event_time) == "20260525 101112"
+
+
+def test_operator_record_from_failed_report_updates_problem_and_conflict():
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "NAME_OPERATORS_2": "Second Operator",
+        },
+        load_env_file=False,
+    )
+    target = targets.resolve("OPERATOR_1")
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator": "OPERATOR_1",
+            "nik": "1234",
+            "status": "skipped_max_kuota",
+            "reason": "Max kuota before cek pesanan",
+            "error_label": "application",
+            "finished_at": "20260525 101112",
+        },
+        target,
+    )
+
+    assert record.kuota_delta == 0
+    assert record.conflict is True
+    assert (
+        record.problem
+        == "skipped_max_kuota: Max kuota before cek pesanan | application"
+    )
+    assert format_db_datetime(record.event_time) == "20260525 101112"
+
+
+def test_report_payload_reader_supports_jsonl_csv_and_snapshot_json(tmp_path):
+    jsonl_path = tmp_path / "items.jsonl"
+    jsonl_path.write_text(
+        '{"nik": "1", "status": "completed"}\n{"nik": "2", "status": "error"}\n',
+        encoding="utf-8",
+    )
+    assert [row["nik"] for row in read_report_payloads(jsonl_path)] == ["1", "2"]
+
+    csv_path = tmp_path / "items.csv"
+    csv_path.write_text("nik,status\n3,completed\n", encoding="utf-8")
+    assert list(read_report_payloads(csv_path)) == [{"nik": "3", "status": "completed"}]
+
+    snapshot_path = tmp_path / "items_snapshot.json"
+    snapshot_path.write_text(
+        '{"items": [{"nik": "4", "status": "completed"}]}',
+        encoding="utf-8",
+    )
+    assert list(read_report_payloads(snapshot_path)) == [
+        {"nik": "4", "status": "completed"}
+    ]
+
+
+def test_upsert_record_passes_expected_values_to_cursor():
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, statement, params):
+            self.calls.append((statement, params))
+
+    cursor = FakeCursor()
+    manager = OperatorDatabaseManager(
+        DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="secret",
+        )
+    )
+    event_time = datetime(2026, 5, 25, 10, 11, 12)
+    record = OperatorDbRecord(
+        nik=1234,
+        nama="First Operator",
+        kuota_delta=1,
+        problem="",
+        conflict=False,
+        event_time=event_time,
+    )
+
+    manager.upsert_record("OPERATOR_1", record, cursor=cursor)
+
+    assert len(cursor.calls) == 1
+    _statement, params = cursor.calls[0]
+    assert params == (
+        1234,
+        "First Operator",
+        1,
+        1,
+        False,
+        "",
+        event_time,
+        event_time,
+    )
+
+
+def test_monthly_reset_only_resets_kuota_without_bumping_updated_time():
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, statement, params):
+            self.calls.append((statement, params))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeConnection:
+        def __init__(self):
+            self.cursor_instance = FakeCursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    manager = OperatorDatabaseManager(
+        DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="secret",
+        )
+    )
+    connection = FakeConnection()
+    manager._connect = lambda database_name: connection
+    reference_time = datetime(2026, 6, 1, 0, 0, 0)
+
+    manager.reset_monthly_quotas(reference_time)
+
+    assert len(connection.cursor_instance.calls) == 2
+    assert [params for _statement, params in connection.cursor_instance.calls] == [
+        (reference_time,),
+        (reference_time,),
+    ]

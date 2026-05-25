@@ -10,6 +10,7 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "pillow>=12.1.0",
     "playwright>=1.57.0",
+    "psycopg2-binary>=2.9.12",
     "python-dotenv>=1.2.1",
     "python-slugify>=8.0.4",
     "requests>=2.32.5",
