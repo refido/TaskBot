@@ -83,6 +83,7 @@ def test_account_runner_runs_single_account_and_writes_reports():
     logger = FakeBoundLogger(log_sink)
     created_processors: list[FakeProcessor] = []
     created_reporters: list[FakeReporter] = []
+    synced_reporters: list[FakeReporter] = []
 
     def reporter_factory(*, operator: str) -> FakeReporter:
         reporter = FakeReporter(operator=operator)
@@ -99,6 +100,7 @@ def test_account_runner_runs_single_account_and_writes_reports():
         limiter_factory=FakeLimiter,
         browser_session_factory=FakeSession,
         transaction_processor_factory=processor_factory,
+        report_syncer=synced_reporters.append,
         logger=logger,
     )
 
@@ -111,6 +113,7 @@ def test_account_runner_runs_single_account_and_writes_reports():
     assert len(created_reporters) == 1
     assert created_reporters[0].write_files_calls == 1
     assert created_reporters[0].print_summary_calls == 1
+    assert synced_reporters == [created_reporters[0]]
     assert [entry[0] for entry in log_sink] == ["info", "info"]
     assert log_sink[0][1]["event"] == "account.run.started"
     assert log_sink[1][1]["event"] == "account.run.finished"
@@ -141,6 +144,32 @@ def test_account_runner_logs_fatal_errors_and_returns_unsuccessful():
     assert created_reporters[0].print_summary_calls == 1
     assert [entry[0] for entry in log_sink] == ["info", "exception", "info"]
     assert log_sink[1][1]["event"] == "account.run.fatal_error"
+
+
+def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful():
+    log_sink: list[tuple[str, dict, str]] = []
+    logger = FakeBoundLogger(log_sink)
+
+    def reporter_factory(*, operator: str) -> FakeReporter:
+        return FakeReporter(operator=operator)
+
+    def failing_report_syncer(reporter) -> None:
+        raise RuntimeError("db unavailable")
+
+    runner = AccountRunner(
+        reporter_factory=reporter_factory,
+        limiter_factory=FakeLimiter,
+        browser_session_factory=FakeSession,
+        transaction_processor_factory=FakeProcessor,
+        report_syncer=failing_report_syncer,
+        logger=logger,
+    )
+
+    result = runner.run(SimpleNamespace(email_user="tester@example.com", nik=["3174"]))
+
+    assert result == ("tester@example.com", False)
+    assert [entry[0] for entry in log_sink] == ["info", "exception", "info"]
+    assert log_sink[1][1]["event"] == "account.report_db_sync_error"
 
 
 def test_process_account_delegates_to_account_runner():

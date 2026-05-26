@@ -12,11 +12,13 @@ class AccountRunner:
         browser_session_factory: Callable[[Any], Any],
         transaction_processor_factory: Callable[[Any, Any, Any, Any], Any],
         logger: Any,
+        report_syncer: Callable[[Any], Any] | None = None,
     ) -> None:
         self.reporter_factory = reporter_factory
         self.limiter_factory = limiter_factory
         self.browser_session_factory = browser_session_factory
         self.transaction_processor_factory = transaction_processor_factory
+        self.report_syncer = report_syncer
         self.logger = logger
 
     def run(self, config: Any) -> tuple[str, bool]:
@@ -48,6 +50,15 @@ class AccountRunner:
             ).exception("Fatal account-level error")
         finally:
             reporter.write_files()
+            if self.report_syncer is not None:
+                try:
+                    self.report_syncer(reporter)
+                except Exception:
+                    is_successful = False
+                    self.logger.bind(
+                        event="account.report_db_sync_error",
+                        operator=config.email_user,
+                    ).exception("Report database sync failed")
             reporter.print_summary()
 
         self.logger.bind(

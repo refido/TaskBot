@@ -120,7 +120,9 @@ exist:
 uv run python -m scripts.db_management init
 ```
 
-Sync a report file into the matching operator table:
+When the bot finishes an operator session, it automatically syncs that run's
+`items.jsonl` report into the matching operator table when the DB environment
+variables above are configured. The manual sync command is still available:
 
 ```bash
 uv run python -m scripts.db_management sync-report reports/<operator>/<yyyy>/<mm>/<dd>/<hhmmss>/items.jsonl

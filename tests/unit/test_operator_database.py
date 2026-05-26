@@ -49,7 +49,7 @@ def test_operator_targets_resolve_by_name_email_and_forced_table():
     )
 
 
-def test_operator_record_from_successful_report_uses_operator_name_for_nama():
+def test_operator_record_from_successful_report_maps_operator_and_status():
     targets = OperatorTargets.from_env(
         {
             "NAME_OPERATORS_1": "First Operator",
@@ -71,8 +71,11 @@ def test_operator_record_from_successful_report_uses_operator_name_for_nama():
     )
 
     assert record.nik == 1234
-    assert record.nama == "First Operator"
+    assert record.operator == "First Operator"
+    assert record.nama_konsumer == ""
     assert record.kuota_delta == 1
+    assert record.status_code == 200
+    assert record.status_code_description == "Transaction successful"
     assert record.conflict is False
     assert record.problem == ""
     assert format_db_datetime(record.event_time) == "20260525 101112"
@@ -101,12 +104,38 @@ def test_operator_record_from_failed_report_updates_problem_and_conflict():
     )
 
     assert record.kuota_delta == 0
+    assert record.status_code == 409
+    assert record.status_code_description == "Max kuota reached"
     assert record.conflict is True
     assert (
         record.problem
         == "skipped_max_kuota: Max kuota before cek pesanan | application"
     )
     assert format_db_datetime(record.event_time) == "20260525 101112"
+
+
+def test_operator_record_uses_consumer_name_when_report_contains_it():
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "NAME_OPERATORS_2": "Second Operator",
+        },
+        load_env_file=False,
+    )
+    target = targets.resolve("OPERATOR_1")
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator": "OPERATOR_1",
+            "nik": "1234",
+            "status": "completed",
+            "customer_name": "Consumer Name",
+        },
+        target,
+    )
+
+    assert record.operator == "First Operator"
+    assert record.nama_konsumer == "Consumer Name"
 
 
 def test_report_payload_reader_supports_jsonl_csv_and_snapshot_json(tmp_path):
@@ -151,9 +180,12 @@ def test_upsert_record_passes_expected_values_to_cursor():
     )
     event_time = datetime(2026, 5, 25, 10, 11, 12)
     record = OperatorDbRecord(
+        operator="First Operator",
         nik=1234,
-        nama="First Operator",
+        nama_konsumer="Consumer Name",
         kuota_delta=1,
+        status_code=200,
+        status_code_description="Transaction successful",
         problem="",
         conflict=False,
         event_time=event_time,
@@ -164,15 +196,46 @@ def test_upsert_record_passes_expected_values_to_cursor():
     assert len(cursor.calls) == 1
     _statement, params = cursor.calls[0]
     assert params == (
-        1234,
         "First Operator",
+        1234,
+        "Consumer Name",
         1,
         1,
         False,
+        200,
+        "Transaction successful",
         "",
         event_time,
         event_time,
     )
+
+
+def test_migrate_table_schema_moves_old_nama_to_operator_and_adds_new_columns():
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, statement, params=None):
+            self.calls.append((statement, params))
+
+        def fetchall(self):
+            return [
+                ("NIK",),
+                ("NAMA",),
+                ("KUOTA",),
+                ("MAX_KUOTA",),
+                ("CONFLICT",),
+                ("PROBLEM",),
+                ("UPDATED_TIME",),
+                ("CREATED_TIME",),
+            ]
+
+    cursor = FakeCursor()
+
+    OperatorDatabaseManager._migrate_table_schema(cursor, "OPERATOR_1")
+
+    assert cursor.calls[0][1] == ("OPERATOR_1",)
+    assert len(cursor.calls) == 5
 
 
 def test_monthly_reset_only_resets_kuota_without_bumping_updated_time():

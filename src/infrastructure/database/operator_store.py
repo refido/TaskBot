@@ -17,17 +17,57 @@ OPERATOR_TABLE_NAMES = ("OPERATOR_1", "OPERATOR_2")
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
 
 _COLUMN_NAMES = (
+    "OPERATOR",
     "NIK",
-    "NAMA",
+    "NAMA_KONSUMER",
     "KUOTA",
     "MAX_KUOTA",
     "CONFLICT",
+    "STATUS_CODE",
+    "STATUS_CODE_DESCRIPTION",
     "PROBLEM",
     "UPDATED_TIME",
     "CREATED_TIME",
 )
 _NAME_FIELDS = ("nama", "NAMA", "name", "NAME", "customer_name", "customerName")
 _SUCCESS_STATUSES = {"completed", "success", "successful"}
+_DEFAULT_STATUS = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ReportStatusMapping:
+    status_code: int
+    description: str
+
+
+_STATUS_MAPPINGS = {
+    "completed": ReportStatusMapping(200, "Transaction successful"),
+    "success": ReportStatusMapping(200, "Transaction successful"),
+    "successful": ReportStatusMapping(200, "Transaction successful"),
+    "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
+    "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
+    "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
+    "failed_puzzle_solve": ReportStatusMapping(422, "Puzzle solving failed"),
+    "skipped_need updated customer data": ReportStatusMapping(
+        422, "Consumer data needs update"
+    ),
+    "skipped_nik is not yet 17 years old": ReportStatusMapping(
+        422, "Consumer is under 17"
+    ),
+    "skipped_the registered customer's nik is invalid": ReportStatusMapping(
+        422, "Registered consumer NIK is invalid"
+    ),
+    "skipped_customers cannot transact at this base": ReportStatusMapping(
+        409, "Consumer cannot transact at this base"
+    ),
+    "skipped_the customer's nik indicates an unusual transaction at another base with an unusual distance and close time.": ReportStatusMapping(
+        409, "Unusual transaction at another base"
+    ),
+    "error": ReportStatusMapping(500, "Transaction error"),
+}
+_DEFAULT_SKIPPED_MAPPING = ReportStatusMapping(400, "Transaction skipped")
+_DEFAULT_ERROR_MAPPING = ReportStatusMapping(500, "Transaction error")
+_DEFAULT_UNKNOWN_MAPPING = ReportStatusMapping(520, "Unknown transaction status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,9 +189,12 @@ class OperatorTargets:
 
 @dataclass(frozen=True, slots=True)
 class OperatorDbRecord:
+    operator: str
     nik: int
-    nama: str
+    nama_konsumer: str
     kuota_delta: int
+    status_code: int
+    status_code_description: str
     problem: str
     conflict: bool
     event_time: datetime
@@ -162,8 +205,9 @@ class OperatorDbRecord:
         payload: Mapping[str, Any],
         target: OperatorTarget,
     ) -> "OperatorDbRecord":
-        status = str(payload.get("status", "")).strip().lower()
+        status = _normalize_status(payload.get("status"))
         is_successful = status in _SUCCESS_STATUSES
+        status_mapping = _map_report_status(status)
         problem = "" if is_successful else _build_problem(payload)
         event_time = _parse_report_datetime(
             payload.get("finished_at")
@@ -174,9 +218,12 @@ class OperatorDbRecord:
         )
 
         return cls(
+            operator=target.operator_name,
             nik=_parse_nik(payload.get("nik") or payload.get("NIK")),
-            nama=_extract_name(payload, target.operator_name),
+            nama_konsumer=_extract_name(payload),
             kuota_delta=1 if is_successful else 0,
+            status_code=status_mapping.status_code,
+            status_code_description=status_mapping.description,
             problem=problem,
             conflict=bool(problem),
             event_time=event_time,
@@ -242,6 +289,7 @@ class OperatorDatabaseManager:
             with connection.cursor() as cursor:
                 for table_name in OPERATOR_TABLE_NAMES:
                     cursor.execute(self._create_table_sql(table_name))
+                    self._migrate_table_schema(cursor, table_name)
 
     def reset_monthly_quotas(self, reference_time: datetime | None = None) -> None:
         normalized_time = _normalize_datetime(
@@ -323,11 +371,14 @@ class OperatorDatabaseManager:
         cursor.execute(
             self._upsert_sql(normalized_table),
             (
+                record.operator,
                 record.nik,
-                record.nama,
+                record.nama_konsumer,
                 record.kuota_delta,
                 record.kuota_delta,
                 record.conflict,
+                record.status_code,
+                record.status_code_description,
                 record.problem,
                 event_time,
                 event_time,
@@ -352,11 +403,14 @@ class OperatorDatabaseManager:
         return sql.SQL(
             """
             CREATE TABLE IF NOT EXISTS {table} (
+                {operator} TEXT NOT NULL DEFAULT '',
                 {nik} BIGINT PRIMARY KEY,
-                {nama} TEXT NOT NULL,
+                {nama_konsumer} TEXT NOT NULL DEFAULT '',
                 {kuota} INTEGER NOT NULL DEFAULT 0,
                 {max_kuota} INTEGER NOT NULL DEFAULT 0,
                 {conflict} BOOLEAN NOT NULL DEFAULT FALSE,
+                {status_code} INTEGER NOT NULL DEFAULT 0,
+                {status_code_description} TEXT NOT NULL DEFAULT '',
                 {problem} TEXT NOT NULL DEFAULT '',
                 {updated_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 {created_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -364,24 +418,85 @@ class OperatorDatabaseManager:
             """
         ).format(
             table=sql.Identifier(_normalize_table_name(table_name)),
+            operator=identifiers["operator"],
             nik=identifiers["nik"],
-            nama=identifiers["nama"],
+            nama_konsumer=identifiers["nama_konsumer"],
             kuota=identifiers["kuota"],
             max_kuota=identifiers["max_kuota"],
             conflict=identifiers["conflict"],
+            status_code=identifiers["status_code"],
+            status_code_description=identifiers["status_code_description"],
             problem=identifiers["problem"],
             updated_time=identifiers["updated_time"],
             created_time=identifiers["created_time"],
         )
 
     @staticmethod
+    def _migrate_table_schema(cursor, table_name: str) -> None:
+        normalized_table = _normalize_table_name(table_name)
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = %s
+            """,
+            (normalized_table,),
+        )
+        existing_columns = {str(row[0]).upper() for row in cursor.fetchall()}
+
+        if "NAMA" in existing_columns and "OPERATOR" not in existing_columns:
+            cursor.execute(
+                sql.SQL("ALTER TABLE {table} RENAME COLUMN {old} TO {new}").format(
+                    table=sql.Identifier(normalized_table),
+                    old=sql.Identifier("NAMA"),
+                    new=sql.Identifier("OPERATOR"),
+                )
+            )
+            existing_columns.discard("NAMA")
+            existing_columns.add("OPERATOR")
+
+        add_columns = (
+            ("OPERATOR", sql.SQL("TEXT NOT NULL DEFAULT ''")),
+            ("NAMA_KONSUMER", sql.SQL("TEXT NOT NULL DEFAULT ''")),
+            ("KUOTA", sql.SQL("INTEGER NOT NULL DEFAULT 0")),
+            ("MAX_KUOTA", sql.SQL("INTEGER NOT NULL DEFAULT 0")),
+            ("CONFLICT", sql.SQL("BOOLEAN NOT NULL DEFAULT FALSE")),
+            ("STATUS_CODE", sql.SQL("INTEGER NOT NULL DEFAULT 0")),
+            ("STATUS_CODE_DESCRIPTION", sql.SQL("TEXT NOT NULL DEFAULT ''")),
+            ("PROBLEM", sql.SQL("TEXT NOT NULL DEFAULT ''")),
+            (
+                "UPDATED_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            ),
+            (
+                "CREATED_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+            ),
+        )
+        for column_name, column_type in add_columns:
+            if column_name in existing_columns:
+                continue
+            cursor.execute(
+                sql.SQL("ALTER TABLE {table} ADD COLUMN {column} {column_type}").format(
+                    table=sql.Identifier(normalized_table),
+                    column=sql.Identifier(column_name),
+                    column_type=column_type,
+                )
+            )
+            existing_columns.add(column_name)
+
+    @staticmethod
     def _upsert_sql(table_name: str):
         table = sql.Identifier(_normalize_table_name(table_name))
+        operator = sql.Identifier("OPERATOR")
         nik = sql.Identifier("NIK")
-        nama = sql.Identifier("NAMA")
+        nama_konsumer = sql.Identifier("NAMA_KONSUMER")
         kuota = sql.Identifier("KUOTA")
         max_kuota = sql.Identifier("MAX_KUOTA")
         conflict = sql.Identifier("CONFLICT")
+        status_code = sql.Identifier("STATUS_CODE")
+        status_code_description = sql.Identifier("STATUS_CODE_DESCRIPTION")
         problem = sql.Identifier("PROBLEM")
         updated_time = sql.Identifier("UPDATED_TIME")
         created_time = sql.Identifier("CREATED_TIME")
@@ -401,31 +516,66 @@ class OperatorDatabaseManager:
             """
         ).format(updated_time=updated_time, kuota=kuota)
 
+        next_max_kuota = sql.SQL(
+            """
+            CASE
+                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
+                    THEN target.{max_kuota}
+                WHEN EXCLUDED.{kuota} > 0
+                    THEN GREATEST(target.{max_kuota}, {next_kuota})
+                ELSE GREATEST(target.{max_kuota}, target.{kuota})
+            END
+            """
+        ).format(
+            updated_time=updated_time,
+            max_kuota=max_kuota,
+            kuota=kuota,
+            next_kuota=next_kuota,
+        )
+
         return sql.SQL(
             """
             INSERT INTO {table} AS target (
+                {operator},
                 {nik},
-                {nama},
+                {nama_konsumer},
                 {kuota},
                 {max_kuota},
                 {conflict},
+                {status_code},
+                {status_code_description},
                 {problem},
                 {updated_time},
                 {created_time}
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ({nik}) DO UPDATE SET
-                {nama} = CASE
+                {operator} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{nama}
-                    ELSE target.{nama}
+                        THEN EXCLUDED.{operator}
+                    ELSE target.{operator}
+                END,
+                {nama_konsumer} = CASE
+                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
+                        THEN EXCLUDED.{nama_konsumer}
+                    ELSE target.{nama_konsumer}
                 END,
                 {kuota} = {next_kuota},
-                {max_kuota} = GREATEST(target.{max_kuota}, {next_kuota}),
+                {max_kuota} = {next_max_kuota},
                 {conflict} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
                         THEN EXCLUDED.{conflict}
                     ELSE target.{conflict}
+                END,
+                {status_code} = CASE
+                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
+                        THEN EXCLUDED.{status_code}
+                    ELSE target.{status_code}
+                END,
+                {status_code_description} = CASE
+                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
+                        THEN EXCLUDED.{status_code_description}
+                    ELSE target.{status_code_description}
                 END,
                 {problem} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
@@ -436,15 +586,19 @@ class OperatorDatabaseManager:
             """
         ).format(
             table=table,
+            operator=operator,
             nik=nik,
-            nama=nama,
+            nama_konsumer=nama_konsumer,
             kuota=kuota,
             max_kuota=max_kuota,
             conflict=conflict,
+            status_code=status_code,
+            status_code_description=status_code_description,
             problem=problem,
             updated_time=updated_time,
             created_time=created_time,
             next_kuota=next_kuota,
+            next_max_kuota=next_max_kuota,
         )
 
 
@@ -495,8 +649,24 @@ def format_db_datetime(value: datetime) -> str:
     return _normalize_datetime(value).strftime(TIMESTAMP_FORMAT)
 
 
+def _normalize_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized or _DEFAULT_STATUS
+
+
+def _map_report_status(status: str) -> ReportStatusMapping:
+    mapping = _STATUS_MAPPINGS.get(status)
+    if mapping is not None:
+        return mapping
+    if status.startswith("skipped_"):
+        return _DEFAULT_SKIPPED_MAPPING
+    if status == "error" or "error" in status:
+        return _DEFAULT_ERROR_MAPPING
+    return _DEFAULT_UNKNOWN_MAPPING
+
+
 def _build_problem(payload: Mapping[str, Any]) -> str:
-    status = str(payload.get("status", "")).strip()
+    status = _normalize_status(payload.get("status"))
     reason = str(payload.get("reason", "")).strip()
     error_label = str(payload.get("error_label", "")).strip()
     error = str(payload.get("error", "")).strip()
@@ -507,12 +677,12 @@ def _build_problem(payload: Mapping[str, Any]) -> str:
     return status or "failed"
 
 
-def _extract_name(payload: Mapping[str, Any], fallback: str) -> str:
+def _extract_name(payload: Mapping[str, Any]) -> str:
     for field_name in _NAME_FIELDS:
         value = payload.get(field_name)
         if value is not None and str(value).strip():
             return str(value).strip()
-    return fallback
+    return ""
 
 
 def _parse_nik(value: Any) -> int:
