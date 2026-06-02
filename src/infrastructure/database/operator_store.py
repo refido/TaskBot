@@ -13,6 +13,8 @@ import psycopg2
 from dotenv import load_dotenv
 from psycopg2 import sql
 
+from src.logging_utils import logger
+
 OPERATOR_TABLE_NAMES = ("OPERATOR_1", "OPERATOR_2")
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
 
@@ -260,11 +262,32 @@ class OperatorDatabaseManager:
         return cls(config=config, targets=targets)
 
     def ensure_database_and_tables(self) -> None:
-        self.ensure_database_exists()
-        self.ensure_tables_exist()
-        self.reset_monthly_quotas()
+        logger.bind(
+            event="database.ensure.started",
+            **self._log_context(),
+        ).info("Database setup started")
+        try:
+            self.ensure_database_exists()
+            self.ensure_tables_exist()
+            self.reset_monthly_quotas()
+        except Exception:
+            logger.bind(
+                event="database.ensure.failed",
+                **self._log_context(),
+            ).exception("Database setup failed")
+            raise
+        logger.bind(
+            event="database.ensure.finished",
+            tables=list(OPERATOR_TABLE_NAMES),
+            **self._log_context(),
+        ).info("Database setup finished")
 
     def ensure_database_exists(self) -> None:
+        log_context = self._log_context(connection_database=self.config.maintenance_name)
+        logger.bind(
+            event="database.database_check.started",
+            **log_context,
+        ).info("Checking PostgreSQL database")
         connection = self._connect(self.config.maintenance_name)
         try:
             connection.autocommit = True
@@ -274,6 +297,10 @@ class OperatorDatabaseManager:
                     (self.config.name,),
                 )
                 if cursor.fetchone():
+                    logger.bind(
+                        event="database.database_check.exists",
+                        **log_context,
+                    ).info("PostgreSQL database already exists")
                     return
 
                 cursor.execute(
@@ -281,20 +308,51 @@ class OperatorDatabaseManager:
                         sql.Identifier(self.config.name)
                     )
                 )
+                logger.bind(
+                    event="database.database_created",
+                    **log_context,
+                ).info("PostgreSQL database created")
         finally:
             connection.close()
 
     def ensure_tables_exist(self) -> None:
+        logger.bind(
+            event="database.tables.ensure.started",
+            tables=list(OPERATOR_TABLE_NAMES),
+            **self._log_context(connection_database=self.config.name),
+        ).info("Ensuring PostgreSQL operator tables")
         with self._connect(self.config.name) as connection:
             with connection.cursor() as cursor:
                 for table_name in OPERATOR_TABLE_NAMES:
+                    logger.bind(
+                        event="database.table.ensure.started",
+                        table_name=table_name,
+                        **self._log_context(connection_database=self.config.name),
+                    ).info("Ensuring PostgreSQL operator table")
                     cursor.execute(self._create_table_sql(table_name))
                     self._migrate_table_schema(cursor, table_name)
+                    logger.bind(
+                        event="database.table.ensure.finished",
+                        table_name=table_name,
+                        **self._log_context(connection_database=self.config.name),
+                    ).info("PostgreSQL operator table is ready")
+        logger.bind(
+            event="database.tables.ensure.finished",
+            tables=list(OPERATOR_TABLE_NAMES),
+            **self._log_context(connection_database=self.config.name),
+        ).info("PostgreSQL operator tables are ready")
 
     def reset_monthly_quotas(self, reference_time: datetime | None = None) -> None:
         normalized_time = _normalize_datetime(
             reference_time or datetime.now().astimezone()
         )
+        row_counts: dict[str, int | None] = {}
+        logger.bind(
+            event="database.monthly_quota_reset.started",
+            reference_time=format_db_datetime(normalized_time),
+            tables=list(OPERATOR_TABLE_NAMES),
+            **self._log_context(connection_database=self.config.name),
+        ).info("Monthly quota reset started")
         with self._connect(self.config.name) as connection:
             with connection.cursor() as cursor:
                 for table_name in OPERATOR_TABLE_NAMES:
@@ -314,6 +372,19 @@ class OperatorDatabaseManager:
                         ),
                         (normalized_time,),
                     )
+                    row_counts[table_name] = getattr(cursor, "rowcount", None)
+                    logger.bind(
+                        event="database.monthly_quota_reset.table_finished",
+                        table_name=table_name,
+                        rows_updated=row_counts[table_name],
+                        **self._log_context(connection_database=self.config.name),
+                    ).info("Monthly quota reset table finished")
+        logger.bind(
+            event="database.monthly_quota_reset.finished",
+            row_counts=row_counts,
+            reference_time=format_db_datetime(normalized_time),
+            **self._log_context(connection_database=self.config.name),
+        ).info("Monthly quota reset finished")
 
     def sync_report_file(
         self,
@@ -325,28 +396,65 @@ class OperatorDatabaseManager:
         processed = 0
         changed = 0
         skipped = 0
+        logger.bind(
+            event="database.report_sync.started",
+            report_path=str(path),
+            table_name=table_name,
+            **self._log_context(connection_database=self.config.name),
+        ).info("Report database sync started")
 
-        with self._connect(self.config.name) as connection:
-            with connection.cursor() as cursor:
-                for payload in read_report_payloads(path):
-                    processed += 1
-                    try:
-                        self.upsert_report_payload(
-                            payload,
-                            cursor=cursor,
-                            table_name=table_name,
-                        )
-                    except ValueError:
-                        skipped += 1
-                        continue
-                    changed += 1
+        try:
+            with self._connect(self.config.name) as connection:
+                with connection.cursor() as cursor:
+                    for payload in read_report_payloads(path):
+                        processed += 1
+                        try:
+                            self.upsert_report_payload(
+                                payload,
+                                cursor=cursor,
+                                table_name=table_name,
+                            )
+                        except ValueError as exc:
+                            skipped += 1
+                            logger.bind(
+                                event="database.report_sync.row_skipped",
+                                report_path=str(path),
+                                row_number=processed,
+                                reason=str(exc),
+                                **self._log_context(
+                                    connection_database=self.config.name
+                                ),
+                            ).warning("Report row skipped during database sync")
+                            continue
+                        changed += 1
+        except Exception:
+            logger.bind(
+                event="database.report_sync.failed",
+                report_path=str(path),
+                table_name=table_name,
+                processed=processed,
+                inserted_or_updated=changed,
+                skipped=skipped,
+                **self._log_context(connection_database=self.config.name),
+            ).exception("Report database sync failed")
+            raise
 
-        return SyncSummary(
+        summary = SyncSummary(
             source=str(path),
             processed=processed,
             inserted_or_updated=changed,
             skipped=skipped,
         )
+        logger.bind(
+            event="database.report_sync.finished",
+            report_path=summary.source,
+            table_name=table_name,
+            processed=summary.processed,
+            inserted_or_updated=summary.inserted_or_updated,
+            skipped=summary.skipped,
+            **self._log_context(connection_database=self.config.name),
+        ).info("Report database sync finished")
+        return summary
 
     def upsert_report_payload(
         self,
@@ -384,8 +492,22 @@ class OperatorDatabaseManager:
                 event_time,
             ),
         )
+        logger.bind(
+            event="database.report_sync.row_upserted",
+            table_name=normalized_table,
+            operator=record.operator,
+            nik=record.nik,
+            status_code=record.status_code,
+            conflict=record.conflict,
+            event_time=format_db_datetime(event_time),
+            **self._log_context(connection_database=self.config.name),
+        ).debug("Report row upserted into database")
 
     def _connect(self, database_name: str):
+        logger.bind(
+            event="database.connection.opening",
+            **self._log_context(connection_database=database_name),
+        ).debug("Opening PostgreSQL connection")
         return psycopg2.connect(
             host=self.config.host,
             port=self.config.port,
@@ -393,6 +515,16 @@ class OperatorDatabaseManager:
             user=self.config.user,
             password=self.config.password,
         )
+
+    def _log_context(self, *, connection_database: str | None = None) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "db_host": self.config.host,
+            "db_port": self.config.port,
+            "db_name": self.config.name,
+        }
+        if connection_database is not None:
+            context["connection_database"] = connection_database
+        return context
 
     @staticmethod
     def _create_table_sql(table_name: str):

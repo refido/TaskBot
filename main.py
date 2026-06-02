@@ -36,8 +36,21 @@ def _sync_report_to_database(reporter: TransactionReporter) -> None:
         ).info("Report database sync skipped")
         return
 
-    manager.ensure_database_and_tables()
-    summary = manager.sync_report_file(report_path)
+    logger.bind(
+        event="report.db_sync.started",
+        report_path=str(report_path),
+    ).info("Report database sync started")
+
+    try:
+        manager.ensure_database_and_tables()
+        summary = manager.sync_report_file(report_path)
+    except Exception:
+        logger.bind(
+            event="report.db_sync.failed",
+            report_path=str(report_path),
+        ).exception("Report database sync failed")
+        raise
+
     logger.bind(
         event="report.db_sync.finished",
         report_path=summary.source,
@@ -70,6 +83,7 @@ def main() -> None:
         event="app.start",
         run_id=logging_meta["run_id"],
         json_log_path=logging_meta["json_log_path"],
+        db_json_log_path=logging_meta.get("db_json_log_path"),
     ).info("TaskBot started")
 
     config = Config()
