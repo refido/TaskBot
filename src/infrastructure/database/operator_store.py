@@ -28,6 +28,8 @@ _COLUMN_NAMES = (
     "STATUS_CODE",
     "STATUS_CODE_DESCRIPTION",
     "PROBLEM",
+    "LAST_TRANSACTION_TIME",
+    "PREVIOUS_TRANSACTION_TIME",
     "UPDATED_TIME",
     "CREATED_TIME",
 )
@@ -233,11 +235,22 @@ class OperatorDbRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviousTransactionReport:
+    table_name: str
+    operator: str
+    nik: int
+    previous_transaction_time: datetime
+    current_transaction_time: datetime
+    kuota_before: int
+
+
+@dataclass(frozen=True, slots=True)
 class SyncSummary:
     source: str
     processed: int = 0
     inserted_or_updated: int = 0
     skipped: int = 0
+    previous_transactions: tuple[PreviousTransactionReport, ...] = ()
 
 
 class OperatorDatabaseManager:
@@ -396,6 +409,7 @@ class OperatorDatabaseManager:
         processed = 0
         changed = 0
         skipped = 0
+        previous_transactions: list[PreviousTransactionReport] = []
         logger.bind(
             event="database.report_sync.started",
             report_path=str(path),
@@ -409,7 +423,7 @@ class OperatorDatabaseManager:
                     for payload in read_report_payloads(path):
                         processed += 1
                         try:
-                            self.upsert_report_payload(
+                            previous_transaction = self.upsert_report_payload(
                                 payload,
                                 cursor=cursor,
                                 table_name=table_name,
@@ -426,6 +440,8 @@ class OperatorDatabaseManager:
                                 ),
                             ).warning("Report row skipped during database sync")
                             continue
+                        if previous_transaction is not None:
+                            previous_transactions.append(previous_transaction)
                         changed += 1
         except Exception:
             logger.bind(
@@ -444,6 +460,7 @@ class OperatorDatabaseManager:
             processed=processed,
             inserted_or_updated=changed,
             skipped=skipped,
+            previous_transactions=tuple(previous_transactions),
         )
         logger.bind(
             event="database.report_sync.finished",
@@ -452,6 +469,7 @@ class OperatorDatabaseManager:
             processed=summary.processed,
             inserted_or_updated=summary.inserted_or_updated,
             skipped=summary.skipped,
+            previous_transaction_count=len(summary.previous_transactions),
             **self._log_context(connection_database=self.config.name),
         ).info("Report database sync finished")
         return summary
@@ -462,20 +480,32 @@ class OperatorDatabaseManager:
         *,
         cursor,
         table_name: str | None = None,
-    ) -> None:
+    ) -> PreviousTransactionReport | None:
         if self.targets is None:
             raise ValueError("Operator targets are required to sync report payloads.")
 
         operator = str(payload.get("operator", "")).strip()
         target = self.targets.resolve(operator, table_name=table_name)
         record = OperatorDbRecord.from_report_payload(payload, target)
-        self.upsert_record(target.table_name, record, cursor=cursor)
+        return self.upsert_record(target.table_name, record, cursor=cursor)
 
     def upsert_record(
         self, table_name: str, record: OperatorDbRecord, *, cursor
-    ) -> None:
+    ) -> PreviousTransactionReport | None:
         normalized_table = _normalize_table_name(table_name)
         event_time = _normalize_datetime(record.event_time)
+        previous_transaction = self._find_previous_transaction(
+            normalized_table,
+            record,
+            event_time=event_time,
+            cursor=cursor,
+        )
+        last_transaction_time = event_time if record.kuota_delta > 0 else None
+        previous_transaction_time = (
+            previous_transaction.previous_transaction_time
+            if previous_transaction is not None
+            else None
+        )
         cursor.execute(
             self._upsert_sql(normalized_table),
             (
@@ -488,6 +518,8 @@ class OperatorDatabaseManager:
                 record.status_code,
                 record.status_code_description,
                 record.problem,
+                last_transaction_time,
+                previous_transaction_time,
                 event_time,
                 event_time,
             ),
@@ -502,6 +534,80 @@ class OperatorDatabaseManager:
             event_time=format_db_datetime(event_time),
             **self._log_context(connection_database=self.config.name),
         ).debug("Report row upserted into database")
+        if previous_transaction is not None:
+            logger.bind(
+                event="database.report_sync.previous_transaction_detected",
+                table_name=normalized_table,
+                operator=record.operator,
+                nik=record.nik,
+                previous_transaction_time=format_db_datetime(
+                    previous_transaction.previous_transaction_time
+                ),
+                current_transaction_time=format_db_datetime(event_time),
+                kuota_before=previous_transaction.kuota_before,
+                **self._log_context(connection_database=self.config.name),
+            ).info("Previous successful transaction found for report NIK")
+        return previous_transaction
+
+    @staticmethod
+    def _find_previous_transaction(
+        table_name: str,
+        record: OperatorDbRecord,
+        *,
+        event_time: datetime,
+        cursor,
+    ) -> PreviousTransactionReport | None:
+        if record.kuota_delta <= 0:
+            return None
+
+        normalized_table = _normalize_table_name(table_name)
+        last_transaction_time = sql.Identifier("LAST_TRANSACTION_TIME")
+        updated_time = sql.Identifier("UPDATED_TIME")
+        kuota = sql.Identifier("KUOTA")
+        nik = sql.Identifier("NIK")
+        cursor.execute(
+            sql.SQL(
+                """
+                SELECT {last_transaction_time}, {updated_time}, {kuota}
+                FROM {table}
+                WHERE {nik} = %s
+                """
+            ).format(
+                table=sql.Identifier(normalized_table),
+                last_transaction_time=last_transaction_time,
+                updated_time=updated_time,
+                kuota=kuota,
+                nik=nik,
+            ),
+            (record.nik,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        stored_last_transaction_time, stored_updated_time, stored_kuota = row
+        current_stored_time = _coerce_db_datetime(stored_updated_time)
+        if current_stored_time is not None and event_time <= current_stored_time:
+            return None
+
+        kuota_before = int(stored_kuota or 0)
+        previous_transaction_time = _coerce_db_datetime(
+            stored_last_transaction_time
+        )
+        if previous_transaction_time is None and kuota_before > 0:
+            previous_transaction_time = current_stored_time
+
+        if previous_transaction_time is None:
+            return None
+
+        return PreviousTransactionReport(
+            table_name=normalized_table,
+            operator=record.operator,
+            nik=record.nik,
+            previous_transaction_time=previous_transaction_time,
+            current_transaction_time=event_time,
+            kuota_before=kuota_before,
+        )
 
     def _connect(self, database_name: str):
         logger.bind(
@@ -544,6 +650,8 @@ class OperatorDatabaseManager:
                 {status_code} INTEGER NOT NULL DEFAULT 0,
                 {status_code_description} TEXT NOT NULL DEFAULT '',
                 {problem} TEXT NOT NULL DEFAULT '',
+                {last_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
+                {previous_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
                 {updated_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 {created_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
@@ -559,6 +667,8 @@ class OperatorDatabaseManager:
             status_code=identifiers["status_code"],
             status_code_description=identifiers["status_code_description"],
             problem=identifiers["problem"],
+            last_transaction_time=identifiers["last_transaction_time"],
+            previous_transaction_time=identifiers["previous_transaction_time"],
             updated_time=identifiers["updated_time"],
             created_time=identifiers["created_time"],
         )
@@ -576,6 +686,9 @@ class OperatorDatabaseManager:
             (normalized_table,),
         )
         existing_columns = {str(row[0]).upper() for row in cursor.fetchall()}
+        should_backfill_last_transaction_time = (
+            "LAST_TRANSACTION_TIME" not in existing_columns
+        )
 
         if "NAMA" in existing_columns and "OPERATOR" not in existing_columns:
             cursor.execute(
@@ -598,6 +711,14 @@ class OperatorDatabaseManager:
             ("STATUS_CODE_DESCRIPTION", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             ("PROBLEM", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             (
+                "LAST_TRANSACTION_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE"),
+            ),
+            (
+                "PREVIOUS_TRANSACTION_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE"),
+            ),
+            (
                 "UPDATED_TIME",
                 sql.SQL("TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
             ),
@@ -618,6 +739,23 @@ class OperatorDatabaseManager:
             )
             existing_columns.add(column_name)
 
+        if should_backfill_last_transaction_time:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {table}
+                    SET {last_transaction_time} = {updated_time}
+                    WHERE {kuota} > 0
+                      AND {last_transaction_time} IS NULL
+                    """
+                ).format(
+                    table=sql.Identifier(normalized_table),
+                    last_transaction_time=sql.Identifier("LAST_TRANSACTION_TIME"),
+                    updated_time=sql.Identifier("UPDATED_TIME"),
+                    kuota=sql.Identifier("KUOTA"),
+                )
+            )
+
     @staticmethod
     def _upsert_sql(table_name: str):
         table = sql.Identifier(_normalize_table_name(table_name))
@@ -630,6 +768,8 @@ class OperatorDatabaseManager:
         status_code = sql.Identifier("STATUS_CODE")
         status_code_description = sql.Identifier("STATUS_CODE_DESCRIPTION")
         problem = sql.Identifier("PROBLEM")
+        last_transaction_time = sql.Identifier("LAST_TRANSACTION_TIME")
+        previous_transaction_time = sql.Identifier("PREVIOUS_TRANSACTION_TIME")
         updated_time = sql.Identifier("UPDATED_TIME")
         created_time = sql.Identifier("CREATED_TIME")
 
@@ -665,6 +805,45 @@ class OperatorDatabaseManager:
             next_kuota=next_kuota,
         )
 
+        next_last_transaction_time = sql.SQL(
+            """
+            CASE
+                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
+                    THEN target.{last_transaction_time}
+                WHEN EXCLUDED.{kuota} > 0
+                    THEN EXCLUDED.{last_transaction_time}
+                ELSE target.{last_transaction_time}
+            END
+            """
+        ).format(
+            updated_time=updated_time,
+            kuota=kuota,
+            last_transaction_time=last_transaction_time,
+        )
+
+        next_previous_transaction_time = sql.SQL(
+            """
+            CASE
+                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
+                    THEN target.{previous_transaction_time}
+                WHEN EXCLUDED.{kuota} > 0
+                    THEN COALESCE(
+                        target.{last_transaction_time},
+                        CASE
+                            WHEN target.{kuota} > 0 THEN target.{updated_time}
+                            ELSE target.{previous_transaction_time}
+                        END
+                    )
+                ELSE target.{previous_transaction_time}
+            END
+            """
+        ).format(
+            updated_time=updated_time,
+            kuota=kuota,
+            last_transaction_time=last_transaction_time,
+            previous_transaction_time=previous_transaction_time,
+        )
+
         return sql.SQL(
             """
             INSERT INTO {table} AS target (
@@ -677,10 +856,12 @@ class OperatorDatabaseManager:
                 {status_code},
                 {status_code_description},
                 {problem},
+                {last_transaction_time},
+                {previous_transaction_time},
                 {updated_time},
                 {created_time}
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ({nik}) DO UPDATE SET
                 {operator} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
@@ -714,6 +895,8 @@ class OperatorDatabaseManager:
                         THEN EXCLUDED.{problem}
                     ELSE target.{problem}
                 END,
+                {last_transaction_time} = {next_last_transaction_time},
+                {previous_transaction_time} = {next_previous_transaction_time},
                 {updated_time} = GREATEST(target.{updated_time}, EXCLUDED.{updated_time})
             """
         ).format(
@@ -727,10 +910,14 @@ class OperatorDatabaseManager:
             status_code=status_code,
             status_code_description=status_code_description,
             problem=problem,
+            last_transaction_time=last_transaction_time,
+            previous_transaction_time=previous_transaction_time,
             updated_time=updated_time,
             created_time=created_time,
             next_kuota=next_kuota,
             next_max_kuota=next_max_kuota,
+            next_last_transaction_time=next_last_transaction_time,
+            next_previous_transaction_time=next_previous_transaction_time,
         )
 
 
@@ -843,6 +1030,14 @@ def _parse_report_datetime(value: Any) -> datetime:
             continue
 
     return _normalize_datetime(datetime.now().astimezone())
+
+
+def _coerce_db_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _normalize_datetime(value)
+    return _parse_report_datetime(value)
 
 
 def _normalize_datetime(value: datetime) -> datetime:

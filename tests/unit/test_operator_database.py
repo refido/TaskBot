@@ -168,6 +168,9 @@ def test_upsert_record_passes_expected_values_to_cursor():
         def execute(self, statement, params):
             self.calls.append((statement, params))
 
+        def fetchone(self):
+            return None
+
     cursor = FakeCursor()
     manager = OperatorDatabaseManager(
         DatabaseConfig(
@@ -193,8 +196,9 @@ def test_upsert_record_passes_expected_values_to_cursor():
 
     manager.upsert_record("OPERATOR_1", record, cursor=cursor)
 
-    assert len(cursor.calls) == 1
-    _statement, params = cursor.calls[0]
+    assert len(cursor.calls) == 2
+    assert cursor.calls[0][1] == (1234,)
+    _statement, params = cursor.calls[1]
     assert params == (
         "First Operator",
         1234,
@@ -206,8 +210,95 @@ def test_upsert_record_passes_expected_values_to_cursor():
         "Transaction successful",
         "",
         event_time,
+        None,
+        event_time,
         event_time,
     )
+
+
+def test_successful_repeat_reports_previous_transaction_time_to_sync_summary(tmp_path):
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+            self.previous_transaction_row = (
+                datetime(2026, 5, 20, 8, 30, 0),
+                datetime(2026, 5, 20, 8, 30, 0),
+                1,
+            )
+
+        def execute(self, statement, params):
+            self.calls.append((statement, params))
+
+        def fetchone(self):
+            return self.previous_transaction_row
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeConnection:
+        def __init__(self):
+            self.cursor_instance = FakeCursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "EMAIL_1": "first@example.com",
+            "NAME_OPERATORS_2": "Second Operator",
+        },
+        load_env_file=False,
+    )
+    manager = OperatorDatabaseManager(
+        DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="secret",
+        ),
+        targets=targets,
+    )
+    connection = FakeConnection()
+    manager._connect = lambda database_name: connection
+    jsonl_path = tmp_path / "items.jsonl"
+    jsonl_path.write_text(
+        (
+            '{"operator": "first@example.com", "nik": "1234", '
+            '"status": "completed", "finished_at": "20260525 101112"}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    summary = manager.sync_report_file(jsonl_path)
+
+    assert summary.processed == 1
+    assert summary.inserted_or_updated == 1
+    assert summary.skipped == 0
+    assert len(summary.previous_transactions) == 1
+    previous = summary.previous_transactions[0]
+    assert previous.table_name == "OPERATOR_1"
+    assert previous.operator == "First Operator"
+    assert previous.nik == 1234
+    assert format_db_datetime(previous.previous_transaction_time) == "20260520 083000"
+    assert format_db_datetime(previous.current_transaction_time) == "20260525 101112"
+    assert previous.kuota_before == 1
+
+    _select_call, upsert_call = connection.cursor_instance.calls
+    assert _select_call[1] == (1234,)
+    assert upsert_call[1][3] == 1
+    assert upsert_call[1][9] == datetime(2026, 5, 25, 10, 11, 12)
+    assert upsert_call[1][10] == datetime(2026, 5, 20, 8, 30, 0)
 
 
 def test_migrate_table_schema_moves_old_nama_to_operator_and_adds_new_columns():
@@ -235,7 +326,7 @@ def test_migrate_table_schema_moves_old_nama_to_operator_and_adds_new_columns():
     OperatorDatabaseManager._migrate_table_schema(cursor, "OPERATOR_1")
 
     assert cursor.calls[0][1] == ("OPERATOR_1",)
-    assert len(cursor.calls) == 5
+    assert len(cursor.calls) == 8
 
 
 def test_monthly_reset_only_resets_kuota_without_bumping_updated_time():

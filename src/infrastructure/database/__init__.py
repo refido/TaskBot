@@ -4,6 +4,7 @@ from src.infrastructure.database.operator_store import (
     OperatorDbRecord,
     OperatorTarget,
     OperatorTargets,
+    PreviousTransactionReport,
     SyncSummary,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "OperatorDbRecord",
     "OperatorTarget",
     "OperatorTargets",
+    "PreviousTransactionReport",
     "SyncSummary",
 ]
