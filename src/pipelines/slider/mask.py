@@ -13,14 +13,19 @@ class MaskProcessor:
         self.alpha_threshold = alpha_threshold
 
     def compute_slot_left_x(
-        self, piece_img_path: Path, x_piece: float, tpl_w: int
+        self,
+        piece_img_path: Path,
+        x_piece: float,
+        tpl_w: int,
+        piece_img: np.ndarray | None = None,
     ) -> tuple[float, int]:
         """
         Recover puzzle slot left X coordinate in background pixels.
 
         Returns: (slot_left_x_in_bg, puzzle_tile_width_in_image_px)
         """
-        piece_img = cv2.imread(str(piece_img_path), cv2.IMREAD_UNCHANGED)
+        if piece_img is None:
+            piece_img = cv2.imread(str(piece_img_path), cv2.IMREAD_UNCHANGED)
         if piece_img is None:
             return float(x_piece), tpl_w
 

@@ -1,12 +1,35 @@
 import base64
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
 
+import cv2
+import numpy as np
 from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.logging_utils import log_print
+
+
+@dataclass(slots=True)
+class PuzzleImageBundle:
+    """Decoded puzzle images plus the debug artifact paths written for traceability."""
+
+    background_src: str
+    piece_src: str
+    background_path: Path
+    piece_path: Path
+    background: np.ndarray
+    piece: np.ndarray
+
+    @property
+    def paths(self) -> dict[str, Path]:
+        return {"background": self.background_path, "piece": self.piece_path}
+
+    @property
+    def arrays(self) -> dict[str, np.ndarray]:
+        return {"background": self.background, "piece": self.piece}
 
 
 class Helpers:
@@ -21,17 +44,39 @@ class Helpers:
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
 
     def save_puzzle_piece(self, nik: str) -> str:
-        return self._save_data_uri_image(
+        path, _img = self._save_data_uri_image(
             locator=self.piece_img,
             output_name=self.build_puzzle_output_name(nik, "piece"),
             missing_message="Puzzle piece image not found on the page.",
         )
+        return str(path)
 
     def save_puzzle_bg(self, nik: str) -> str:
-        return self._save_data_uri_image(
+        path, _img = self._save_data_uri_image(
             locator=self.piece_bg,
             output_name=self.build_puzzle_output_name(nik, "bg"),
             missing_message="Puzzle background image not found on the page.",
+        )
+        return str(path)
+
+    def capture_puzzle_images(self, nik: str) -> PuzzleImageBundle:
+        """Fetch, decode, and persist both puzzle images once for the current attempt."""
+        bg_src, piece_src = self.get_puzzle_image_sources()
+        bg_path, bg_img = self._save_data_uri_image_from_src(
+            src=bg_src,
+            output_name=self.build_puzzle_output_name(nik, "bg"),
+        )
+        piece_path, piece_img = self._save_data_uri_image_from_src(
+            src=piece_src,
+            output_name=self.build_puzzle_output_name(nik, "piece"),
+        )
+        return PuzzleImageBundle(
+            background_src=bg_src,
+            piece_src=piece_src,
+            background_path=bg_path,
+            piece_path=piece_path,
+            background=bg_img,
+            piece=piece_img,
         )
 
     def build_puzzle_output_name(self, nik: str, image_type: str) -> str:
@@ -81,21 +126,31 @@ class Helpers:
 
     def _save_data_uri_image(
         self, *, locator: Locator, output_name: str, missing_message: str
-    ) -> str:
+    ) -> tuple[Path, np.ndarray]:
         src = self._get_image_src(locator=locator, missing_message=missing_message)
-        payload = self._extract_base64_payload(src)
+        return self._save_data_uri_image_from_src(src=src, output_name=output_name)
 
+    def _save_data_uri_image_from_src(
+        self, *, src: str, output_name: str
+    ) -> tuple[Path, np.ndarray]:
+        payload = self._extract_base64_payload(src)
         try:
             image_bytes = base64.b64decode(payload, validate=True)
         except Exception as exc:
             raise RuntimeError(f"Failed to decode base64 image: {exc}") from exc
+
+        img = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED
+        )
+        if img is None:
+            raise RuntimeError("Failed to decode puzzle image bytes with OpenCV.")
 
         out_dir = Path(f"data_puzzle/{self.folder_stamp}")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / output_name
         out_path.write_bytes(image_bytes)
         log_print(f"Image saved to {out_path}")
-        return str(out_path)
+        return out_path, img
 
     def _get_image_src(self, *, locator: Locator, missing_message: str) -> str:
         self._wait_for_image(locator=locator, missing_message=missing_message)

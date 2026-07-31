@@ -13,7 +13,7 @@ def ensure_output_dir(output_image_path: str) -> None:
 
 
 def imread_any(path: str) -> ImageArray:
-    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if img is None:
         raise FileNotFoundError(f"Cannot read image file: {path}")
     return img

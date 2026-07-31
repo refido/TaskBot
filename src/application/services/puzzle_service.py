@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from inspect import Parameter, signature
 from pathlib import Path
 from typing import Any, Callable
 
@@ -57,9 +58,18 @@ class PuzzleService:
         for attempt_number in range(1, self.max_attempts + 1):
             attempts_used = attempt_number
             helpers = self.helpers_factory(self.page)
-            bg_src, piece_src = helpers.get_puzzle_image_sources()
-            piece_path = helpers.save_puzzle_piece(nik)
-            bg_path = helpers.save_puzzle_bg(nik)
+            capture_images = getattr(helpers, "capture_puzzle_images", None)
+            image_arrays = None
+            if callable(capture_images):
+                bundle = capture_images(nik)
+                bg_src, piece_src = bundle.background_src, bundle.piece_src
+                bg_path = bundle.background_path
+                piece_path = bundle.piece_path
+                image_arrays = bundle.arrays
+            else:
+                bg_src, piece_src = helpers.get_puzzle_image_sources()
+                piece_path = Path(helpers.save_puzzle_piece(nik))
+                bg_path = Path(helpers.save_puzzle_bg(nik))
 
             result_path = (
                 Path(piece_path).parent / helpers.build_puzzle_output_name(nik, "result")
@@ -70,21 +80,30 @@ class PuzzleService:
             if result_path is not None:
                 self.log_func(f"Result path (abs): {result_path.resolve()}")
 
-            solver = self.puzzle_solver_factory(
-                gap_image_path=piece_path,
-                bg_image_path=bg_path,
-                output_image_path=str(result_path) if result_path else None,
-            )
+            solver_kwargs: dict[str, Any] = {
+                "gap_image_path": piece_path,
+                "bg_image_path": bg_path,
+                "output_image_path": str(result_path),
+            }
+            if image_arrays is not None:
+                solver_kwargs["gap_image"] = image_arrays.get("piece")
+                solver_kwargs["bg_image"] = image_arrays.get("background")
+
+            solver = self.puzzle_solver_factory(**solver_kwargs)
             position = solver.discern_xy()
             self.log_func(f"The position of the slide is: {position}")
+            timing_metrics = getattr(solver, "timing_metrics", None)
+            if timing_metrics:
+                self.log_func(f"Puzzle solve timing (ms): {dict(timing_metrics)}")
 
-            success = self.slider_solver(
-                self.page,
+            success = self._call_slider_solver(
                 imgs={"background": Path(bg_path), "piece": Path(piece_path)},
-                max_wait_success_ms=self.max_wait_success_ms,
+                image_arrays=image_arrays,
                 puzzle_result=position,
                 puzzle_result_path=result_path,
-                write_debug_artifacts=self.write_debug_artifacts,
+                solver_timing_ms=(
+                    dict(timing_metrics) if isinstance(timing_metrics, dict) else None
+                ),
             )
             self.log_func(f"Slider solved on attempt {attempt_number}: {success}")
 
@@ -131,3 +150,34 @@ class PuzzleService:
             retry_count=retry_count,
             retry_process=retry_process,
         )
+
+    def _call_slider_solver(
+        self,
+        *,
+        imgs: dict[str, Path],
+        image_arrays: dict[str, Any] | None,
+        puzzle_result: Any,
+        puzzle_result_path: Path,
+        solver_timing_ms: dict[str, float] | None,
+    ) -> bool:
+        kwargs: dict[str, Any] = {"max_wait_success_ms": self.max_wait_success_ms}
+        optional_kwargs: dict[str, Any] = {
+            "image_arrays": image_arrays,
+            "puzzle_result": puzzle_result,
+            "puzzle_result_path": puzzle_result_path,
+            "solver_timing_ms": solver_timing_ms,
+        }
+
+        try:
+            params = signature(self.slider_solver).parameters
+        except (TypeError, ValueError):
+            params = {}
+
+        accepts_kwargs = any(
+            param.kind == Parameter.VAR_KEYWORD for param in params.values()
+        )
+        for key, value in optional_kwargs.items():
+            if value is not None and (accepts_kwargs or key in params):
+                kwargs[key] = value
+
+        return bool(self.slider_solver(self.page, imgs=imgs, **kwargs))

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from playwright.sync_api import Page
 
@@ -44,8 +45,10 @@ class SliderSolver:
         page: Page,
         imgs: dict[str, Path],
         *,
+        image_arrays: dict[str, np.ndarray] | None = None,
         puzzle_result: PuzzleResult | None = None,
         puzzle_result_path: Path | None = None,
+        solver_timing_ms: dict[str, float] | None = None,
     ) -> bool:
         """Solve slider CAPTCHA."""
         attempt_dir = (
@@ -53,10 +56,16 @@ class SliderSolver:
         )
         elements = self.element_resolver.resolve(page)
 
-        if puzzle_result is None:
-            puzzle_result, puzzle_result_path = self._solve_puzzle(imgs, attempt_dir)
+        if puzzle_result is None or puzzle_result_path is None:
+            puzzle_result, puzzle_result_path, solver_timing_ms = self._solve_puzzle(
+                imgs, attempt_dir, image_arrays=image_arrays
+            )
+
         boxes = self._get_bounding_boxes(elements)
-        bg_dimensions = self._get_image_dimensions(imgs["background"])
+        bg_dimensions = self._get_image_dimensions(
+            imgs["background"],
+            None if image_arrays is None else image_arrays.get("background"),
+        )
 
         mapping = self.coord_mapper.map_coordinates(
             imgs["piece"],
@@ -64,21 +73,27 @@ class SliderSolver:
             puzzle_result[4][0],  # tpl_w
             bg_dimensions[0],
             boxes,
+            piece_img=None if image_arrays is None else image_arrays.get("piece"),
         )
 
-        if self.config.write_debug_artifacts and attempt_dir and puzzle_result_path:
-            self._create_visualizations(
-                puzzle_result=puzzle_result,
-                puzzle_result_path=puzzle_result_path,
-                imgs=imgs,
-                mapping=mapping,
-                boxes=boxes,
-                bg_dimensions=bg_dimensions,
-                attempt_dir=attempt_dir,
-            )
-            self.metadata_writer.write_metadata(
-                attempt_dir, puzzle_result, mapping, bg_dimensions
-            )
+        self._create_visualizations(
+            puzzle_result=puzzle_result,
+            puzzle_result_path=puzzle_result_path,
+            imgs=imgs,
+            mapping=mapping,
+            boxes=boxes,
+            bg_dimensions=bg_dimensions,
+            attempt_dir=attempt_dir,
+            image_arrays=image_arrays,
+        )
+
+        self.metadata_writer.write_metadata(
+            attempt_dir,
+            puzzle_result,
+            mapping,
+            bg_dimensions,
+            solver_timing_ms=solver_timing_ms,
+        )
         self.drag_executor.execute_drag(page, mapping)
         return self.success_detector.check_success(page, elements.root)
 
@@ -89,18 +104,22 @@ class SliderSolver:
         return attempt_dir
 
     def _solve_puzzle(
-        self, imgs: dict[str, Path], attempt_dir: Path | None
-    ) -> tuple[PuzzleResult, Path | None]:
-        puzzle_result_path = (
-            attempt_dir / "puzzle_fused_vis.jpg" if attempt_dir is not None else None
-        )
+        self,
+        imgs: dict[str, Path],
+        attempt_dir: Path,
+        *,
+        image_arrays: dict[str, np.ndarray] | None = None,
+    ) -> tuple[PuzzleResult, Path, dict[str, float]]:
+        puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
         solver = PuzzleSolver(
             gap_image_path=str(imgs["piece"]),
             bg_image_path=str(imgs["background"]),
-            output_image_path=str(puzzle_result_path) if puzzle_result_path else None,
+            output_image_path=str(puzzle_result_path),
+            gap_image=None if image_arrays is None else image_arrays.get("piece"),
+            bg_image=None if image_arrays is None else image_arrays.get("background"),
         )
         result = solver.discern_xy()
-        return result, puzzle_result_path
+        return result, puzzle_result_path, dict(solver.timing_metrics)
 
     @staticmethod
     def _get_bounding_boxes(elements: SliderElements) -> BoundingBoxes:
@@ -114,7 +133,13 @@ class SliderSolver:
         return BoundingBoxes(bg=bg_bb, control=ctrl_bb, knob=knob_bb)
 
     @staticmethod
-    def _get_image_dimensions(bg_path: Path) -> tuple[int, int]:
+    def _get_image_dimensions(
+        bg_path: Path, bg_img: np.ndarray | None = None
+    ) -> tuple[int, int]:
+        if bg_img is not None:
+            h, w = bg_img.shape[:2]
+            return int(w), int(h)
+
         with Image.open(bg_path) as bg_img:
             return bg_img.width, bg_img.height
 
@@ -127,6 +152,7 @@ class SliderSolver:
         boxes: BoundingBoxes,
         bg_dimensions: tuple[int, int],
         attempt_dir: Path,
+        image_arrays: dict[str, np.ndarray] | None = None,
     ) -> None:
         x_piece, y_piece, _score, _scale, (tpl_w, tpl_h) = puzzle_result
 
@@ -135,6 +161,7 @@ class SliderSolver:
             (x_piece, y_piece),
             (tpl_w, tpl_h),
             attempt_dir / "match_overlay.jpg",
+            bg_img=None if image_arrays is None else image_arrays.get("background"),
         )
 
         self.diagram_creator.create_diagram(
@@ -164,9 +191,19 @@ def solve_slider_with_puzzle(
         **{k: v for k, v in kwargs.items() if hasattr(SliderConfig, k)}
     )
     solver = SliderSolver(config)
+    image_arrays = kwargs.get("image_arrays")
+    puzzle_result = kwargs.get("puzzle_result")
+    puzzle_result_path = kwargs.get("puzzle_result_path")
+    solver_timing_ms = kwargs.get("solver_timing_ms")
     return solver.solve(
         page,
         imgs,
-        puzzle_result=puzzle_result,
-        puzzle_result_path=puzzle_result_path,
+        image_arrays=image_arrays if isinstance(image_arrays, dict) else None,
+        puzzle_result=puzzle_result if isinstance(puzzle_result, tuple) else None,
+        puzzle_result_path=(
+            Path(puzzle_result_path) if puzzle_result_path is not None else None
+        ),
+        solver_timing_ms=(
+            solver_timing_ms if isinstance(solver_timing_ms, dict) else None
+        ),
     )
