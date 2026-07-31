@@ -2,6 +2,7 @@ from src.application.services.account_runner import AccountRunner
 from src.application.use_cases.process_account import process_account, process_accounts
 from src.config import Config
 from src.infrastructure.browser.playwright_session import BrowserSession
+from src.infrastructure.database import OperatorDatabaseManager
 from src.logging_utils import configure_logging, logger
 from src.orchestration.transaction_processor import TransactionProcessor
 from src.web.rate_limiter import SkipRateLimiter
@@ -17,12 +18,55 @@ def _build_skip_rate_limiter() -> SkipRateLimiter:
     )
 
 
+def _sync_report_to_database(reporter: TransactionReporter) -> None:
+    report_path = getattr(reporter, "jsonl_path", None)
+    if report_path is None:
+        logger.bind(event="report.db_sync.skipped", reason="missing_report_path").info(
+            "Report database sync skipped"
+        )
+        return
+
+    try:
+        manager = OperatorDatabaseManager.from_env(require_operator_targets=True)
+    except ValueError as exc:
+        logger.bind(
+            event="report.db_sync.skipped",
+            reason=str(exc),
+            report_path=str(report_path),
+        ).info("Report database sync skipped")
+        return
+
+    logger.bind(
+        event="report.db_sync.started",
+        report_path=str(report_path),
+    ).info("Report database sync started")
+
+    try:
+        manager.ensure_database_and_tables()
+        summary = manager.sync_report_file(report_path)
+    except Exception:
+        logger.bind(
+            event="report.db_sync.failed",
+            report_path=str(report_path),
+        ).exception("Report database sync failed")
+        raise
+
+    logger.bind(
+        event="report.db_sync.finished",
+        report_path=summary.source,
+        processed=summary.processed,
+        inserted_or_updated=summary.inserted_or_updated,
+        skipped=summary.skipped,
+    ).info("Report synced to database")
+
+
 def _build_account_runner() -> AccountRunner:
     return AccountRunner(
         reporter_factory=TransactionReporter,
         limiter_factory=_build_skip_rate_limiter,
         browser_session_factory=BrowserSession,
         transaction_processor_factory=TransactionProcessor,
+        report_syncer=_sync_report_to_database,
         logger=logger,
     )
 
@@ -39,6 +83,7 @@ def main() -> None:
         event="app.start",
         run_id=logging_meta["run_id"],
         json_log_path=logging_meta["json_log_path"],
+        db_json_log_path=logging_meta.get("db_json_log_path"),
     ).info("TaskBot started")
 
     config = Config()

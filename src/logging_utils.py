@@ -19,6 +19,8 @@ _ASCII_LEVEL_ICONS = {
     "ERROR": "E",
     "CRITICAL": "C",
 }
+_DB_LOG_EVENT_PREFIXES = ("database.", "report.db_sync.", "db_management.")
+_DB_LOG_EVENTS = {"account.report_db_sync_error"}
 
 
 def _apply_ascii_level_icons() -> None:
@@ -36,6 +38,15 @@ def _inject_default_event(record: Dict[str, Any]) -> None:
     record["extra"].setdefault(
         "timestamp_iso", record["time"].isoformat(timespec="seconds")
     )
+
+
+def _is_db_log_record(record: Dict[str, Any]) -> bool:
+    event = str(record["extra"].get("event", ""))
+    return event in _DB_LOG_EVENTS or event.startswith(_DB_LOG_EVENT_PREFIXES)
+
+
+def _is_application_log_record(record: Dict[str, Any]) -> bool:
+    return not _is_db_log_record(record)
 
 
 logger = _base_logger.patch(_inject_default_event)
@@ -57,6 +68,7 @@ def configure_logging(
     root = build_timestamped_run_dir(Path(log_dir), now_local)
     root.mkdir(parents=True, exist_ok=True)
     json_log_path = root / f"{app_name}_{resolved_run_id}.jsonl"
+    db_json_log_path = root / f"dblog_{resolved_run_id}.jsonl"
 
     console_level = os.getenv("LOG_LEVEL", "INFO").upper()
     file_level = os.getenv("LOG_FILE_LEVEL", "DEBUG").upper()
@@ -87,17 +99,36 @@ def configure_logging(
         rotation=rotation,
         retention=retention,
         compression=compression,
+        filter=_is_application_log_record,
+    )
+    logger.add(
+        str(db_json_log_path),
+        level=file_level,
+        enqueue=True,
+        backtrace=False,
+        diagnose=False,
+        serialize=True,
+        format=log_line_format,
+        rotation=rotation,
+        retention=retention,
+        compression=compression,
+        filter=_is_db_log_record,
     )
 
     logger.bind(
         event="logging.configured",
         run_id=resolved_run_id,
         log_file=str(json_log_path),
+        db_log_file=str(db_json_log_path),
         console_level=console_level,
         file_level=file_level,
     ).info("Structured logging is configured")
 
-    return {"run_id": resolved_run_id, "json_log_path": str(json_log_path)}
+    return {
+        "run_id": resolved_run_id,
+        "json_log_path": str(json_log_path),
+        "db_json_log_path": str(db_json_log_path),
+    }
 
 
 def log_print(

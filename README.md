@@ -99,4 +99,36 @@ LOG_RETENTION=30 days
 LOG_COMPRESSION=gz
 ```
 
+## Database Management
+
+Set the PostgreSQL and operator mapping values in `.env`:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=taskbot
+DB_USER=taskbot
+DB_PASSWORD=change-me
+NAME_OPERATORS_1=First Operator
+NAME_OPERATORS_2=Second Operator
+```
+
+Create the configured database if needed and ensure `OPERATOR_1` and `OPERATOR_2`
+exist:
+
+```bash
+uv run python -m scripts.db_management init
+```
+
+When the bot finishes an operator session, it automatically syncs that run's
+`items.jsonl` report into the matching operator table when the DB environment
+variables above are configured. The manual sync command is still available:
+
+```bash
+uv run python -m scripts.db_management sync-report reports/<operator>/<yyyy>/<mm>/<dd>/<hhmmss>/items.jsonl
+```
+
+Use `--table OPERATOR_1` or `--table OPERATOR_2` when importing a report that
+does not include a matching operator value.
+
 ## Enjoy automating your tasks! 🎉
