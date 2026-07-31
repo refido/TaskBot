@@ -19,6 +19,25 @@ def test_app_settings_loads_single_account_format():
     assert settings.accounts[0].email_user == "first@example.com"
     assert settings.accounts[0].pin_user == "123456"
     assert settings.accounts[0].nik == ("111", "222", "333")
+    assert settings.puzzle_debug_artifacts is False
+
+
+def test_app_settings_loads_puzzle_debug_artifact_flag():
+    settings = AppSettings.from_env(
+        {
+            "URL_APPLICATION": "https://example.test/app",
+            "EMAIL": "first@example.com",
+            "PIN": "123456",
+            "NIK": "111",
+            "PUZZLE_DEBUG_ARTIFACTS": "true",
+        },
+        load_env_file=False,
+    )
+
+    config = Config(settings=settings)
+
+    assert settings.puzzle_debug_artifacts is True
+    assert config.puzzle_debug_artifacts is True
 
 
 def test_app_settings_loads_numbered_accounts_in_numeric_order():

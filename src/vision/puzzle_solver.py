@@ -65,7 +65,7 @@ class PuzzleSolver:
     _UNIFORM_STD_THRESHOLD: float = 15.0
 
     def __init__(
-        self, gap_image_path: str, bg_image_path: str, output_image_path: str
+        self, gap_image_path: str, bg_image_path: str, output_image_path: str | None
     ) -> None:
         self.gap_image_path = gap_image_path
         self.bg_image_path = bg_image_path
@@ -736,16 +736,17 @@ class PuzzleSolver:
                 float(self.tpl_center_local[1] * best_scale),
             )
 
-        vis = draw_match_visualization(
-            bg_gray_raw,
-            (float(refined_xy[0]), float(refined_xy[1])),
-            tw,
-            th,
-            refined_score,
-            tpl_center_local=tpl_center_for_vis,
-        )
-        ensure_output_dir(self.output_image_path)
-        cv2.imwrite(self.output_image_path, vis)
+        if self.output_image_path:
+            vis = draw_match_visualization(
+                bg_gray_raw,
+                (float(refined_xy[0]), float(refined_xy[1])),
+                tw,
+                th,
+                refined_score,
+                tpl_center_local=tpl_center_for_vis,
+            )
+            ensure_output_dir(self.output_image_path)
+            cv2.imwrite(self.output_image_path, vis)
 
         return (
             int(round(refined_xy[0])),

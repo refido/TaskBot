@@ -39,12 +39,22 @@ class SliderSolver:
         self.drag_executor = DragExecutor(self.config, self.movement_gen)
         self.success_detector = SuccessDetector(self.config)
 
-    def solve(self, page: Page, imgs: dict[str, Path]) -> bool:
+    def solve(
+        self,
+        page: Page,
+        imgs: dict[str, Path],
+        *,
+        puzzle_result: PuzzleResult | None = None,
+        puzzle_result_path: Path | None = None,
+    ) -> bool:
         """Solve slider CAPTCHA."""
-        attempt_dir = self._create_debug_dir()
+        attempt_dir = (
+            self._create_debug_dir() if self.config.write_debug_artifacts else None
+        )
         elements = self.element_resolver.resolve(page)
 
-        puzzle_result, puzzle_result_path = self._solve_puzzle(imgs, attempt_dir)
+        if puzzle_result is None:
+            puzzle_result, puzzle_result_path = self._solve_puzzle(imgs, attempt_dir)
         boxes = self._get_bounding_boxes(elements)
         bg_dimensions = self._get_image_dimensions(imgs["background"])
 
@@ -56,19 +66,19 @@ class SliderSolver:
             boxes,
         )
 
-        self._create_visualizations(
-            puzzle_result=puzzle_result,
-            puzzle_result_path=puzzle_result_path,
-            imgs=imgs,
-            mapping=mapping,
-            boxes=boxes,
-            bg_dimensions=bg_dimensions,
-            attempt_dir=attempt_dir,
-        )
-
-        self.metadata_writer.write_metadata(
-            attempt_dir, puzzle_result, mapping, bg_dimensions
-        )
+        if self.config.write_debug_artifacts and attempt_dir and puzzle_result_path:
+            self._create_visualizations(
+                puzzle_result=puzzle_result,
+                puzzle_result_path=puzzle_result_path,
+                imgs=imgs,
+                mapping=mapping,
+                boxes=boxes,
+                bg_dimensions=bg_dimensions,
+                attempt_dir=attempt_dir,
+            )
+            self.metadata_writer.write_metadata(
+                attempt_dir, puzzle_result, mapping, bg_dimensions
+            )
         self.drag_executor.execute_drag(page, mapping)
         return self.success_detector.check_success(page, elements.root)
 
@@ -79,13 +89,15 @@ class SliderSolver:
         return attempt_dir
 
     def _solve_puzzle(
-        self, imgs: dict[str, Path], attempt_dir: Path
-    ) -> tuple[PuzzleResult, Path]:
-        puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
+        self, imgs: dict[str, Path], attempt_dir: Path | None
+    ) -> tuple[PuzzleResult, Path | None]:
+        puzzle_result_path = (
+            attempt_dir / "puzzle_fused_vis.jpg" if attempt_dir is not None else None
+        )
         solver = PuzzleSolver(
             gap_image_path=str(imgs["piece"]),
             bg_image_path=str(imgs["background"]),
-            output_image_path=str(puzzle_result_path),
+            output_image_path=str(puzzle_result_path) if puzzle_result_path else None,
         )
         result = solver.discern_xy()
         return result, puzzle_result_path
@@ -143,8 +155,18 @@ def solve_slider_with_puzzle(
 
     Solve slider CAPTCHA with human-like movement patterns.
     """
+    puzzle_result = kwargs.pop("puzzle_result", None)
+    raw_puzzle_result_path = kwargs.pop("puzzle_result_path", None)
+    puzzle_result_path = (
+        Path(raw_puzzle_result_path) if raw_puzzle_result_path is not None else None
+    )
     config = SliderConfig(
         **{k: v for k, v in kwargs.items() if hasattr(SliderConfig, k)}
     )
     solver = SliderSolver(config)
-    return solver.solve(page, imgs)
+    return solver.solve(
+        page,
+        imgs,
+        puzzle_result=puzzle_result,
+        puzzle_result_path=puzzle_result_path,
+    )

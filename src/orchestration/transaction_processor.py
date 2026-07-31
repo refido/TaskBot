@@ -35,6 +35,7 @@ class TransactionProcessor:
     _LOAD_STATE: str = "load"
     _MAX_KUOTA_TIMEOUT_MS: int = 1500
     _ZERO_STOCK_TIMEOUT_MS: int = 1500
+    _PRE_CEK_PESANAN_BLOCKER_TIMEOUT_MS: int = 300
     _LOGGED_OUT_CHECK_TIMEOUT_MS: int = 800
     _POST_SKIP_COOLDOWN_MS: int = 300
     _MAX_WAIT_SUCCESS_MS: int = 3500
@@ -118,7 +119,11 @@ class TransactionProcessor:
 
                 self._probe_session_if_due(reason=f"before cek pesanan for NIK {nik}")
                 if self._check_transaction_blocker(
-                    penjualan, nik, started_at, stage="before cek pesanan"
+                    penjualan,
+                    nik,
+                    started_at,
+                    stage="before cek pesanan",
+                    timeout_ms=self._PRE_CEK_PESANAN_BLOCKER_TIMEOUT_MS,
                 ):
                     return
 
@@ -126,7 +131,13 @@ class TransactionProcessor:
 
                 self._probe_session_if_due(reason=f"after cek pesanan for NIK {nik}")
                 if self._check_transaction_blocker(
-                    penjualan, nik, started_at, stage="after cek pesanan"
+                    penjualan,
+                    nik,
+                    started_at,
+                    stage="after cek pesanan",
+                    timeout_ms=max(
+                        self._MAX_KUOTA_TIMEOUT_MS, self._ZERO_STOCK_TIMEOUT_MS
+                    ),
                 ):
                     return
 
@@ -303,13 +314,19 @@ class TransactionProcessor:
         return self._get_precheck_service().handle_pre_checks(nik, started_at)
 
     def _check_transaction_blocker(
-        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
+        self,
+        penjualan: Penjualan,
+        nik: str,
+        started_at: str,
+        stage: str,
+        timeout_ms: int | None = None,
     ) -> bool:
         outcome = self._get_precheck_service().check_transaction_blocker(
             penjualan,
             nik,
             started_at,
             stage,
+            timeout_ms=timeout_ms,
         )
         if outcome.stop_reason:
             raise OutOfSellableStockError(outcome.stop_reason)
@@ -372,6 +389,9 @@ class TransactionProcessor:
                 retry_modal_timeout_ms=self._PUZZLE_RETRY_MODAL_TIMEOUT_MS,
                 refresh_timeout_ms=self._PUZZLE_REFRESH_TIMEOUT_MS,
                 retry_process=self._PUZZLE_RETRY_PROCESS,
+                write_debug_artifacts=getattr(
+                    self.config, "puzzle_debug_artifacts", False
+                ),
                 log_func=log_print,
             )
             self._puzzle_service = service
