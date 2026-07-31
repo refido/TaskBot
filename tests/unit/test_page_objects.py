@@ -54,6 +54,7 @@ class FakeDashboard:
         self.dismiss_perbarui_calls = 0
         self.transaction_ready_calls = 0
         self.modal_waits = 0
+        self.form_or_modal_waits = 0
 
     def resolve_customer_entry(self):
         return "precheck_modal"
@@ -65,6 +66,10 @@ class FakeDashboard:
     def wait_for_precheck_modal(self):
         self.modal_waits += 1
         return "invalid_registered_nik"
+
+    def wait_for_transaction_form_or_precheck_modal(self):
+        self.form_or_modal_waits += 1
+        return "precheck_modal"
 
     def get_visible_precheck_modal(self):
         return "invalid_registered_nik"
@@ -124,6 +129,13 @@ class FakePerbaruiDashboard(FakeDashboard):
         self.modal_waits += 1
         return "perbarui"
 
+    def wait_for_transaction_form_or_precheck_modal(self):
+        self.form_or_modal_waits += 1
+        return "precheck_modal"
+
+    def get_visible_precheck_modal(self):
+        return "perbarui"
+
     def read_invalid_registered_nik_reason_if_present(self, detect_timeout=6000):
         self.invalid_reason_calls += 1
         return None
@@ -144,6 +156,21 @@ class FakeReadyDashboard(FakeDashboard):
 
     def wait_for_precheck_modal(self):
         raise AssertionError("success outcome should not scan pre-check modals")
+
+    def wait_for_transaction_form_or_precheck_modal(self):
+        raise AssertionError("success outcome should not wait for form/modal race")
+
+
+class FakeCustomerTypeReadyDashboard(FakeDashboard):
+    def resolve_customer_entry(self):
+        return "customer_type_selected"
+
+    def wait_for_transaction_form_or_precheck_modal(self):
+        self.form_or_modal_waits += 1
+        return "transaction_ready"
+
+    def wait_for_precheck_modal(self):
+        raise AssertionError("form-ready outcome should not scan rare modals")
 
 
 class FakePenjualanBlocker:
@@ -242,6 +269,7 @@ def test_prechecks_service_allows_transaction_when_perbarui_can_continue():
     handled = service.handle_pre_checks("3174", "started-at")
 
     assert handled is False
+    assert dashboard.form_or_modal_waits == 1
     assert dashboard.dismiss_perbarui_calls == 0
     assert dashboard.reset_calls == []
     assert limiter.skip_calls == 0
@@ -267,6 +295,30 @@ def test_prechecks_service_returns_immediately_when_transaction_ready():
     handled = service.handle_pre_checks("3174", "started-at")
 
     assert handled is False
+    assert limiter.skip_calls == 0
+    assert page.timeouts == []
+    assert reporter.calls == []
+
+
+def test_prechecks_service_returns_when_customer_type_reaches_form():
+    page = FakePage()
+    reporter = FakeReporter()
+    limiter = FakeLimiter()
+    dashboard = FakeCustomerTypeReadyDashboard()
+    service = TransactionPrechecksService(
+        page=page,
+        dashboard=dashboard,
+        reporter=reporter,
+        limiter=limiter,
+        post_skip_cooldown_ms=300,
+        max_kuota_timeout_ms=1500,
+        zero_stock_timeout_ms=1500,
+    )
+
+    handled = service.handle_pre_checks("3174", "started-at")
+
+    assert handled is False
+    assert dashboard.form_or_modal_waits == 1
     assert limiter.skip_calls == 0
     assert page.timeouts == []
     assert reporter.calls == []

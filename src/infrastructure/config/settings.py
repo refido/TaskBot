@@ -19,6 +19,7 @@ class AccountSettings:
 class AppSettings:
     url_application: str
     accounts: tuple[AccountSettings, ...]
+    puzzle_debug_artifacts: bool = False
 
     @classmethod
     def from_env(
@@ -33,7 +34,13 @@ class AppSettings:
         source = os.environ if environ is None else environ
         url_application = source.get("URL_APPLICATION", "").strip()
         accounts = tuple(cls._load_accounts(source))
-        return cls(url_application=url_application, accounts=accounts)
+        return cls(
+            url_application=url_application,
+            accounts=accounts,
+            puzzle_debug_artifacts=cls._parse_bool(
+                source.get("PUZZLE_DEBUG_ARTIFACTS", "")
+            ),
+        )
 
     def primary_account(self) -> AccountSettings | None:
         if not self.accounts:
@@ -44,6 +51,7 @@ class AppSettings:
         return AppSettings(
             url_application=self.url_application,
             accounts=(account,),
+            puzzle_debug_artifacts=self.puzzle_debug_artifacts,
         )
 
     @classmethod
@@ -110,3 +118,7 @@ class AppSettings:
     @staticmethod
     def _parse_nik_list(raw_nik: str) -> tuple[str, ...]:
         return tuple(nik.strip() for nik in raw_nik.split(",") if nik.strip())
+
+    @staticmethod
+    def _parse_bool(raw_value: str) -> bool:
+        return raw_value.strip().lower() in {"1", "true", "yes", "y", "on"}

@@ -26,7 +26,8 @@ class PlaywrightSession:
 
     def __enter__(self) -> "PlaywrightSession":
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.firefox.launch(headless=True)
+        # self.browser = self.playwright.firefox.launch(headless=True)
+        self.browser = self.playwright.firefox.launch(headless=False)
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
         return self

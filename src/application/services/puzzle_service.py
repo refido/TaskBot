@@ -33,6 +33,7 @@ class PuzzleService:
         retry_modal_timeout_ms: int,
         refresh_timeout_ms: int,
         retry_process: str,
+        write_debug_artifacts: bool = False,
         log_func: Callable[..., None] = log_print,
     ) -> None:
         self.page = page
@@ -46,6 +47,7 @@ class PuzzleService:
         self.retry_modal_timeout_ms = retry_modal_timeout_ms
         self.refresh_timeout_ms = refresh_timeout_ms
         self.retry_process = retry_process
+        self.write_debug_artifacts = write_debug_artifacts
         self.log_func = log_func
 
     def solve(self, nik: str) -> PuzzleSolveOutcome:
@@ -69,10 +71,14 @@ class PuzzleService:
                 piece_path = Path(helpers.save_puzzle_piece(nik))
                 bg_path = Path(helpers.save_puzzle_bg(nik))
 
-            out_dir = Path(piece_path).parent
-            result_path = out_dir / helpers.build_puzzle_output_name(nik, "result")
+            result_path = (
+                Path(piece_path).parent / helpers.build_puzzle_output_name(nik, "result")
+                if self.write_debug_artifacts
+                else None
+            )
 
-            self.log_func(f"Result path (abs): {result_path.resolve()}")
+            if result_path is not None:
+                self.log_func(f"Result path (abs): {result_path.resolve()}")
 
             solver_kwargs: dict[str, Any] = {
                 "gap_image_path": piece_path,

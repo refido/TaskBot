@@ -37,6 +37,7 @@ PrecheckModalName = Literal[
     "cannot_transact_at_base",
     "unusual_transaction",
 ]
+PostCustomerEntryOutcome = Literal["transaction_ready", "precheck_modal", "unknown"]
 
 
 class Dashboard(BasePage):
@@ -293,7 +294,7 @@ class Dashboard(BasePage):
             log_print("Transaction form not ready yet; checking blocking modals.")
             return False
 
-        if self._has_visible_dialog():
+        if self._has_visible_blocking_transaction_dialog():
             log_print(
                 "Transaction form is visible with a blocking dialog; resolving modal first."
             )
@@ -320,6 +321,23 @@ class Dashboard(BasePage):
 
         log_print(f"Detected pre-check modal: {modal_name}")
         return modal_name
+
+    def wait_for_transaction_form_or_precheck_modal(
+        self, detect_timeout: int = 6000
+    ) -> PostCustomerEntryOutcome:
+        try:
+            self.cek_pesanan_button.or_(self._precheck_modal_locator()).first.wait_for(
+                state="visible", timeout=detect_timeout
+            )
+        except TimeoutError:
+            log_print("No transaction form or known pre-check modal became visible.")
+            return "unknown"
+
+        if self.is_transaction_form_ready(detect_timeout=100):
+            return "transaction_ready"
+        if self.get_visible_precheck_modal() is not None:
+            return "precheck_modal"
+        return "unknown"
 
     def get_visible_precheck_modal(self) -> PrecheckModalName | None:
         for modal_name, modal in [
@@ -690,11 +708,10 @@ class Dashboard(BasePage):
         except Exception:
             return False
 
-    def _has_visible_dialog(self) -> bool:
-        try:
-            return self.page.locator("[role='dialog']:visible").count() > 0
-        except Exception:
-            return False
+    def _has_visible_blocking_transaction_dialog(self) -> bool:
+        return self._is_visible(self.jenis_pelanggan_modal) or (
+            self.get_visible_precheck_modal() is not None
+        )
 
     # Temporary compatibility wrappers for older callers.
     def close_pelanggan_tidak_terdaftar_if_needed(
