@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.logging_utils import log_print, logger
 
@@ -164,7 +165,7 @@ class PuzzleService:
 
         try:
             params = signature(self.slider_solver).parameters
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             params = {}
 
         accepts_kwargs = any(

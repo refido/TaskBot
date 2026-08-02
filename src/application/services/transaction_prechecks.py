@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from src.logging_utils import log_print
 
@@ -25,9 +26,9 @@ class TransactionPrechecksService:
         self,
         *,
         page,
-        dashboard: "Dashboard",
-        reporter: "TransactionReporter",
-        limiter: "SkipRateLimiter",
+        dashboard: Dashboard,
+        reporter: TransactionReporter,
+        limiter: SkipRateLimiter,
         post_skip_cooldown_ms: int,
         max_kuota_timeout_ms: int,
         zero_stock_timeout_ms: int,
@@ -243,7 +244,7 @@ class TransactionPrechecksService:
         return True
 
     def check_transaction_blocker(
-        self, penjualan: "Penjualan", nik: str, started_at: str, stage: str
+        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
     ) -> TransactionBlockerOutcome:
         """Return the handling outcome for a visible transaction blocker alert."""
         alert = penjualan.read_transaction_blocker_alert(
@@ -268,7 +269,7 @@ class TransactionPrechecksService:
         return TransactionBlockerOutcome(should_skip=True)
 
     def check_max_kuota(
-        self, penjualan: "Penjualan", nik: str, started_at: str, stage: str
+        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
     ) -> bool:
         """Return True when the transaction must be skipped for max kuota."""
         if not penjualan.is_max_kuota_alert_present(timeout=self.max_kuota_timeout_ms):
@@ -280,7 +281,7 @@ class TransactionPrechecksService:
         return True
 
     def check_zero_stock(
-        self, penjualan: "Penjualan", nik: str, started_at: str, stage: str
+        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
     ) -> str | None:
         """Return a stop reason after recording the skip when stock is empty."""
         alert_text = penjualan.get_zero_stock_alert_text(
@@ -300,7 +301,7 @@ class TransactionPrechecksService:
         )
 
     def _record_max_kuota_skip(
-        self, *, penjualan: "Penjualan", nik: str, started_at: str, stage: str
+        self, *, penjualan: Penjualan, nik: str, started_at: str, stage: str
     ) -> None:
         try:
             penjualan.ganti_pelanggan()

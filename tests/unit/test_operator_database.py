@@ -1,3 +1,5 @@
+# ruff: noqa: DTZ001
+
 from datetime import datetime
 
 from src.infrastructure.database.operator_store import (
@@ -214,6 +216,115 @@ def test_upsert_record_passes_expected_values_to_cursor():
         event_time,
         event_time,
     )
+
+
+def test_sync_report_payloads_only_writes_the_supplied_batch():
+    class FakeCursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, statement, params):
+            self.calls.append((statement, params))
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeConnection:
+        def __init__(self):
+            self.cursor_instance = FakeCursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    targets = OperatorTargets.from_env(
+        {
+            "NAME_OPERATORS_1": "First Operator",
+            "EMAIL_1": "first@example.com",
+            "NAME_OPERATORS_2": "Second Operator",
+            "EMAIL_2": "second@example.com",
+        },
+        load_env_file=False,
+    )
+    manager = OperatorDatabaseManager(
+        DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="secret",
+        ),
+        targets=targets,
+    )
+    connection = FakeConnection()
+    manager._connect = lambda database_name: connection
+
+    summary = manager.sync_report_payloads(
+        (
+            {
+                "operator": "first@example.com",
+                "nik": "1001",
+                "status": "completed",
+                "finished_at": "20260525 101112",
+            },
+            {
+                "operator": "second@example.com",
+                "nik": "2002",
+                "status": "error",
+                "finished_at": "20260525 101113",
+            },
+        ),
+        source="operator-batch",
+    )
+
+    assert summary.source == "operator-batch"
+    assert summary.processed == 2
+    assert summary.inserted_or_updated == 2
+    assert summary.skipped == 0
+    assert [params for _statement, params in connection.cursor_instance.calls] == [
+        (1001,),
+        (
+            "First Operator",
+            1001,
+            "",
+            1,
+            1,
+            False,
+            200,
+            "Transaction successful",
+            "",
+            datetime(2026, 5, 25, 10, 11, 12),
+            None,
+            datetime(2026, 5, 25, 10, 11, 12),
+            datetime(2026, 5, 25, 10, 11, 12),
+        ),
+        (
+            "Second Operator",
+            2002,
+            "",
+            0,
+            0,
+            True,
+            500,
+            "Transaction error",
+            "error",
+            None,
+            None,
+            datetime(2026, 5, 25, 10, 11, 13),
+            datetime(2026, 5, 25, 10, 11, 13),
+        ),
+    ]
 
 
 def test_successful_repeat_reports_previous_transaction_time_to_sync_summary(tmp_path):

@@ -11,21 +11,24 @@ class AccountRunContext:
     email_user: str
     pin_user: str
     nik: tuple[str, ...]
+    headless: bool = True
 
     @classmethod
     def from_settings(
         cls, app_settings: AppSettings, account_settings: AccountSettings
-    ) -> "AccountRunContext":
+    ) -> AccountRunContext:
         return cls(
             url_application=app_settings.url_application,
             email_user=account_settings.email_user,
             pin_user=account_settings.pin_user,
             nik=account_settings.nik,
+            headless=app_settings.headless,
         )
 
     def to_settings(self) -> AppSettings:
         return AppSettings(
             url_application=self.url_application,
+            headless=self.headless,
             accounts=(
                 AccountSettings(
                     email_user=self.email_user,
@@ -42,7 +45,7 @@ class RunContext:
     accounts: tuple[AccountRunContext, ...]
 
     @classmethod
-    def from_settings(cls, settings: AppSettings) -> "RunContext":
+    def from_settings(cls, settings: AppSettings) -> RunContext:
         accounts = tuple(
             AccountRunContext.from_settings(settings, account)
             for account in settings.accounts

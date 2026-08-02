@@ -4,7 +4,7 @@ import math
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,7 @@ from src.infrastructure.browser.page_objects.login_page import Login
 from src.infrastructure.sessions.xhr_tracker import XHRTracker
 from src.logging_utils import log_print, logger
 
-CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=timezone.utc)
+CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 DEFAULT_NETWORK_WAIT_MS = 3000
 
 
@@ -59,7 +59,7 @@ def datetime_to_rfc1123(value: datetime | None) -> str | None:
     if value is None:
         return None
 
-    return format_datetime(value.astimezone(timezone.utc), usegmt=True)
+    return format_datetime(value.astimezone(UTC), usegmt=True)
 
 
 def unix_seconds_to_datetime(value: Any) -> datetime | None:
@@ -68,15 +68,15 @@ def unix_seconds_to_datetime(value: Any) -> datetime | None:
 
     try:
         seconds = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
     if not math.isfinite(seconds) or seconds < 0:
         return None
 
     try:
-        return datetime.fromtimestamp(seconds, tz=timezone.utc)
-    except (OverflowError, OSError, ValueError):
+        return datetime.fromtimestamp(seconds, tz=UTC)
+    except OverflowError, OSError, ValueError:
         return None
 
 
@@ -86,7 +86,7 @@ def chromium_timestamp_to_datetime(value: Any) -> datetime | None:
 
     try:
         microseconds = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
     if microseconds <= 0:
@@ -261,7 +261,9 @@ def build_enriched_cookies(
         last_accessed = chromium_timestamp_to_datetime(
             sqlite_cookie.get("last_access_utc")
         )
-        updated_at = chromium_timestamp_to_datetime(sqlite_cookie.get("last_update_utc"))
+        updated_at = chromium_timestamp_to_datetime(
+            sqlite_cookie.get("last_update_utc")
+        )
         expires_at = chromium_timestamp_to_datetime(sqlite_cookie.get("expires_utc"))
         if expires_at is None:
             expires_at = unix_seconds_to_datetime(cdp_cookie.get("expires"))
@@ -436,7 +438,7 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=str(paths["profile_dir"]),
-            headless=True,
+            headless=config.headless,
         )
 
         try:
@@ -468,7 +470,7 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             web_storage = capture_browser_state(page)
             xhr_entries = xhr_tracker.export()
             session_summary = {
-                "captured_at_iso": datetime.now(timezone.utc).isoformat(),
+                "captured_at_iso": datetime.now(UTC).isoformat(),
                 "operator": operator,
                 "application_url": config.url_application,
                 "final_url": page.url,

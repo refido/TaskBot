@@ -92,6 +92,7 @@ Runtime and report logs are emitted with **Loguru** to:
 Optional `.env` controls:
 
 ```env
+HEADLESS=True # TRUE/True/1 for headless, FALSE/False/0 to show the browser
 LOG_LEVEL=INFO
 LOG_FILE_LEVEL=DEBUG
 LOG_ROTATION=25 MB
@@ -112,6 +113,9 @@ DB_PASSWORD=change-me
 NAME_OPERATORS_1=First Operator
 NAME_OPERATORS_2=Second Operator
 ```
+
+Each operator syncs terminal transaction rows independently in batches of 100;
+the final partial batch is flushed when that operator's run finishes.
 
 Create the configured database if needed and ensure `OPERATOR_1` and `OPERATOR_2`
 exist:

@@ -11,7 +11,9 @@ class AccountConfig:
     nik: list[str]
 
     @classmethod
-    def from_settings(cls, email_user: str, pin_user: str, nik: tuple[str, ...]) -> "AccountConfig":
+    def from_settings(
+        cls, email_user: str, pin_user: str, nik: tuple[str, ...]
+    ) -> AccountConfig:
         return cls(
             email_user=email_user,
             pin_user=pin_user,
@@ -25,6 +27,7 @@ class Config:
         self.run_context = RunContext.from_settings(self._settings)
 
         self.url_application: str = self._settings.url_application
+        self.headless: bool = self._settings.headless
         self.accounts: list[AccountConfig] = [
             AccountConfig.from_settings(
                 account.email_user,
@@ -34,7 +37,9 @@ class Config:
             for account in self._settings.accounts
         ]
 
-        primary_account = self.accounts[0] if self.accounts else AccountConfig("", "", [])
+        primary_account = (
+            self.accounts[0] if self.accounts else AccountConfig("", "", [])
+        )
         self.email_user: str = primary_account.email_user
         self.pin_user: str = primary_account.pin_user
         self.nik: list[str] = list(primary_account.nik)
@@ -43,7 +48,7 @@ class Config:
     def settings(self) -> AppSettings:
         return self._settings
 
-    def account_configs(self) -> list["Config"]:
+    def account_configs(self) -> list[Config]:
         """Build one Config object per account for isolated threaded execution."""
         if not self._settings.accounts:
             return []

@@ -34,7 +34,9 @@ def test_reporter_labels_network_and_application_errors(monkeypatch):
         )
 
     rows_by_nik = {row.nik: row for row in reporter.rows}
-    assert rows_by_nik["nik-network"].error_label == reporter_module._NETWORK_ERROR_LABEL
+    assert (
+        rows_by_nik["nik-network"].error_label == reporter_module._NETWORK_ERROR_LABEL
+    )
     assert (
         rows_by_nik["nik-application"].error_label
         == reporter_module._APPLICATION_ERROR_LABEL
@@ -87,9 +89,34 @@ def test_reporter_records_retry_report_without_bursting_rows(monkeypatch):
     assert retry_report["events"][0]["retry_number"] == 1
     assert retry_report["events"][0]["max_retries"] == 2
     assert (
-        retry_report["events"][0]["error_label"]
-        == reporter_module._NETWORK_ERROR_LABEL
+        retry_report["events"][0]["error_label"] == reporter_module._NETWORK_ERROR_LABEL
     )
+
+
+def test_reporter_syncs_each_full_batch_and_flushes_the_final_remainder(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(reporter_module, "log_print", lambda *args, **kwargs: None)
+    reporter = reporter_module.TransactionReporter(
+        out_dir=str(tmp_path),
+        operator="tester@example.com",
+    )
+    synced_batches: list[tuple[reporter_module.TransactionRow, ...]] = []
+    reporter.configure_batch_sync(synced_batches.append, batch_size=100)
+
+    for index in range(101):
+        nik = str(index + 1)
+        reporter.complete(nik, reporter.start_item(nik))
+
+    assert [len(batch) for batch in synced_batches] == [100]
+    assert [row.nik for row in synced_batches[0]] == [
+        str(index) for index in range(1, 101)
+    ]
+
+    reporter.flush_pending_batches()
+
+    assert [len(batch) for batch in synced_batches] == [100, 1]
+    assert [row.nik for row in synced_batches[1]] == ["101"]
 
 
 def test_run_account_uses_configured_skip_rate_limiter(monkeypatch):
@@ -227,9 +254,7 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
     assert reporter.final_json_path.exists()
     assert reporter.analytics_path.exists()
 
-    snapshot_payload = json.loads(
-        reporter.final_json_path.read_text(encoding="utf-8")
-    )
+    snapshot_payload = json.loads(reporter.final_json_path.read_text(encoding="utf-8"))
     assert set(snapshot_payload) == {
         "operator",
         "run_started_at",
@@ -249,9 +274,7 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch):
     assert snapshot_payload["retry_report"]["total_retry_events"] == 0
     assert snapshot_payload["nik_lists"]["retried"] == []
 
-    analytics_payload = json.loads(
-        reporter.analytics_path.read_text(encoding="utf-8")
-    )
+    analytics_payload = json.loads(reporter.analytics_path.read_text(encoding="utf-8"))
     assert set(analytics_payload) == {
         "summary",
         "performance",

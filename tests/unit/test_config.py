@@ -1,3 +1,5 @@
+import pytest
+
 from src.application.dto.run_context import RunContext
 from src.config import AccountConfig, Config
 from src.infrastructure.config.settings import AppSettings
@@ -19,6 +21,34 @@ def test_app_settings_loads_single_account_format():
     assert settings.accounts[0].email_user == "first@example.com"
     assert settings.accounts[0].pin_user == "123456"
     assert settings.accounts[0].nik == ("111", "222", "333")
+    assert settings.headless is True
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("TRUE", True),
+        ("True", True),
+        ("1", True),
+        (" false ", False),
+        ("FALSE", False),
+        ("0", False),
+    ],
+)
+def test_app_settings_parses_headless_environment_values(
+    raw_value: str, expected: bool
+):
+    settings = AppSettings.from_env(
+        {"HEADLESS": raw_value},
+        load_env_file=False,
+    )
+
+    assert settings.headless is expected
+
+
+def test_app_settings_rejects_invalid_headless_environment_value():
+    with pytest.raises(ValueError, match="HEADLESS"):
+        AppSettings.from_env({"HEADLESS": "sometimes"}, load_env_file=False)
 
 
 def test_app_settings_loads_numbered_accounts_in_numeric_order():
@@ -56,13 +86,16 @@ def test_app_settings_rejects_partial_numbered_account():
         assert "EMAIL_1" in str(exc)
         assert "PIN_1" in str(exc)
     else:
-        raise AssertionError("Expected AppSettings.from_env() to reject partial account settings")
+        raise AssertionError(
+            "Expected AppSettings.from_env() to reject partial account settings"
+        )
 
 
 def test_config_wrapper_exposes_compatibility_fields_and_account_configs():
     settings = AppSettings.from_env(
         {
             "URL_APPLICATION": "https://example.test/app",
+            "HEADLESS": "0",
             "EMAIL_1": "first@example.com",
             "PIN_1": "111111",
             "NIK_1": "1001,1002",
@@ -79,6 +112,7 @@ def test_config_wrapper_exposes_compatibility_fields_and_account_configs():
     assert config.email_user == "first@example.com"
     assert config.pin_user == "111111"
     assert config.nik == ["1001", "1002"]
+    assert config.headless is False
     assert config.accounts == [
         AccountConfig(
             email_user="first@example.com",
@@ -102,12 +136,17 @@ def test_config_wrapper_exposes_compatibility_fields_and_account_configs():
         ["1001", "1002"],
         ["2001"],
     ]
+    assert [account_config.headless for account_config in account_configs] == [
+        False,
+        False,
+    ]
 
 
 def test_config_exposes_typed_run_contexts_for_later_phases():
     settings = AppSettings.from_env(
         {
             "URL_APPLICATION": "https://example.test/app",
+            "HEADLESS": "FALSE",
             "EMAIL_1": "first@example.com",
             "PIN_1": "111111",
             "NIK_1": "1001,1002",
@@ -123,3 +162,5 @@ def test_config_exposes_typed_run_contexts_for_later_phases():
     assert run_context.primary_account() is not None
     assert run_context.primary_account().url_application == "https://example.test/app"
     assert run_context.primary_account().nik == ("1001", "1002")
+    assert run_context.primary_account().headless is False
+    assert run_context.primary_account().to_settings().headless is False

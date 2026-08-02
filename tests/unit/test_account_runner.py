@@ -2,8 +2,12 @@ from types import SimpleNamespace
 
 from src.application.services.account_runner import AccountRunner
 from src.application.use_cases.process_account import process_account, process_accounts
-from src.infrastructure.browser.playwright_session import BrowserSession as InfrastructureBrowserSession
-from src.orchestration.browser_session import BrowserSession as OrchestrationBrowserSession
+from src.infrastructure.browser.playwright_session import (
+    BrowserSession as InfrastructureBrowserSession,
+)
+from src.orchestration.browser_session import (
+    BrowserSession as OrchestrationBrowserSession,
+)
 
 
 class FakeBoundLogger:
@@ -33,6 +37,33 @@ class FakeReporter:
 
     def print_summary(self) -> None:
         self.print_summary_calls += 1
+
+
+class BatchingFakeReporter(FakeReporter):
+    def __init__(self, *, operator: str) -> None:
+        super().__init__(operator=operator)
+        self.rows: list[str] = []
+        self._batch_size: int | None = None
+        self._sync_callback = None
+        self._pending_rows: list[str] = []
+
+    def configure_batch_sync(self, sync_callback, *, batch_size: int) -> None:
+        self._sync_callback = sync_callback
+        self._batch_size = batch_size
+
+    def record_terminal_rows(self, count: int) -> None:
+        for _ in range(count):
+            row = f"row-{len(self.rows) + 1}"
+            self.rows.append(row)
+            self._pending_rows.append(row)
+            if len(self._pending_rows) == self._batch_size:
+                self._sync_callback(tuple(self._pending_rows))
+                self._pending_rows.clear()
+
+    def flush_pending_batches(self) -> None:
+        if self._pending_rows:
+            self._sync_callback(tuple(self._pending_rows))
+            self._pending_rows.clear()
 
 
 class FakeLimiter:
@@ -72,6 +103,19 @@ class FakeProcessor:
 
     def process_all_niks(self) -> None:
         self.process_calls += 1
+
+
+class BatchProducingProcessor(FakeProcessor):
+    def process_all_niks(self) -> None:
+        self.process_calls += 1
+        self.reporter.record_terminal_rows(len(self.config.nik))
+
+
+class PartiallyFailingProcessor(FakeProcessor):
+    def process_all_niks(self) -> None:
+        self.process_calls += 1
+        self.reporter.record_terminal_rows(125)
+        raise RuntimeError("browser session lost")
 
 
 def test_browser_session_shim_reexports_infrastructure_session():
@@ -172,6 +216,68 @@ def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful():
     assert log_sink[1][1]["event"] == "account.report_db_sync_error"
 
 
+def test_account_runner_syncs_each_100_row_batch_and_final_remainder():
+    log_sink: list[tuple[str, dict, str]] = []
+    synced_batches: list[tuple[str, tuple[str, ...]]] = []
+    logger = FakeBoundLogger(log_sink)
+
+    def report_syncer(reporter, rows) -> None:
+        synced_batches.append((reporter.operator, rows))
+
+    runner = AccountRunner(
+        reporter_factory=BatchingFakeReporter,
+        limiter_factory=FakeLimiter,
+        browser_session_factory=FakeSession,
+        transaction_processor_factory=BatchProducingProcessor,
+        report_syncer=report_syncer,
+        logger=logger,
+    )
+
+    result = runner.run(
+        SimpleNamespace(
+            email_user="first@example.com",
+            nik=[str(index) for index in range(201)],
+        )
+    )
+
+    assert result == ("first@example.com", True)
+    assert [(operator, len(rows)) for operator, rows in synced_batches] == [
+        ("first@example.com", 100),
+        ("first@example.com", 100),
+        ("first@example.com", 1),
+    ]
+
+
+def test_account_runner_flushes_partial_batch_after_fatal_error():
+    log_sink: list[tuple[str, dict, str]] = []
+    synced_batches: list[tuple[str, ...]] = []
+    logger = FakeBoundLogger(log_sink)
+
+    def report_syncer(reporter, rows) -> None:
+        del reporter
+        synced_batches.append(rows)
+
+    runner = AccountRunner(
+        reporter_factory=BatchingFakeReporter,
+        limiter_factory=FakeLimiter,
+        browser_session_factory=FakeSession,
+        transaction_processor_factory=PartiallyFailingProcessor,
+        report_syncer=report_syncer,
+        logger=logger,
+    )
+
+    result = runner.run(
+        SimpleNamespace(
+            email_user="first@example.com",
+            nik=[str(index) for index in range(125)],
+        )
+    )
+
+    assert result == ("first@example.com", False)
+    assert [len(rows) for rows in synced_batches] == [100, 25]
+    assert log_sink[1][1]["event"] == "account.run.fatal_error"
+
+
 def test_process_account_delegates_to_account_runner():
     calls: list[object] = []
 
@@ -206,6 +312,8 @@ def test_process_accounts_runs_multiple_accounts_and_logs_thread_completion():
     }
     assert log_sink[0][1]["event"] == "app.concurrent_start"
     thread_finish_events = [
-        entry for entry in log_sink if entry[1].get("event") == "account.thread.finished"
+        entry
+        for entry in log_sink
+        if entry[1].get("event") == "account.thread.finished"
     ]
     assert len(thread_finish_events) == 2

@@ -1,3 +1,8 @@
+from collections.abc import Sequence
+from dataclasses import asdict
+from threading import Lock
+from typing import Any
+
 from src.application.services.account_runner import AccountRunner
 from src.application.use_cases.process_account import process_account, process_accounts
 from src.config import Config
@@ -7,6 +12,8 @@ from src.logging_utils import configure_logging, logger
 from src.orchestration.transaction_processor import TransactionProcessor
 from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
+
+_DATABASE_SETUP_LOCK = Lock()
 
 
 def _build_skip_rate_limiter() -> SkipRateLimiter:
@@ -18,46 +25,105 @@ def _build_skip_rate_limiter() -> SkipRateLimiter:
     )
 
 
-def _sync_report_to_database(reporter: TransactionReporter) -> None:
-    report_path = getattr(reporter, "jsonl_path", None)
-    if report_path is None:
-        logger.bind(event="report.db_sync.skipped", reason="missing_report_path").info(
-            "Report database sync skipped"
-        )
-        return
+class DatabaseReportSyncer:
+    """Lazily initialize one database manager and sync only supplied report rows."""
 
-    try:
-        manager = OperatorDatabaseManager.from_env(require_operator_targets=True)
-    except ValueError as exc:
+    def __init__(self) -> None:
+        self._manager: OperatorDatabaseManager | None = None
+        self._database_ready = False
+        self._configuration_error: str | None = None
+
+    def __call__(
+        self,
+        reporter: TransactionReporter,
+        rows: Sequence[Any] | None = None,
+    ) -> None:
+        if rows is not None and not rows:
+            return
+
+        report_path = getattr(reporter, "jsonl_path", None)
+        if report_path is None:
+            logger.bind(
+                event="report.db_sync.skipped", reason="missing_report_path"
+            ).info("Report database sync skipped")
+            return
+
+        manager = self._get_manager(report_path)
+        if manager is None:
+            return
+
+        batch_size = len(rows) if rows is not None else None
         logger.bind(
-            event="report.db_sync.skipped",
-            reason=str(exc),
+            event="report.db_sync.started",
             report_path=str(report_path),
-        ).info("Report database sync skipped")
-        return
+            batch_size=batch_size,
+        ).info("Report database sync started")
 
-    logger.bind(
-        event="report.db_sync.started",
-        report_path=str(report_path),
-    ).info("Report database sync started")
+        try:
+            self._ensure_database(manager)
+            if rows is None:
+                summary = manager.sync_report_file(report_path)
+            else:
+                summary = manager.sync_report_payloads(
+                    (asdict(row) for row in rows),
+                    source=str(report_path),
+                )
+        except Exception:
+            logger.bind(
+                event="report.db_sync.failed",
+                report_path=str(report_path),
+                batch_size=batch_size,
+            ).exception("Report database sync failed")
+            raise
 
-    try:
-        manager.ensure_database_and_tables()
-        summary = manager.sync_report_file(report_path)
-    except Exception:
         logger.bind(
-            event="report.db_sync.failed",
-            report_path=str(report_path),
-        ).exception("Report database sync failed")
-        raise
+            event="report.db_sync.finished",
+            report_path=summary.source,
+            batch_size=batch_size,
+            processed=summary.processed,
+            inserted_or_updated=summary.inserted_or_updated,
+            skipped=summary.skipped,
+        ).info("Report synced to database")
 
-    logger.bind(
-        event="report.db_sync.finished",
-        report_path=summary.source,
-        processed=summary.processed,
-        inserted_or_updated=summary.inserted_or_updated,
-        skipped=summary.skipped,
-    ).info("Report synced to database")
+    def _get_manager(self, report_path: object) -> OperatorDatabaseManager | None:
+        if self._manager is not None:
+            return self._manager
+
+        if self._configuration_error is not None:
+            return None
+
+        try:
+            self._manager = OperatorDatabaseManager.from_env(
+                require_operator_targets=True
+            )
+        except ValueError as exc:
+            self._configuration_error = str(exc)
+            logger.bind(
+                event="report.db_sync.skipped",
+                reason=self._configuration_error,
+                report_path=str(report_path),
+            ).info("Report database sync skipped")
+            return None
+
+        return self._manager
+
+    def _ensure_database(self, manager: OperatorDatabaseManager) -> None:
+        if self._database_ready:
+            return
+
+        with _DATABASE_SETUP_LOCK:
+            if self._database_ready:
+                return
+            manager.ensure_database_and_tables()
+            self._database_ready = True
+
+
+def _sync_report_to_database(
+    reporter: TransactionReporter,
+    rows: Sequence[Any] | None = None,
+) -> None:
+    """Backward-compatible one-off report synchronizer."""
+    DatabaseReportSyncer()(reporter, rows)
 
 
 def _build_account_runner() -> AccountRunner:
@@ -66,7 +132,7 @@ def _build_account_runner() -> AccountRunner:
         limiter_factory=_build_skip_rate_limiter,
         browser_session_factory=BrowserSession,
         transaction_processor_factory=TransactionProcessor,
-        report_syncer=_sync_report_to_database,
+        report_syncer=DatabaseReportSyncer(),
         logger=logger,
     )
 
