@@ -68,8 +68,10 @@ class Dashboard(BasePage):
             .filter(has_text=re.compile(r"^\s*Usaha Mikro\s*$", re.I))
             .first
         )
-        self.lanjut_transaksi_button = self.jenis_pelanggan_modal.get_by_role(
-            "button", name="LANJUTKAN TRANSAKSI"
+        self.jenis_pelanggan_lanjutkan_penjualan_button = (
+            self.jenis_pelanggan_modal.locator("button.styles_primary__k_AUJ")
+            .filter(has_text=re.compile(r"^\s*LANJUTKAN PENJUALAN\s*$", re.IGNORECASE))
+            .first
         )
 
         self.pelanggan_tidak_terdaftar_title = (
@@ -376,12 +378,12 @@ class Dashboard(BasePage):
             )
 
         self.click_locator(
-            self.lanjut_transaksi_button,
+            self.jenis_pelanggan_lanjutkan_penjualan_button,
             action_name="continuing Jenis Pelanggan flow",
-            expected_text="LANJUTKAN TRANSAKSI",
+            expected_text="LANJUTKAN PENJUALAN",
             timeout_ms=10000,
         )
-        log_print("Lanjutkan Transaksi button clicked")
+        log_print("Lanjutkan Penjualan button clicked")
 
     def read_pelanggan_tidak_terdaftar_reason_if_present(
         self, detect_timeout: int = 6000

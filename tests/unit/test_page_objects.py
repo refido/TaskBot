@@ -187,6 +187,40 @@ def test_dashboard_legacy_wrapper_preserves_perbarui_close_reason():
     assert state == {"dismissed": 1, "reset": 1}
 
 
+def test_dashboard_select_jenis_pelanggan_clicks_lanjutkan_penjualan_button(
+    monkeypatch,
+):
+    class VisibleExpectation:
+        def to_be_visible(self, *, timeout: int) -> None:
+            return None
+
+    dashboard = Dashboard.__new__(Dashboard)
+    rumah_tangga = object()
+    lanjutkan_penjualan = object()
+    clicks: list[tuple[object, dict]] = []
+
+    dashboard.jenis_pelanggan = rumah_tangga
+    dashboard.jenis_pelanggan_usaha_mikro = object()
+    dashboard.jenis_pelanggan_lanjutkan_penjualan_button = lanjutkan_penjualan
+    dashboard.click_locator = lambda locator, **kwargs: clicks.append((locator, kwargs))
+    monkeypatch.setitem(
+        Dashboard.select_jenis_pelanggan.__globals__,
+        "expect",
+        lambda locator: VisibleExpectation(),
+    )
+
+    dashboard.select_jenis_pelanggan()
+
+    assert clicks[-1] == (
+        lanjutkan_penjualan,
+        {
+            "action_name": "continuing Jenis Pelanggan flow",
+            "expected_text": "LANJUTKAN PENJUALAN",
+            "timeout_ms": 10000,
+        },
+    )
+
+
 def test_prechecks_service_interprets_invalid_registered_nik_modal():
     page = FakePage()
     reporter = FakeReporter()
