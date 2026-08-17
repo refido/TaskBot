@@ -99,11 +99,11 @@ class Dashboard(BasePage):
             )
         )
         self.perbarui_data_pelanggan_lanjut_nanti = (
-            self.perbarui_data_pelanggan_modal.locator("button.styles_lightGreen__flYZ5")
+            self.perbarui_data_pelanggan_modal.locator(
+                "button.styles_lightGreen__flYZ5"
+            )
             .filter(
-                has_text=re.compile(
-                    r"^\s*nanti saja,\s*lanjut transaksi\s*$", re.I
-                )
+                has_text=re.compile(r"^\s*nanti saja,\s*lanjut penjualan\s*$", re.I)
             )
             .first
         )
@@ -544,7 +544,7 @@ class Dashboard(BasePage):
                 "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
             )
             return "continued"
-        except (TimeoutError, AssertionError):
+        except TimeoutError, AssertionError:
             log_print(
                 "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
             )
@@ -672,9 +672,7 @@ class Dashboard(BasePage):
 
     def _precheck_modal_locator(self):
         return (
-            self.pelanggan_tidak_terdaftar_modal.or_(
-                self.perbarui_data_pelanggan_modal
-            )
+            self.pelanggan_tidak_terdaftar_modal.or_(self.perbarui_data_pelanggan_modal)
             .or_(self.invalid_registered_nik_modal)
             .or_(self.cannot_transact_at_base_modal)
             .or_(self.unusual_transaction_modal)
