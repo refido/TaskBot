@@ -32,6 +32,7 @@ class DatabaseReportSyncer:
         self._manager: OperatorDatabaseManager | None = None
         self._database_ready = False
         self._configuration_error: str | None = None
+        self._connection: Any | None = None
 
     def __call__(
         self,
@@ -42,17 +43,22 @@ class DatabaseReportSyncer:
             return
 
         report_path = getattr(reporter, "jsonl_path", None)
+
         if report_path is None:
             logger.bind(
-                event="report.db_sync.skipped", reason="missing_report_path"
+                event="report.db_sync.skipped",
+                reason="missing_report_path",
             ).info("Report database sync skipped")
+
             return
 
         manager = self._get_manager(report_path)
+
         if manager is None:
             return
 
         batch_size = len(rows) if rows is not None else None
+
         logger.bind(
             event="report.db_sync.started",
             report_path=str(report_path),
@@ -61,19 +67,32 @@ class DatabaseReportSyncer:
 
         try:
             self._ensure_database(manager)
+
+            connection = self._get_connection(manager)
+
             if rows is None:
-                summary = manager.sync_report_file(report_path)
+                summary = manager.sync_report_file(
+                    report_path,
+                    connection=connection,
+                )
             else:
                 summary = manager.sync_report_payloads(
                     (asdict(row) for row in rows),
                     source=str(report_path),
+                    connection=connection,
                 )
+
         except Exception:
+            # Do not keep a connection around after a failed DB operation.
+            # A later retry will create a fresh connection.
+            self._discard_connection()
+
             logger.bind(
                 event="report.db_sync.failed",
                 report_path=str(report_path),
                 batch_size=batch_size,
             ).exception("Report database sync failed")
+
             raise
 
         logger.bind(
@@ -106,6 +125,44 @@ class DatabaseReportSyncer:
             return None
 
         return self._manager
+
+    def _get_connection(self, manager: OperatorDatabaseManager):
+        """Return the reusable PostgreSQL connection for this account run."""
+
+        if self._connection is not None:
+            if not self._connection.closed:
+                return self._connection
+
+            self._connection = None
+
+        self._connection = manager.open_connection()
+
+        logger.bind(
+            event="report.db_connection.opened",
+        ).debug("Persistent report database connection opened")
+
+        return self._connection
+
+    def _discard_connection(self) -> None:
+        """Close and forget the current PostgreSQL connection."""
+
+        connection = self._connection
+        self._connection = None
+
+        if connection is None:
+            return
+
+        try:
+            connection.close()
+        except Exception:
+            logger.bind(
+                event="report.db_connection.close_failed",
+            ).exception("Failed to close report database connection")
+
+    def close(self) -> None:
+        """Release database resources owned by this syncer."""
+
+        self._discard_connection()
 
     def _ensure_database(self, manager: OperatorDatabaseManager) -> None:
         if self._database_ready:

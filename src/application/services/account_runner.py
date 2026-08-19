@@ -5,7 +5,7 @@ from typing import Any
 class AccountRunner:
     """Run one account end-to-end using injected infrastructure and workflow factories."""
 
-    _DATABASE_BATCH_SIZE = 100
+    _DATABASE_BATCH_SIZE = 1
 
     def __init__(
         self,
@@ -38,35 +38,51 @@ class AccountRunner:
 
         try:
             batch_sync_configured = self._configure_batch_sync(reporter)
+
             with self.browser_session_factory(config) as session:
                 session.initialize_session()
+
                 processor = self.transaction_processor_factory(
                     config,
                     session.require_page(),
                     reporter,
                     limiter,
                 )
+
                 processor.process_all_niks()
+
         except Exception:  # noqa: BLE001 - account boundary records all infrastructure failures.
             is_successful = False
+
             self.logger.bind(
                 event="account.run.fatal_error",
                 operator=config.email_user,
             ).exception("Fatal account-level error")
+
         finally:
             reporter.write_files()
+
             if self.report_syncer is not None:
                 try:
                     if batch_sync_configured:
                         reporter.flush_pending_batches()
                     else:
                         self.report_syncer(reporter)
+
                 except Exception:  # noqa: BLE001 - database errors must mark the account unsuccessful.
                     is_successful = False
+
                     self.logger.bind(
                         event="account.report_db_sync_error",
                         operator=config.email_user,
                     ).exception("Report database sync failed")
+
+                finally:
+                    close_syncer = getattr(self.report_syncer, "close", None)
+
+                    if callable(close_syncer):
+                        close_syncer()
+
             reporter.print_summary()
 
         self.logger.bind(

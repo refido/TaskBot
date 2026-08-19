@@ -410,12 +410,15 @@ class OperatorDatabaseManager:
         report_path: str | Path,
         *,
         table_name: str | None = None,
+        connection: Any | None = None,
     ) -> SyncSummary:
         path = Path(report_path)
+
         return self.sync_report_payloads(
             read_report_payloads(path),
             source=str(path),
             table_name=table_name,
+            connection=connection,
         )
 
     def sync_report_payloads(
@@ -424,12 +427,20 @@ class OperatorDatabaseManager:
         *,
         source: str,
         table_name: str | None = None,
+        connection: Any | None = None,
     ) -> SyncSummary:
-        """Synchronize one ordered batch of report payloads in a database transaction."""
+        """
+        Synchronize one ordered batch of report payloads.
+
+        When a connection is supplied, the caller owns the connection lifecycle.
+        Each call still uses its own transaction, allowing one persistent
+        PostgreSQL connection to be reused across multiple report rows.
+        """
         processed = 0
         changed = 0
         skipped = 0
         previous_transactions: list[PreviousTransactionReport] = []
+
         logger.bind(
             event="database.report_sync.started",
             report_path=source,
@@ -437,21 +448,35 @@ class OperatorDatabaseManager:
             **self._log_context(connection_database=self.config.name),
         ).info("Report database sync started")
 
+        owns_connection = connection is None
+        db_connection = (
+            self._connect(self.config.name) if owns_connection else connection
+        )
+
         try:
-            with (
-                self._connect(self.config.name) as connection,
-                connection.cursor() as cursor,
-            ):
+            # psycopg2 connection context creates a transaction boundary.
+            #
+            # On successful exit:
+            #     COMMIT
+            #
+            # On exception:
+            #     ROLLBACK
+            #
+            # It does NOT close a caller-owned persistent connection.
+            with db_connection, db_connection.cursor() as cursor:
                 for payload in payloads:
                     processed += 1
+
                     try:
                         previous_transaction = self.upsert_report_payload(
                             payload,
                             cursor=cursor,
                             table_name=table_name,
                         )
+
                     except ValueError as exc:
                         skipped += 1
+
                         logger.bind(
                             event="database.report_sync.row_skipped",
                             report_path=source,
@@ -459,10 +484,14 @@ class OperatorDatabaseManager:
                             reason=str(exc),
                             **self._log_context(connection_database=self.config.name),
                         ).warning("Report row skipped during database sync")
+
                         continue
+
                     if previous_transaction is not None:
                         previous_transactions.append(previous_transaction)
+
                     changed += 1
+
         except Exception:
             logger.bind(
                 event="database.report_sync.failed",
@@ -473,7 +502,12 @@ class OperatorDatabaseManager:
                 skipped=skipped,
                 **self._log_context(connection_database=self.config.name),
             ).exception("Report database sync failed")
+
             raise
+
+        finally:
+            if owns_connection:
+                db_connection.close()
 
         summary = SyncSummary(
             source=source,
@@ -482,6 +516,7 @@ class OperatorDatabaseManager:
             skipped=skipped,
             previous_transactions=tuple(previous_transactions),
         )
+
         logger.bind(
             event="database.report_sync.finished",
             report_path=summary.source,
@@ -492,6 +527,7 @@ class OperatorDatabaseManager:
             previous_transaction_count=len(summary.previous_transactions),
             **self._log_context(connection_database=self.config.name),
         ).info("Report database sync finished")
+
         return summary
 
     def upsert_report_payload(
@@ -639,6 +675,10 @@ class OperatorDatabaseManager:
             user=self.config.user,
             password=self.config.password,
         )
+
+    def open_connection(self):
+        """Open a connection to the configured application database."""
+        return self._connect(self.config.name)
 
     def _log_context(self, *, connection_database: str | None = None) -> dict[str, Any]:
         context: dict[str, Any] = {
