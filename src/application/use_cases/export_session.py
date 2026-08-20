@@ -1,11 +1,19 @@
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from src.config import Config
-from src.infrastructure.sessions.export_service import SessionArtifacts, export_account_session
-from src.logging_utils import configure_logging, log_print, logger
+from src.infrastructure.sessions.export_service import (
+    SessionArtifacts,
+    export_account_session,
+)
+from src.logging_utils import (
+    configure_logging,
+    log_print,
+    logger,
+    operator_logging_context,
+)
 from src.path_utils import build_timestamped_run_dir
 
 MAX_ACCOUNT_HITS_PER_RUN = 2
@@ -54,7 +62,14 @@ def export_configured_sessions(
             max_account_hits=max_account_hits,
         )
 
-    resolved_output_dir = output_dir or build_output_dir()
+    run_context = getattr(config, "run_context", None)
+    context_run_dir = getattr(run_context, "run_dir", None)
+    resolved_output_dir = output_dir or (
+        Path(context_run_dir) / "artifacts" / "sessions"
+        if context_run_dir is not None
+        else build_output_dir()
+    )
+    resolved_output_dir.mkdir(parents=True, exist_ok=True)
     log_print_func(
         f"Session artifacts directory: {resolved_output_dir.resolve()}",
         event="user_sessions.output_dir",
@@ -65,17 +80,29 @@ def export_configured_sessions(
     failed_operators: list[str] = []
 
     for index, account_config in enumerate(selected_account_configs):
-        operator = account_config.email_user or "unknown"
+        operator = getattr(account_config, "operator_id", "") or (
+            f"operator_{index + 1:02d}"
+        )
 
-        try:
-            artifacts.append(exporter(account_config, resolved_output_dir))
-        except Exception:
-            failed_operators.append(operator)
-            log.bind(
-                event="user_session.failed",
-                operator=operator,
-                output_dir=str(resolved_output_dir.resolve()),
-            ).exception("Failed to capture user session")
+        with operator_logging_context(operator):
+            try:
+                artifact = exporter(account_config, resolved_output_dir)
+                if artifact.operator != operator:
+                    artifact = SessionArtifacts(
+                        operator=operator,
+                        artifact_dir=artifact.artifact_dir,
+                        profile_dir=artifact.profile_dir,
+                        cookie_count=artifact.cookie_count,
+                        xhr_count=artifact.xhr_count,
+                    )
+                artifacts.append(artifact)
+            except Exception:  # noqa: BLE001 - isolate independent account exports.
+                failed_operators.append(operator)
+                log.bind(
+                    event="user_session.failed",
+                    operator_id=operator,
+                    output_dir=str(resolved_output_dir.resolve()),
+                ).exception("Failed to capture user session")
 
         is_last_account = index == len(selected_account_configs) - 1
         if not is_last_account:
@@ -98,7 +125,7 @@ def export_configured_sessions(
                 f"profile_dir={artifact.profile_dir.resolve()}"
             ),
             event="user_sessions.summary.row",
-            operator=artifact.operator,
+            operator_id=artifact.operator,
             cookie_count=artifact.cookie_count,
             xhr_count=artifact.xhr_count,
             artifact_dir=str(artifact.artifact_dir.resolve()),
@@ -117,31 +144,43 @@ def run_user_session_export(
     log=logger,
     log_print_func=log_print,
 ) -> int:
-    logging_meta = configure_logging_func(app_name="user_sessions")
+    config = config_factory()
+    run_context = getattr(config, "run_context", None)
+    try:
+        if run_context is None:
+            raise TypeError
+        logging_meta = configure_logging_func(
+            app_name="user_sessions",
+            run_context=run_context,
+        )
+    except TypeError:
+        # Backward-compatible injection seam for simple test/third-party factories.
+        logging_meta = configure_logging_func(app_name="user_sessions")
     log.bind(
         event="user_sessions.start",
         run_id=logging_meta["run_id"],
         json_log_path=logging_meta["json_log_path"],
     ).info("User session export started")
 
-    config = config_factory()
-    artifacts, failed_operators, output_dir = export_configured_sessions(
-        config,
-        exporter=exporter,
-        sleep_func=sleep_func,
-        log=log,
-        log_print_func=log_print_func,
-    )
+    try:
+        artifacts, failed_operators, output_dir = export_configured_sessions(
+            config,
+            exporter=exporter,
+            sleep_func=sleep_func,
+            log=log,
+            log_print_func=log_print_func,
+        )
 
-    log.bind(
-        event="user_sessions.finished",
-        success_count=len(artifacts),
-        failure_count=len(failed_operators),
-        failed_operators=failed_operators,
-        output_dir=str(output_dir.resolve()),
-    ).info("User session export finished")
+        log.bind(
+            event="user_sessions.finished",
+            success_count=len(artifacts),
+            failure_count=len(failed_operators),
+            failed_operators=failed_operators,
+            output_dir=str(output_dir.resolve()),
+        ).info("User session export finished")
 
-    if failed_operators:
-        return 1
-
-    return 0
+        return 1 if failed_operators else 0
+    finally:
+        complete = getattr(log, "complete", None)
+        if callable(complete):
+            complete()

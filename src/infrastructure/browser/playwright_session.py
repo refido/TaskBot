@@ -82,13 +82,29 @@ class PlaywrightSession:
         page.goto(self.config.url_application)
 
         login = Login(page)
-        login.login(self.config.email_user, self.config.pin_user)
+        operator_id = getattr(self.config, "operator_id", "operator_01")
+        logger.bind(
+            event="operator.login.started",
+            operator_id=operator_id,
+        ).info("Operator login started")
+        try:
+            login.login(self.config.email_user, self.config.pin_user)
+        except Exception:
+            logger.bind(
+                event="operator.login.failed",
+                operator_id=operator_id,
+            ).exception("Operator login failed")
+            raise
         page.wait_for_load_state("load")
 
         dashboard = Dashboard(page)
         profile_name = dashboard.get_profile_name()
         dashboard.assert_profile_name_is(profile_name)
         dashboard.get_current_stock()
+        logger.bind(
+            event="operator.login.success",
+            operator_id=operator_id,
+        ).info("Operator login succeeded")
 
 
 BrowserSession = PlaywrightSession

@@ -1,6 +1,13 @@
+from functools import partial
+from pathlib import Path
 
 from playwright.sync_api import Page
 
+from src.application.models.customer_workflow import (
+    CustomerUpdateFailedError,
+    CustomerUpdateLoopError,
+    PrecheckAction,
+)
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
 from src.application.services.session_recovery import SessionRecoveryService
 from src.application.services.transaction_prechecks import (
@@ -13,6 +20,7 @@ from src.infrastructure.browser.page_objects.login_page import Login
 from src.infrastructure.browser.page_objects.penjualan_page import Penjualan
 from src.logging_utils import log_print, logger
 from src.pipelines.solve_slider import solve_slider_with_puzzle
+from src.privacy import artifact_nik
 from src.vision.puzzle_solver import PuzzleSolver
 from src.web.helpers import Helpers
 from src.web.rate_limiter import SkipRateLimiter
@@ -22,6 +30,10 @@ from src.web.session_state import SessionExpiredError, is_login_page
 
 class OutOfSellableStockError(RuntimeError):
     """Raised when the site reports that sellable stock is empty."""
+
+    def __init__(self, message: str, *, reported: bool = False) -> None:
+        super().__init__(message)
+        self.reported = reported
 
 
 class PuzzleSolveFailedError(RuntimeError):
@@ -45,6 +57,7 @@ class TransactionProcessor:
     _SESSION_PROBE_INTERVAL_MS: int = 10 * 60 * 1000
     _MAX_SESSION_RECOVERY_RETRIES_PER_NIK: int = 1
     _MAX_GENERAL_ERROR_RETRIES_PER_NIK: int = 2
+    _MAX_UPDATE_RECHECKS_PER_NIK: int = 1
     _RETRY_PROCESS: str = "process_single_nik"
 
     def __init__(
@@ -55,6 +68,7 @@ class TransactionProcessor:
         limiter: SkipRateLimiter,
     ) -> None:
         self.config = config
+        self.operator_id = getattr(config, "operator_id", "operator_01")
         self.page = page
         self.reporter = reporter
         self.limiter = limiter
@@ -73,15 +87,15 @@ class TransactionProcessor:
             except OutOfSellableStockError as exc:
                 logger.bind(
                     event="transaction.out_of_stock",
-                    operator=self.config.email_user,
+                    operator_id=self.operator_id,
                     nik=str(nik),
                 ).warning(str(exc))
                 break
-            except Exception:
+            except Exception:  # noqa: BLE001 - isolate failures between configured NIKs.
                 # Preserve current behavior: continue processing other NIKs.
                 logger.bind(
                     event="transaction.unhandled_error",
-                    operator=self.config.email_user,
+                    operator_id=self.operator_id,
                     nik=str(nik),
                 ).exception("Unhandled error while processing NIK")
                 self._handle_session_recovery()
@@ -91,7 +105,10 @@ class TransactionProcessor:
         started_at = self.reporter.start_item(nik)
         session_retries_used = 0
         general_error_retries_used = 0
+        update_rechecks_used = 0
         attempt_number = 1
+
+        self._log_transaction_stage(nik, "started", attempt_number=attempt_number)
 
         while True:
             puzzle_solved: bool | None = None
@@ -100,6 +117,12 @@ class TransactionProcessor:
             puzzle_retry_process = ""
 
             try:
+                self._log_transaction_stage(
+                    nik,
+                    "attempt_started",
+                    attempt_number=attempt_number,
+                    update_rechecks_used=update_rechecks_used,
+                )
                 self._probe_session_if_due(
                     reason=f"before processing NIK {nik}",
                     force=attempt_number > 1,
@@ -108,10 +131,53 @@ class TransactionProcessor:
                 self._probe_session_if_due(
                     reason=f"after wait before NIK {nik} navigation"
                 )
-                self._navigate_to_transaction(nik)
+                navigation_outcome = self._navigate_to_transaction(nik)
+                if navigation_outcome == "registration_request_limited":
+                    self._log_transaction_stage(
+                        nik,
+                        "customer_precheck_interrupted_navigation",
+                        attempt_number=attempt_number,
+                        blocker="registration_request_limited",
+                    )
+                else:
+                    self._log_transaction_stage(
+                        nik, "nik_submitted", attempt_number=attempt_number
+                    )
 
-                if self._handle_pre_checks(nik, started_at):
+                precheck_action = self._handle_pre_checks(
+                    nik,
+                    started_at,
+                    allow_customer_update=(
+                        update_rechecks_used < self._MAX_UPDATE_RECHECKS_PER_NIK
+                    ),
+                )
+                self._log_transaction_stage(
+                    nik,
+                    "customer_prechecks_resolved",
+                    attempt_number=attempt_number,
+                    action=precheck_action.value,
+                )
+                if precheck_action is PrecheckAction.SKIP:
                     return
+                if precheck_action is PrecheckAction.RESTART_AFTER_UPDATE:
+                    if update_rechecks_used >= self._MAX_UPDATE_RECHECKS_PER_NIK:
+                        raise CustomerUpdateLoopError(
+                            "Customer update requested again after the allowed restart"
+                        )
+                    update_rechecks_used += 1
+                    self._record_workflow_event(
+                        nik,
+                        "same_nik_restart_after_update",
+                        reason="Customer update succeeded; restarting the same NIK",
+                    )
+                    logger.bind(
+                        event="customer.update.restart_same_nik",
+                        operator_id=self.operator_id,
+                        nik=str(nik),
+                        update_restart_count=update_rechecks_used,
+                    ).info("Restarting the same NIK after customer update")
+                    self._wait_before_update_action("restart_same_nik")
+                    continue
 
                 penjualan = Penjualan(self.page)
 
@@ -122,6 +188,9 @@ class TransactionProcessor:
                     return
 
                 penjualan.cek_pesanan()
+                self._log_transaction_stage(
+                    nik, "order_checked", attempt_number=attempt_number
+                )
 
                 self._probe_session_if_due(reason=f"after cek pesanan for NIK {nik}")
                 if self._check_transaction_blocker(
@@ -131,12 +200,23 @@ class TransactionProcessor:
 
                 cek_penjualan = CekPenjualan(self.page)
                 cek_penjualan.proses_penjualan()
+                self._log_transaction_stage(
+                    nik, "sale_submitted", attempt_number=attempt_number
+                )
 
                 puzzle_outcome = self._solve_puzzle(nik)
                 puzzle_solved = puzzle_outcome.solved
                 puzzle_attempts = puzzle_outcome.attempts
                 puzzle_retry_count = puzzle_outcome.retry_count
                 puzzle_retry_process = puzzle_outcome.retry_process
+                self._log_transaction_stage(
+                    nik,
+                    "puzzle_finished",
+                    attempt_number=attempt_number,
+                    puzzle_solved=puzzle_solved,
+                    puzzle_attempts=puzzle_attempts,
+                    puzzle_retry_count=puzzle_retry_count,
+                )
                 if not puzzle_solved:
                     raise PuzzleSolveFailedError(
                         self._build_puzzle_failure_reason(puzzle_attempts)
@@ -154,14 +234,49 @@ class TransactionProcessor:
                     puzzle_retry_process=puzzle_retry_process,
                 )
                 self.limiter.record_success()
+                self._log_transaction_stage(
+                    nik, "completed", attempt_number=attempt_number
+                )
                 return
 
-            except OutOfSellableStockError:
+            except OutOfSellableStockError as exc:
+                if not exc.reported:
+                    self.reporter.skip_out_of_stock(
+                        nik,
+                        started_at,
+                        url=self.page.url,
+                        reason=str(exc),
+                    )
                 raise
+            except CustomerUpdateFailedError as exc:
+                logger.bind(
+                    event="customer.update.failed",
+                    operator_id=self.operator_id,
+                    nik=str(nik),
+                    reason=str(exc),
+                ).error("Automatic customer update failed")
+                self._record_workflow_event(
+                    nik,
+                    "customer_update_failed",
+                    reason=str(exc),
+                )
+                self.reporter.error(
+                    nik,
+                    started_at,
+                    exc=exc,
+                    url=self.page.url,
+                    puzzle_solved=puzzle_solved,
+                    puzzle_attempts=puzzle_attempts,
+                    puzzle_retry_count=puzzle_retry_count,
+                    puzzle_retry_process=puzzle_retry_process,
+                )
+                self._capture_failure_artifact(nik, "customer_update_failed")
+                self._handle_session_recovery()
+                return
             except PuzzleSolveFailedError as exc:
                 logger.bind(
                     event="transaction.puzzle_failed",
-                    operator=self.config.email_user,
+                    operator_id=self.operator_id,
                     nik=str(nik),
                 ).warning(str(exc))
                 self.reporter.failed_puzzle_solve(
@@ -178,7 +293,7 @@ class TransactionProcessor:
             except SessionExpiredError as exc:
                 logger.bind(
                     event="transaction.session_expired",
-                    operator=self.config.email_user,
+                    operator_id=self.operator_id,
                     nik=str(nik),
                     attempt_number=attempt_number,
                     retries_used=session_retries_used,
@@ -211,12 +326,12 @@ class TransactionProcessor:
                 self._handle_session_recovery()
                 attempt_number += 1
                 continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - bounded general retry boundary.
                 if general_error_retries_used < self._MAX_GENERAL_ERROR_RETRIES_PER_NIK:
                     general_error_retries_used += 1
                     logger.bind(
                         event="transaction.retrying_after_general_error",
-                        operator=self.config.email_user,
+                        operator_id=self.operator_id,
                         nik=str(nik),
                         attempt_number=attempt_number,
                         retry_number=general_error_retries_used,
@@ -236,7 +351,7 @@ class TransactionProcessor:
 
                 logger.bind(
                     event="transaction.failed",
-                    operator=self.config.email_user,
+                    operator_id=self.operator_id,
                     nik=str(nik),
                     attempt_number=attempt_number,
                     retries_used=general_error_retries_used,
@@ -283,23 +398,87 @@ class TransactionProcessor:
     def _wait_for_rate_limit(self) -> None:
         self.limiter.wait_if_needed(self.page)
 
-    def _navigate_to_transaction(self, nik: str) -> None:
+    def _wait_before_update_action(self, action: str) -> None:
+        """Pace update-related actions without affecting skip pressure."""
+        wait = getattr(self.limiter, "wait_before_update_action", None)
+        if callable(wait):
+            wait(self.page, action)
+
+    def _capture_failure_artifact(self, nik: str, label: str) -> Path | None:
+        """Capture a best-effort screenshot inside the shared run tree."""
+        run_dir = getattr(getattr(self.config, "run_context", None), "run_dir", None)
+        if run_dir is None:
+            return None
+        output_dir = Path(run_dir) / "artifacts" / "screenshots" / self.operator_id
+        output_path = output_dir / f"{artifact_nik(nik)}_{label}.png"
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(output_path), full_page=True)
+        except Exception:  # noqa: BLE001 - diagnostics must not alter workflow handling.
+            logger.bind(
+                event="artifact.screenshot.failed",
+                operator_id=self.operator_id,
+                nik=nik,
+                artifact_path=str(output_path),
+            ).exception("Failed to capture workflow failure screenshot")
+            return None
+        logger.bind(
+            event="artifact.screenshot.saved",
+            operator_id=self.operator_id,
+            nik=nik,
+            artifact_path=str(output_path),
+        ).info("Workflow failure screenshot saved")
+        return output_path
+
+    def _navigate_to_transaction(self, nik: str) -> str | None:
         outcome = self.dashboard.catat_penjualan(nik)
 
         if outcome == "zero_stock":
             raise OutOfSellableStockError(
                 "Stok Tabung Kosong; transaction processing stopped."
             )
-
-        self.page.wait_for_load_state(self._LOAD_STATE)
+        return outcome
 
     def _return_to_dashboard(self, cek_penjualan: CekPenjualan) -> None:
         cek_penjualan.kembali_ke_dashboard()
         self.page.wait_for_load_state(self._LOAD_STATE)
         self.dashboard.get_current_stock()
 
-    def _handle_pre_checks(self, nik: str, started_at: str) -> bool:
-        return self._get_precheck_service().handle_pre_checks(nik, started_at)
+    def _handle_pre_checks(
+        self,
+        nik: str,
+        started_at: str,
+        *,
+        allow_customer_update: bool,
+    ) -> PrecheckAction:
+        return self._get_precheck_service().handle_pre_checks(
+            nik,
+            started_at,
+            allow_customer_update=allow_customer_update,
+        )
+
+    def _record_workflow_event(self, nik: str, event: str, *, reason: str = "") -> None:
+        callback = getattr(self.reporter, "record_workflow_event", None)
+        if callback is not None:
+            callback(
+                nik,
+                event=event,
+                stage="transaction",
+                url=self.page.url,
+                reason=reason,
+            )
+
+    def _log_transaction_stage(
+        self, nik: str, stage: str, *, attempt_number: int, **fields
+    ) -> None:
+        logger.bind(
+            event=f"transaction.stage.{stage}",
+            operator_id=self.operator_id,
+            nik=str(nik),
+            stage=stage,
+            attempt_number=attempt_number,
+            **fields,
+        ).info(f"Transaction stage reached: {stage}")
 
     def _check_transaction_blocker(
         self, penjualan: Penjualan, nik: str, started_at: str, stage: str
@@ -311,7 +490,7 @@ class TransactionProcessor:
             stage,
         )
         if outcome.stop_reason:
-            raise OutOfSellableStockError(outcome.stop_reason)
+            raise OutOfSellableStockError(outcome.stop_reason, reported=True)
         return outcome.should_skip
 
     def _solve_puzzle(self, nik: str) -> PuzzleSolveOutcome:
@@ -359,13 +538,34 @@ class TransactionProcessor:
     def _get_puzzle_service(self) -> PuzzleService:
         service = getattr(self, "_puzzle_service", None)
         if service is None:
+            helpers_factory = Helpers
+            slider_solver = solve_slider_with_puzzle
+            run_dir = getattr(getattr(self.config, "run_context", None), "run_dir", None)
+            if run_dir is not None:
+                artifact_root = Path(run_dir) / "artifacts"
+                helpers_factory = partial(
+                    Helpers,
+                    output_dir=(
+                        artifact_root / "screenshots" / self.operator_id
+                    ),
+                )
+                slider_solver = partial(
+                    solve_slider_with_puzzle,
+                    debug_root=str(
+                        artifact_root / "traces" / self.operator_id
+                    ),
+                    run_id=str(
+                        getattr(self.config.run_context, "run_id", "")
+                    ),
+                    operator_id=self.operator_id,
+                )
             service = PuzzleService(
                 page=self.page,
                 dashboard=self.dashboard,
-                operator_email=self.config.email_user,
-                helpers_factory=Helpers,
+                operator_email=self.operator_id,
+                helpers_factory=helpers_factory,
                 puzzle_solver_factory=PuzzleSolver,
-                slider_solver=solve_slider_with_puzzle,
+                slider_solver=slider_solver,
                 max_attempts=self._MAX_PUZZLE_ATTEMPTS,
                 max_wait_success_ms=self._MAX_WAIT_SUCCESS_MS,
                 retry_modal_timeout_ms=self._PUZZLE_RETRY_MODAL_TIMEOUT_MS,

@@ -148,9 +148,15 @@ def test_account_runner_runs_single_account_and_writes_reports():
         logger=logger,
     )
 
-    result = runner.run(SimpleNamespace(email_user="tester@example.com", nik=["3174"]))
+    result = runner.run(
+        SimpleNamespace(
+            operator_id="operator_01",
+            email_user="tester@example.com",
+            nik=["3174"],
+        )
+    )
 
-    assert result == ("tester@example.com", True)
+    assert result == ("operator_01", True)
     assert len(created_processors) == 1
     assert created_processors[0].page == "fake-page"
     assert created_processors[0].process_calls == 1
@@ -181,9 +187,15 @@ def test_account_runner_logs_fatal_errors_and_returns_unsuccessful():
         logger=logger,
     )
 
-    result = runner.run(SimpleNamespace(email_user="tester@example.com", nik=["3174"]))
+    result = runner.run(
+        SimpleNamespace(
+            operator_id="operator_01",
+            email_user="tester@example.com",
+            nik=["3174"],
+        )
+    )
 
-    assert result == ("tester@example.com", False)
+    assert result == ("operator_01", False)
     assert created_reporters[0].write_files_calls == 1
     assert created_reporters[0].print_summary_calls == 1
     assert [entry[0] for entry in log_sink] == ["info", "exception", "info"]
@@ -209,14 +221,20 @@ def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful():
         logger=logger,
     )
 
-    result = runner.run(SimpleNamespace(email_user="tester@example.com", nik=["3174"]))
+    result = runner.run(
+        SimpleNamespace(
+            operator_id="operator_01",
+            email_user="tester@example.com",
+            nik=["3174"],
+        )
+    )
 
-    assert result == ("tester@example.com", False)
+    assert result == ("operator_01", False)
     assert [entry[0] for entry in log_sink] == ["info", "exception", "info"]
     assert log_sink[1][1]["event"] == "account.report_db_sync_error"
 
 
-def test_account_runner_syncs_each_100_row_batch_and_final_remainder():
+def test_account_runner_syncs_each_terminal_row_before_processing_the_next():
     log_sink: list[tuple[str, dict, str]] = []
     synced_batches: list[tuple[str, tuple[str, ...]]] = []
     logger = FakeBoundLogger(log_sink)
@@ -235,16 +253,17 @@ def test_account_runner_syncs_each_100_row_batch_and_final_remainder():
 
     result = runner.run(
         SimpleNamespace(
+            operator_id="operator_01",
             email_user="first@example.com",
             nik=[str(index) for index in range(201)],
         )
     )
 
-    assert result == ("first@example.com", True)
-    assert [(operator, len(rows)) for operator, rows in synced_batches] == [
-        ("first@example.com", 100),
-        ("first@example.com", 100),
-        ("first@example.com", 1),
+    assert result == ("operator_01", True)
+    assert len(synced_batches) == 201
+    assert all(operator == "operator_01" for operator, _rows in synced_batches)
+    assert [rows[0] for _operator, rows in synced_batches] == [
+        f"row-{index}" for index in range(1, 202)
     ]
 
 
@@ -268,13 +287,15 @@ def test_account_runner_flushes_partial_batch_after_fatal_error():
 
     result = runner.run(
         SimpleNamespace(
+            operator_id="operator_01",
             email_user="first@example.com",
             nik=[str(index) for index in range(125)],
         )
     )
 
-    assert result == ("first@example.com", False)
-    assert [len(rows) for rows in synced_batches] == [100, 25]
+    assert result == ("operator_01", False)
+    assert len(synced_batches) == 125
+    assert all(len(rows) == 1 for rows in synced_batches)
     assert log_sink[1][1]["event"] == "account.run.fatal_error"
 
 
@@ -284,12 +305,14 @@ def test_process_account_delegates_to_account_runner():
     class FakeRunner:
         def run(self, config):
             calls.append(config)
-            return ("tester@example.com", True)
+            return ("operator_01", True)
 
-    config = SimpleNamespace(email_user="tester@example.com")
+    config = SimpleNamespace(
+        operator_id="operator_01", email_user="tester@example.com"
+    )
     result = process_account(config, account_runner=FakeRunner())
 
-    assert result == ("tester@example.com", True)
+    assert result == ("operator_01", True)
     assert calls == [config]
 
 
@@ -297,18 +320,18 @@ def test_process_accounts_runs_multiple_accounts_and_logs_thread_completion():
     log_sink: list[tuple[str, dict, str]] = []
     logger = FakeBoundLogger(log_sink)
     accounts = [
-        SimpleNamespace(email_user="one@example.com"),
-        SimpleNamespace(email_user="two@example.com"),
+        SimpleNamespace(operator_id="operator_01", email_user="one@example.com"),
+        SimpleNamespace(operator_id="operator_02", email_user="two@example.com"),
     ]
 
     def run_account(config):
-        return config.email_user, config.email_user != "two@example.com"
+        return config.operator_id, config.operator_id != "operator_02"
 
     results = process_accounts(accounts, run_account=run_account, log=logger)
 
     assert set(results) == {
-        ("one@example.com", True),
-        ("two@example.com", False),
+        ("operator_01", True),
+        ("operator_02", False),
     }
     assert log_sink[0][1]["event"] == "app.concurrent_start"
     thread_finish_events = [

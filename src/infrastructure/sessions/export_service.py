@@ -16,6 +16,7 @@ from src.infrastructure.browser.page_objects.dashboard_page import Dashboard
 from src.infrastructure.browser.page_objects.login_page import Login
 from src.infrastructure.sessions.xhr_tracker import XHRTracker
 from src.logging_utils import log_print, logger
+from src.privacy import sanitize_public_value
 
 CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 DEFAULT_NETWORK_WAIT_MS = 3000
@@ -368,14 +369,13 @@ def build_enriched_cookies(
 
 
 def log_cookie(operator: str, index: int, cookie: dict[str, Any]) -> None:
-    serialized = json.dumps(cookie, ensure_ascii=True, sort_keys=True)
     log_print(
-        f"[{operator}] Cookie {index}: {serialized}",
+        f"[{operator}] Cookie {index}: metadata captured (value redacted)",
         event="user_session.cookie",
-        operator=operator,
+        operator_id=operator,
         cookie_index=index,
         cookie_name=str(cookie.get("name", "")),
-        cookie_value=str(cookie.get("value", "")),
+        cookie_value="<redacted>",
         cookie_domain=str(cookie.get("domain", "")),
         cookie_path=str(cookie.get("path", "")),
         cookie_created=str(cookie.get("created", "")),
@@ -432,7 +432,7 @@ def build_operator_paths(output_dir: Path, operator: str) -> dict[str, Path]:
 
 
 def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts:
-    operator = config.email_user or "unknown"
+    operator = config.operator_id
     paths = build_operator_paths(output_dir, operator)
 
     with sync_playwright() as playwright:
@@ -471,6 +471,10 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             xhr_entries = xhr_tracker.export()
             session_summary = {
                 "captured_at_iso": datetime.now(UTC).isoformat(),
+                "run_id": str(
+                    getattr(getattr(config, "run_context", None), "run_id", "")
+                ),
+                "operator_id": operator,
                 "operator": operator,
                 "application_url": config.url_application,
                 "final_url": page.url,
@@ -509,7 +513,7 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
     write_json(paths["storage_state"], storage_state)
     write_json(paths["web_storage"], web_storage)
     write_json(paths["xhr"], xhr_entries)
-    write_json(paths["session_summary"], session_summary)
+    write_json(paths["session_summary"], sanitize_public_value(session_summary))
 
     log_print(
         f"[{operator}] Session captured with {len(enriched_cookies)} cookies and {len(xhr_entries)} XHR/fetch requests",

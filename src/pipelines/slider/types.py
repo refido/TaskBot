@@ -54,6 +54,9 @@ class SliderConfig:
 
     # Debugging
     debug_root: str = "data_puzzle/puzzle_debug/"
+    run_id: str = ""
+    operator_id: str = ""
+    nik: str = ""
 
 
 @dataclass(slots=True)

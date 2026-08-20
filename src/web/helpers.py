@@ -10,6 +10,7 @@ from playwright.sync_api import Locator, Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.logging_utils import log_print
+from src.privacy import artifact_nik
 
 
 @dataclass(slots=True)
@@ -36,10 +37,12 @@ class Helpers:
     _PUZZLE_IMAGE_ATTACH_TIMEOUT_MS: int = 5000
     _PUZZLE_REFRESH_POLL_MS: int = 150
 
-    def __init__(self, page: Page) -> None:
+    def __init__(self, page: Page, *, output_dir: str | Path | None = None) -> None:
         self.page = page
-        self.folder_stamp = datetime.now().strftime("%Y-%m-%d")
-        self.stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.output_dir = Path(output_dir) if output_dir is not None else None
+        now_local = datetime.now().astimezone()
+        self.folder_stamp = now_local.strftime("%Y-%m-%d")
+        self.stamp = now_local.strftime("%Y%m%d_%H%M%S_%f")
         self.piece_img = page.locator("img.rc-slider-captcha-jigsaw-puzzle")
         self.piece_bg = page.locator("img.rc-slider-captcha-jigsaw-bg")
 
@@ -80,7 +83,8 @@ class Helpers:
         )
 
     def build_puzzle_output_name(self, nik: str, image_type: str) -> str:
-        nik_prefix = f"{str(nik).strip()}_" if str(nik).strip() else ""
+        nik_text = str(nik).strip()
+        nik_prefix = f"{artifact_nik(nik_text)}_" if nik_text else ""
         return f"{nik_prefix}{self.stamp}_image_puzzle_{image_type}.png"
 
     def get_puzzle_image_sources(self) -> tuple[str, str]:
@@ -121,7 +125,9 @@ class Helpers:
 
             self.page.wait_for_timeout(self._PUZZLE_REFRESH_POLL_MS)
 
-        log_print("Puzzle images did not refresh before retry timeout; reusing current challenge state.")
+        log_print(
+            "Puzzle images did not refresh before retry timeout; reusing current challenge state."
+        )
         return False
 
     def _save_data_uri_image(
@@ -145,7 +151,7 @@ class Helpers:
         if img is None:
             raise RuntimeError("Failed to decode puzzle image bytes with OpenCV.")
 
-        out_dir = Path(f"data_puzzle/{self.folder_stamp}")
+        out_dir = self.output_dir or Path(f"data_puzzle/{self.folder_stamp}")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / output_name
         out_path.write_bytes(image_bytes)

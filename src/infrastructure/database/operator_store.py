@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,9 +15,16 @@ from dotenv import load_dotenv
 from psycopg2 import sql
 
 from src.logging_utils import logger
+from src.privacy import register_private_values
 
 OPERATOR_TABLE_NAMES = ("OPERATOR_1", "OPERATOR_2")
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
+
+_OPERATOR_TABLE_PATTERN = re.compile(r"^OPERATOR_\d+$")
+_NUMBERED_TARGET_KEY_PATTERN = re.compile(
+    r"^(?:NAME_OPERATORS|EMAIL|PIN|NIK)_(\d+)$|^OPERATOR_(\d+)_ID$"
+)
+_NUMBERED_ACCOUNT_KEY_PATTERN = re.compile(r"^(?:EMAIL|PIN|NIK)_(\d+)$")
 
 _COLUMN_NAMES = (
     "OPERATOR",
@@ -51,6 +59,9 @@ _STATUS_MAPPINGS = {
     "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
     "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
     "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
+    "skipped_registration_request_limited": ReportStatusMapping(
+        429, "Consumer registration request limit reached"
+    ),
     "failed_puzzle_solve": ReportStatusMapping(422, "Puzzle solving failed"),
     "skipped_need updated customer data": ReportStatusMapping(
         422, "Consumer data needs update"
@@ -109,12 +120,14 @@ class DatabaseConfig:
         except ValueError as exc:
             raise ValueError("DB_PORT must be a number.") from exc
 
+        password = source["DB_PASSWORD"]
+        register_private_values(password)
         return cls(
             host=source["DB_HOST"].strip(),
             port=port,
             name=source["DB_NAME"].strip(),
             user=source["DB_USER"].strip(),
-            password=source["DB_PASSWORD"],
+            password=password,
             maintenance_name=source.get("DB_MAINTENANCE_NAME", "postgres").strip()
             or "postgres",
         )
@@ -125,10 +138,15 @@ class OperatorTarget:
     table_name: str
     operator_name: str
     aliases: tuple[str, ...] = ()
+    operator_id: str = ""
 
     def matches(self, operator: str) -> bool:
         normalized = _normalize_key(operator)
-        return any(_normalize_key(alias) == normalized for alias in self.aliases)
+        return any(
+            _normalize_key(alias) == normalized
+            for alias in (*self.aliases, self.operator_id)
+            if alias
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,15 +165,60 @@ class OperatorTargets:
 
         source = os.environ if environ is None else environ
         targets: list[OperatorTarget] = []
-        for index, table_name in enumerate(OPERATOR_TABLE_NAMES, start=1):
-            operator_name = source.get(f"NAME_OPERATORS_{index}", "").strip()
+        configured_operator_ids: dict[str, str] = {}
+        numbered_account_configured = any(
+            _NUMBERED_ACCOUNT_KEY_PATTERN.fullmatch(key)
+            and str(value).strip()
+            for key, value in source.items()
+        )
+        use_legacy_account = not numbered_account_configured and any(
+            source.get(key, "").strip() for key in ("EMAIL", "PIN", "NIK")
+        )
+        suffixes = _collect_operator_suffixes(source)
+        if use_legacy_account:
+            suffixes.add("1")
+
+        for suffix in sorted(suffixes, key=lambda value: (int(value), value)):
+            table_name = f"OPERATOR_{suffix}"
+            legacy_target = use_legacy_account and int(suffix) == 1
+            email_key = "EMAIL" if legacy_target else f"EMAIL_{suffix}"
+            pin_key = "PIN" if legacy_target else f"PIN_{suffix}"
+            nik_key = "NIK" if legacy_target else f"NIK_{suffix}"
+            operator_id_key = (
+                "OPERATOR_ID" if legacy_target else f"OPERATOR_{suffix}_ID"
+            )
+            target_keys = (
+                f"NAME_OPERATORS_{suffix}",
+                email_key,
+                pin_key,
+                nik_key,
+                operator_id_key,
+            )
+            if not any(source.get(key, "").strip() for key in target_keys):
+                continue
+
+            operator_name = source.get(f"NAME_OPERATORS_{suffix}", "").strip()
             if not operator_name:
-                raise ValueError(f"Missing NAME_OPERATORS_{index}.")
+                raise ValueError(f"Missing NAME_OPERATORS_{suffix}.")
+
+            operator_id = (
+                source.get(operator_id_key, "").strip()
+                or f"operator_{int(suffix):02d}"
+            )
+            normalized_operator_id = _normalize_key(operator_id)
+            existing_table = configured_operator_ids.get(normalized_operator_id)
+            if existing_table is not None:
+                raise ValueError(
+                    "Operator IDs must be unique; "
+                    f"{existing_table} and {table_name} use the same ID."
+                )
+            configured_operator_ids[normalized_operator_id] = table_name
 
             aliases = _dedupe_nonempty(
                 (
+                    operator_id,
                     operator_name,
-                    source.get(f"EMAIL_{index}", ""),
+                    source.get(email_key, ""),
                     table_name,
                 )
             )
@@ -164,7 +227,14 @@ class OperatorTargets:
                     table_name=table_name,
                     operator_name=operator_name,
                     aliases=aliases,
+                    operator_id=operator_id,
                 )
+            )
+
+        if not targets:
+            raise ValueError(
+                "No operator targets configured. Define NAME_OPERATORS_<n> for "
+                "at least one configured account."
             )
 
         return cls(tuple(targets))
@@ -184,7 +254,7 @@ class OperatorTargets:
                 return target
 
         configured = ", ".join(
-            f"{target.table_name}={target.operator_name}" for target in self.targets
+            f"{target.table_name}={target.operator_id}" for target in self.targets
         )
         raise ValueError(
             f"Report operator {operator!r} does not match configured operators: {configured}"
@@ -275,6 +345,7 @@ class OperatorDatabaseManager:
         return cls(config=config, targets=targets)
 
     def ensure_database_and_tables(self) -> None:
+        table_names = self._operator_table_names()
         logger.bind(
             event="database.ensure.started",
             **self._log_context(),
@@ -291,7 +362,7 @@ class OperatorDatabaseManager:
             raise
         logger.bind(
             event="database.ensure.finished",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(),
         ).info("Database setup finished")
 
@@ -331,35 +402,44 @@ class OperatorDatabaseManager:
             connection.close()
 
     def ensure_tables_exist(self) -> None:
+        table_names = self._operator_table_names()
         logger.bind(
             event="database.tables.ensure.started",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Ensuring PostgreSQL operator tables")
         with (
             self._connect(self.config.name) as connection,
             connection.cursor() as cursor,
         ):
-            for table_name in OPERATOR_TABLE_NAMES:
+            for table_name in table_names:
+                operator_id = self._operator_id_for_table(table_name)
                 logger.bind(
                     event="database.table.ensure.started",
                     table_name=table_name,
-                    **self._log_context(connection_database=self.config.name),
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=operator_id,
+                    ),
                 ).info("Ensuring PostgreSQL operator table")
                 cursor.execute(self._create_table_sql(table_name))
                 self._migrate_table_schema(cursor, table_name)
                 logger.bind(
                     event="database.table.ensure.finished",
                     table_name=table_name,
-                    **self._log_context(connection_database=self.config.name),
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=operator_id,
+                    ),
                 ).info("PostgreSQL operator table is ready")
         logger.bind(
             event="database.tables.ensure.finished",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("PostgreSQL operator tables are ready")
 
     def reset_monthly_quotas(self, reference_time: datetime | None = None) -> None:
+        table_names = self._operator_table_names()
         normalized_time = _normalize_datetime(
             reference_time or datetime.now().astimezone()
         )
@@ -367,14 +447,14 @@ class OperatorDatabaseManager:
         logger.bind(
             event="database.monthly_quota_reset.started",
             reference_time=format_db_datetime(normalized_time),
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Monthly quota reset started")
         with (
             self._connect(self.config.name) as connection,
             connection.cursor() as cursor,
         ):
-            for table_name in OPERATOR_TABLE_NAMES:
+            for table_name in table_names:
                 cursor.execute(
                     sql.SQL(
                         """
@@ -396,7 +476,10 @@ class OperatorDatabaseManager:
                     event="database.monthly_quota_reset.table_finished",
                     table_name=table_name,
                     rows_updated=row_counts[table_name],
-                    **self._log_context(connection_database=self.config.name),
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=self._operator_id_for_table(table_name),
+                    ),
                 ).info("Monthly quota reset table finished")
         logger.bind(
             event="database.monthly_quota_reset.finished",
@@ -440,12 +523,16 @@ class OperatorDatabaseManager:
         changed = 0
         skipped = 0
         previous_transactions: list[PreviousTransactionReport] = []
+        sync_operator_id = self._operator_id_for_table(table_name)
 
         logger.bind(
             event="database.report_sync.started",
             report_path=source,
             table_name=table_name,
-            **self._log_context(connection_database=self.config.name),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=sync_operator_id,
+            ),
         ).info("Report database sync started")
 
         owns_connection = connection is None
@@ -482,7 +569,13 @@ class OperatorDatabaseManager:
                             report_path=source,
                             row_number=processed,
                             reason=str(exc),
-                            **self._log_context(connection_database=self.config.name),
+                            **self._log_context(
+                                connection_database=self.config.name,
+                                operator_id=self._operator_id_for_payload(
+                                    payload,
+                                    table_name=table_name,
+                                ),
+                            ),
                         ).warning("Report row skipped during database sync")
 
                         continue
@@ -500,14 +593,19 @@ class OperatorDatabaseManager:
                 processed=processed,
                 inserted_or_updated=changed,
                 skipped=skipped,
-                **self._log_context(connection_database=self.config.name),
+                **self._log_context(
+                    connection_database=self.config.name,
+                    operator_id=sync_operator_id,
+                ),
             ).exception("Report database sync failed")
 
             raise
 
         finally:
             if owns_connection:
-                db_connection.close()
+                close_connection = getattr(db_connection, "close", None)
+                if callable(close_connection):
+                    close_connection()
 
         summary = SyncSummary(
             source=source,
@@ -525,7 +623,10 @@ class OperatorDatabaseManager:
             inserted_or_updated=summary.inserted_or_updated,
             skipped=summary.skipped,
             previous_transaction_count=len(summary.previous_transactions),
-            **self._log_context(connection_database=self.config.name),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=sync_operator_id,
+            ),
         ).info("Report database sync finished")
 
         return summary
@@ -540,13 +641,74 @@ class OperatorDatabaseManager:
         if self.targets is None:
             raise ValueError("Operator targets are required to sync report payloads.")
 
-        operator = str(payload.get("operator", "")).strip()
-        target = self.targets.resolve(operator, table_name=table_name)
+        target = self._resolve_payload_target(payload, table_name=table_name)
         record = OperatorDbRecord.from_report_payload(payload, target)
-        return self.upsert_record(target.table_name, record, cursor=cursor)
+        return self.upsert_record(
+            target.table_name,
+            record,
+            cursor=cursor,
+            operator_id=target.operator_id,
+        )
+
+    def _resolve_payload_target(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        table_name: str | None = None,
+    ) -> OperatorTarget:
+        if self.targets is None:
+            raise ValueError("Operator targets are required to sync report payloads.")
+
+        if table_name is not None:
+            return self.targets.resolve("", table_name=table_name)
+
+        identifiers = _dedupe_nonempty(
+            (
+                str(payload.get("operator_id", "")),
+                str(payload.get("operator", "")),
+            )
+        )
+        for identifier in identifiers:
+            for target in self.targets.targets:
+                if target.matches(identifier):
+                    return target
+
+        unresolved_identifier = identifiers[0] if identifiers else ""
+        return self.targets.resolve(unresolved_identifier)
+
+    def _operator_id_for_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        table_name: str | None = None,
+    ) -> str | None:
+        try:
+            return self._resolve_payload_target(
+                payload,
+                table_name=table_name,
+            ).operator_id
+        except ValueError:
+            return self._operator_id_for_table(table_name)
+
+    def _operator_id_for_table(self, table_name: str | None) -> str | None:
+        if self.targets is None:
+            return None
+        if table_name is None:
+            if len(self.targets.targets) == 1:
+                return self.targets.targets[0].operator_id
+            return None
+        try:
+            return self.targets.resolve("", table_name=table_name).operator_id
+        except ValueError:
+            return None
 
     def upsert_record(
-        self, table_name: str, record: OperatorDbRecord, *, cursor
+        self,
+        table_name: str,
+        record: OperatorDbRecord,
+        *,
+        cursor,
+        operator_id: str | None = None,
     ) -> PreviousTransactionReport | None:
         normalized_table = _normalize_table_name(table_name)
         event_time = _normalize_datetime(record.event_time)
@@ -588,7 +750,10 @@ class OperatorDatabaseManager:
             status_code=record.status_code,
             conflict=record.conflict,
             event_time=format_db_datetime(event_time),
-            **self._log_context(connection_database=self.config.name),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=operator_id,
+            ),
         ).debug("Report row upserted into database")
         if previous_transaction is not None:
             logger.bind(
@@ -601,7 +766,10 @@ class OperatorDatabaseManager:
                 ),
                 current_transaction_time=format_db_datetime(event_time),
                 kuota_before=previous_transaction.kuota_before,
-                **self._log_context(connection_database=self.config.name),
+                **self._log_context(
+                    connection_database=self.config.name,
+                    operator_id=operator_id,
+                ),
             ).info("Previous successful transaction found for report NIK")
         return previous_transaction
 
@@ -680,7 +848,22 @@ class OperatorDatabaseManager:
         """Open a connection to the configured application database."""
         return self._connect(self.config.name)
 
-    def _log_context(self, *, connection_database: str | None = None) -> dict[str, Any]:
+    def _operator_table_names(self) -> tuple[str, ...]:
+        if self.targets is None:
+            return OPERATOR_TABLE_NAMES
+        return tuple(
+            dict.fromkeys(
+                _normalize_table_name(target.table_name)
+                for target in self.targets.targets
+            )
+        )
+
+    def _log_context(
+        self,
+        *,
+        connection_database: str | None = None,
+        operator_id: str | None = None,
+    ) -> dict[str, Any]:
         context: dict[str, Any] = {
             "db_host": self.config.host,
             "db_port": self.config.port,
@@ -688,6 +871,25 @@ class OperatorDatabaseManager:
         }
         if connection_database is not None:
             context["connection_database"] = connection_database
+
+        configured_operator_ids = (
+            [
+                target.operator_id
+                for target in self.targets.targets
+                if target.operator_id
+            ]
+            if self.targets is not None
+            else []
+        )
+        if configured_operator_ids:
+            context["operator_ids"] = configured_operator_ids
+
+        resolved_operator_id = operator_id
+        if resolved_operator_id is None and len(configured_operator_ids) == 1:
+            resolved_operator_id = configured_operator_ids[0]
+        if resolved_operator_id:
+            context["operator_id"] = resolved_operator_id
+
         return context
 
     @staticmethod
@@ -1112,9 +1314,18 @@ def _normalize_datetime(value: datetime) -> datetime:
 
 def _normalize_table_name(value: str) -> str:
     normalized = value.strip().upper()
-    if normalized not in OPERATOR_TABLE_NAMES:
+    if _OPERATOR_TABLE_PATTERN.fullmatch(normalized) is None:
         raise ValueError(f"Unsupported operator table: {value}")
     return normalized
+
+
+def _collect_operator_suffixes(source: Mapping[str, str]) -> set[str]:
+    suffixes: set[str] = set()
+    for key in source:
+        match = _NUMBERED_TARGET_KEY_PATTERN.fullmatch(key)
+        if match is not None:
+            suffixes.add(match.group(1) or match.group(2))
+    return suffixes
 
 
 def _normalize_key(value: str) -> str:

@@ -1,8 +1,15 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import src.orchestration.transaction_processor as transaction_processor
+import pytest
+
+from src.application.models.customer_workflow import (
+    CustomerUpdateLoopError,
+    PrecheckAction,
+)
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
+from src.application.services.transaction_prechecks import TransactionPrechecksService
+from src.orchestration import transaction_processor
 from src.web.session_state import SessionExpiredError
 
 
@@ -31,6 +38,9 @@ class FakeReporter:
         self.error_calls: list[tuple[str, str, Exception, dict]] = []
         self.failed_puzzle_calls: list[tuple[str, str, Exception, dict]] = []
         self.retry_calls: list[tuple[str, dict]] = []
+        self.workflow_calls: list[tuple[str, dict]] = []
+        self.out_of_stock_calls: list[tuple[str, str, dict]] = []
+        self.skip_calls: list[tuple[str, str, str, dict]] = []
 
     def start_item(self, nik: str) -> str:
         self.started.append(nik)
@@ -50,12 +60,24 @@ class FakeReporter:
     def record_retry(self, nik: str, **kwargs) -> None:
         self.retry_calls.append((nik, kwargs))
 
+    def record_workflow_event(self, nik: str, **kwargs) -> None:
+        self.workflow_calls.append((nik, kwargs))
+
+    def skip_out_of_stock(self, nik: str, started_at: str, **kwargs) -> None:
+        self.out_of_stock_calls.append((nik, started_at, kwargs))
+
+    def skip(
+        self, nik: str, started_at: str, skip_type: str, **kwargs
+    ) -> None:
+        self.skip_calls.append((nik, started_at, skip_type, kwargs))
+
 
 class FakeLimiter:
     def __init__(self) -> None:
         self.wait_calls = 0
         self.success_calls = 0
         self.skip_calls = 0
+        self.update_actions: list[str] = []
 
     def wait_if_needed(self, page) -> None:
         self.wait_calls += 1
@@ -65,6 +87,9 @@ class FakeLimiter:
 
     def record_skip(self) -> None:
         self.skip_calls += 1
+
+    def wait_before_update_action(self, page, action: str) -> None:
+        self.update_actions.append(action)
 
 
 class FakeDashboard:
@@ -90,15 +115,19 @@ class FakeLogin:
 
 class FakePrecheckService:
     def __init__(self, *, should_skip: bool = False) -> None:
-        self.should_skip = should_skip
+        self.action = PrecheckAction.SKIP if should_skip else PrecheckAction.CONTINUE
         self.precheck_calls: list[tuple[str, str]] = []
         self.blocker_calls: list[str] = []
 
-    def handle_pre_checks(self, nik: str, started_at: str) -> bool:
+    def handle_pre_checks(
+        self, nik: str, started_at: str, *, allow_customer_update: bool = True
+    ) -> PrecheckAction:
         self.precheck_calls.append((nik, started_at))
-        return self.should_skip
+        return self.action
 
-    def check_transaction_blocker(self, penjualan, nik: str, started_at: str, stage: str):
+    def check_transaction_blocker(
+        self, penjualan, nik: str, started_at: str, stage: str
+    ):
         self.blocker_calls.append(stage)
         return SimpleNamespace(should_skip=False, stop_reason=None)
 
@@ -153,10 +182,12 @@ def _build_processor(
         transaction_processor.TransactionProcessor
     )
     processor.config = SimpleNamespace(
+        operator_id="operator_01",
         email_user="tester@example.com",
         pin_user="123456",
         url_application="https://app.test/",
     )
+    processor.operator_id = "operator_01"
     processor.page = page or FakePage()
     processor.reporter = reporter or FakeReporter()
     processor.limiter = limiter or FakeLimiter()
@@ -168,6 +199,118 @@ def _build_processor(
         session_recovery_service or FakeSessionRecoveryService()
     )
     return processor
+
+
+def test_dashboard_zero_stock_records_one_terminal_row_before_stopping():
+    class ZeroStockDashboard(FakeDashboard):
+        def catat_penjualan(self, nik: str) -> str:
+            self.catat_penjualan_calls.append(nik)
+            return "zero_stock"
+
+    reporter = FakeReporter()
+    processor = _build_processor(
+        reporter=reporter,
+        dashboard=ZeroStockDashboard(),
+    )
+
+    with pytest.raises(transaction_processor.OutOfSellableStockError):
+        processor.process_single_nik("3573051108720003")
+
+    assert len(reporter.out_of_stock_calls) == 1
+    nik, started_at, payload = reporter.out_of_stock_calls[0]
+    assert nik == "3573051108720003"
+    assert started_at == "started-at"
+    assert "Stok Tabung Kosong" in payload["reason"]
+
+
+def test_registration_limit_immediately_after_nik_submission_closes_and_skips_once():
+    class RegistrationLimitedDashboard(FakeDashboard):
+        def __init__(self) -> None:
+            super().__init__()
+            self.modal_open = False
+            self.dismiss_calls = 0
+            self.reset_calls = 0
+
+        def catat_penjualan(self, nik: str) -> str:
+            self.catat_penjualan_calls.append(nik)
+            self.modal_open = True
+            return "ready"
+
+        def get_visible_customer_entry(self) -> str:
+            return "precheck_modal" if self.modal_open else "unknown"
+
+        def get_visible_precheck_modal(self):
+            return "registration_request_limited" if self.modal_open else None
+
+        def read_registration_request_limited_reason_if_present(
+            self, detect_timeout=6000
+        ):
+            if not self.modal_open:
+                return None
+            return (
+                "Terlalu banyak melakukan permintaan pendaftaran untuk NIK "
+                "pelanggan ini. Silakan coba lagi di hari berikutnya."
+            )
+
+        def dismiss_registration_request_limited_modal(self) -> None:
+            self.dismiss_calls += 1
+            self.modal_open = False
+
+        def reset_nik_input_or_return_to_dashboard(self, **_kwargs) -> None:
+            self.reset_calls += 1
+
+    class HiddenComponent:
+        def is_visible(self) -> bool:
+            return False
+
+    reporter = FakeReporter()
+    limiter = FakeLimiter()
+    puzzle = FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1))
+    recovery = FakeSessionRecoveryService()
+    dashboard = RegistrationLimitedDashboard()
+    page = FakePage()
+    components = [HiddenComponent() for _ in range(5)]
+    prechecks = TransactionPrechecksService(
+        page=page,
+        dashboard=dashboard,
+        reporter=reporter,
+        limiter=limiter,
+        post_skip_cooldown_ms=0,
+        max_kuota_timeout_ms=0,
+        zero_stock_timeout_ms=0,
+        log_func=lambda *_args, **_kwargs: None,
+        consent_page=components[0],
+        customer_update_page=components[1],
+        update_required_modal=components[2],
+        update_confirmation_modal=components[3],
+        update_success_modal=components[4],
+        login_page_detector=lambda *_args, **_kwargs: False,
+    )
+    processor = _build_processor(
+        reporter=reporter,
+        limiter=limiter,
+        dashboard=dashboard,
+        page=page,
+        precheck_service=prechecks,
+        puzzle_service=puzzle,
+        session_recovery_service=recovery,
+    )
+
+    processor.process_single_nik("3573051108720003")
+
+    assert dashboard.catat_penjualan_calls == ["3573051108720003"]
+    assert dashboard.dismiss_calls == 1
+    assert dashboard.reset_calls == 1
+    assert len(reporter.skip_calls) == 1
+    assert reporter.skip_calls[0][2] == "registration_request_limited"
+    assert reporter.complete_calls == []
+    assert reporter.error_calls == []
+    assert reporter.retry_calls == []
+    assert puzzle.calls == []
+    assert recovery.recovery_calls == 0
+    assert limiter.update_actions == []
+    assert limiter.wait_calls == 1
+    assert limiter.skip_calls == 1
 
 
 def test_solve_puzzle_stops_after_five_attempts(monkeypatch):
@@ -230,7 +373,9 @@ def test_solve_puzzle_stops_after_five_attempts(monkeypatch):
         "solve_slider_with_puzzle",
         fake_solve_slider_with_puzzle,
     )
-    monkeypatch.setattr(transaction_processor, "log_print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transaction_processor, "log_print", lambda *args, **kwargs: None
+    )
 
     processor = _build_processor(
         dashboard=DashboardWithPuzzleModal(),
@@ -402,7 +547,9 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
 def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
     class FailIfConstructedPenjualan:
         def __init__(self, page) -> None:
-            raise AssertionError("penjualan should not be constructed when prechecks skip")
+            raise AssertionError(
+                "penjualan should not be constructed when prechecks skip"
+            )
 
     monkeypatch.setattr(transaction_processor, "Penjualan", FailIfConstructedPenjualan)
 
@@ -426,6 +573,160 @@ def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
     assert reporter.failed_puzzle_calls == []
     assert limiter.success_calls == 0
     assert session_recovery_service.recovery_calls == 0
+
+
+def test_inline_transaction_blocker_stops_before_cek_pesanan_and_puzzle(monkeypatch):
+    class FailIfCheckedPenjualan:
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def cek_pesanan(self) -> None:
+            raise AssertionError("CEK PESANAN must not run after a transaction blocker")
+
+    class BlockingPrechecks(FakePrecheckService):
+        def check_transaction_blocker(
+            self, penjualan, nik: str, started_at: str, stage: str
+        ):
+            self.blocker_calls.append(stage)
+            return SimpleNamespace(should_skip=True, stop_reason=None)
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", FailIfCheckedPenjualan)
+    reporter = FakeReporter()
+    prechecks = BlockingPrechecks()
+    puzzle_service = FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1))
+    processor = _build_processor(
+        reporter=reporter,
+        precheck_service=prechecks,
+        puzzle_service=puzzle_service,
+    )
+
+    processor.process_single_nik("3573051108720003")
+
+    assert prechecks.blocker_calls == ["before cek pesanan"]
+    assert puzzle_service.calls == []
+    assert reporter.complete_calls == []
+    assert reporter.error_calls == []
+    assert reporter.retry_calls == []
+
+
+def test_successful_update_restarts_same_nik_without_consuming_retry_budgets(
+    monkeypatch,
+):
+    class RestartingPrechecks(FakePrecheckService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.actions = iter(
+                [PrecheckAction.RESTART_AFTER_UPDATE, PrecheckAction.CONTINUE]
+            )
+            self.allow_flags = []
+
+        def handle_pre_checks(
+            self, nik: str, started_at: str, *, allow_customer_update: bool = True
+        ) -> PrecheckAction:
+            self.precheck_calls.append((nik, started_at))
+            self.allow_flags.append(allow_customer_update)
+            return next(self.actions)
+
+    class FakePenjualan:
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def cek_pesanan(self) -> None:
+            return None
+
+    class FakeCekPenjualan:
+        def __init__(self, page) -> None:
+            self.page = page
+
+        def proses_penjualan(self) -> None:
+            return None
+
+        def kembali_ke_dashboard(self) -> None:
+            return None
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", FakePenjualan)
+    monkeypatch.setattr(transaction_processor, "CekPenjualan", FakeCekPenjualan)
+    reporter = FakeReporter()
+    limiter = FakeLimiter()
+    prechecks = RestartingPrechecks()
+    recovery = FakeSessionRecoveryService()
+    processor = _build_processor(
+        reporter=reporter,
+        limiter=limiter,
+        precheck_service=prechecks,
+        puzzle_service=FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1)),
+        session_recovery_service=recovery,
+    )
+
+    processor.process_single_nik("3573051108720003")
+
+    assert processor.dashboard.catat_penjualan_calls == [
+        "3573051108720003",
+        "3573051108720003",
+    ]
+    assert reporter.started == ["3573051108720003"]
+    assert prechecks.allow_flags == [True, False]
+    assert len(reporter.complete_calls) == 1
+    assert reporter.retry_calls == []
+    assert recovery.recovery_calls == 0
+    assert limiter.wait_calls == 2
+    assert limiter.update_actions == ["restart_same_nik"]
+    assert limiter.skip_calls == 0
+    assert [event[1]["event"] for event in reporter.workflow_calls] == [
+        "same_nik_restart_after_update"
+    ]
+
+
+def test_nik_navigation_does_not_wait_for_document_load_state():
+    page = FakePage()
+    processor = _build_processor(page=page)
+
+    processor._navigate_to_transaction("3573051108720003")
+
+    assert processor.dashboard.catat_penjualan_calls == ["3573051108720003"]
+    assert page.load_states == []
+
+
+def test_repeated_update_after_same_nik_restart_is_terminal_without_retry():
+    class RepeatingUpdatePrechecks(FakePrecheckService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.allow_flags = []
+
+        def handle_pre_checks(
+            self, nik: str, started_at: str, *, allow_customer_update: bool = True
+        ) -> PrecheckAction:
+            self.precheck_calls.append((nik, started_at))
+            self.allow_flags.append(allow_customer_update)
+            if len(self.precheck_calls) == 1:
+                return PrecheckAction.RESTART_AFTER_UPDATE
+            raise CustomerUpdateLoopError("same NIK still requires customer update")
+
+    reporter = FakeReporter()
+    recovery = FakeSessionRecoveryService()
+    prechecks = RepeatingUpdatePrechecks()
+    processor = _build_processor(
+        reporter=reporter,
+        precheck_service=prechecks,
+        puzzle_service=FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1)),
+        session_recovery_service=recovery,
+    )
+
+    processor.process_single_nik("3573051108720003")
+
+    assert processor.dashboard.catat_penjualan_calls == [
+        "3573051108720003",
+        "3573051108720003",
+    ]
+    assert prechecks.allow_flags == [True, False]
+    assert len(reporter.error_calls) == 1
+    assert reporter.complete_calls == []
+    assert reporter.retry_calls == []
+    assert recovery.recovery_calls == 1
+    assert [event[1]["event"] for event in reporter.workflow_calls] == [
+        "same_nik_restart_after_update",
+        "customer_update_failed",
+    ]
 
 
 def test_process_single_nik_reports_failed_puzzle_and_recovers(monkeypatch):
@@ -484,7 +785,9 @@ def test_process_single_nik_retries_once_after_session_expired_then_errors():
             super().__init__()
             self.attempts = 0
 
-        def handle_pre_checks(self, nik: str, started_at: str) -> bool:
+        def handle_pre_checks(
+            self, nik: str, started_at: str, *, allow_customer_update: bool = True
+        ) -> PrecheckAction:
             self.attempts += 1
             raise SessionExpiredError(f"expired attempt {self.attempts}")
 

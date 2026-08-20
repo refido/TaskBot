@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def print_skipped_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None:
@@ -41,8 +42,7 @@ def print_nik_statistics(reporter: Any, log_print_fn: Callable[..., None]) -> No
     log_print_fn(f"  Total Successful: {len(reporter.get_successful_niks())}")
     log_print_fn(f"  Total Failed: {len(reporter.get_failed_niks())}")
     log_print_fn(
-        "  Total Failed Puzzle Solve: "
-        f"{len(reporter.get_failed_puzzle_solve_niks())}"
+        f"  Total Failed Puzzle Solve: {len(reporter.get_failed_puzzle_solve_niks())}"
     )
 
     skipped_by_type = reporter.get_skipped_niks_by_type()
@@ -72,6 +72,20 @@ def print_retry_report(reporter: Any, log_print_fn: Callable[..., None]) -> None
         else:
             log_print_fn(f"    First 5: {', '.join(niks[:5])}")
             log_print_fn(f"    ... and {len(niks) - 5} more")
+
+
+def print_workflow_summary(reporter: Any, log_print_fn: Callable[..., None]) -> None:
+    summary = reporter.get_workflow_event_report()
+    if summary["total_events"] <= 0:
+        return
+    log_print_fn("\nCUSTOMER WORKFLOW")
+    log_print_fn("-----------------")
+    log_print_fn(f"  Consent encountered: {summary['consent_niks']}")
+    log_print_fn(f"  Update required: {summary['update_required_niks']}")
+    log_print_fn(f"  Update successful: {summary['updated_niks']}")
+    log_print_fn(f"  Same-NIK restarts: {summary['same_nik_restarts']}")
+    log_print_fn(f"  Update failures: {summary['update_failures']}")
+    log_print_fn(f"  Repeated update requests: {summary['repeated_update_requests']}")
 
 
 def print_section(
@@ -131,9 +145,7 @@ def print_puzzle_metrics(
     if puzzle["avg_solved_duration_seconds"] > 0:
         log_print_fn(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
     if puzzle["avg_failed_duration_seconds"] > 0:
-        log_print_fn(
-            f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s"
-        )
+        log_print_fn(f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s")
 
 
 def print_status_breakdown(

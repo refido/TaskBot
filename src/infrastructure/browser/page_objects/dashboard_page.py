@@ -3,6 +3,8 @@ from typing import Literal
 
 from playwright.sync_api import (
     Error as PlaywrightError,
+)
+from playwright.sync_api import (
     Locator,
     Page,
     TimeoutError,
@@ -10,6 +12,9 @@ from playwright.sync_api import (
 )
 
 from src.infrastructure.browser.page_objects.base_page import BasePage
+from src.infrastructure.browser.page_objects.penjualan_page import (
+    TRANSACTION_BLOCKER_ALERT_RE,
+)
 from src.logging_utils import log_print
 
 _PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
@@ -18,6 +23,12 @@ _PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
 _PERBARUI_DATA_PELANGGAN_CANNOT_CONTINUE_REASON = (
     "Perbarui Data Pelanggan cannot continue transaction; modal closed."
 )
+_PERBARUI_DATA_NIB_PELANGGAN_MESSAGE = re.compile(
+    r"Pelanggan\s+Usaha\s+Mikro\s+diwajibkan\s+untuk\s+melengkapi\s+"
+    r"Nomor\s+Induk\s+Berusaha\s*\(NIB\).*?"
+    r'Tekan\s+["\u201c]LENGKAPI\s+NIB["\u201d]\s+untuk\s+dapat\s+melakukan\s+transaksi',
+    re.IGNORECASE | re.DOTALL,
+)
 _NIK_UNDER_17_VALIDATION_TEXT = "NIK belum 17 tahun"
 _INVALID_REGISTERED_NIK_MODAL_TITLE = "Tidak Dapat Melakukan Transaksi"
 _INVALID_REGISTERED_NIK_MESSAGE = "NIK pelanggan yang didaftarkan tidak valid."
@@ -25,6 +36,27 @@ _CANNOT_TRANSACT_AT_BASE_TITLE = "Pelanggan Tidak Dapat Transaksi di Pangkalan I
 _UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
 _UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan."
 _FAILED_PUZZLE_MODAL_TITLE = "Cocokan Gambar untuk Proses Keamanan Penjualan"
+_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE_TEXT = (
+    "Tidak Dapat Melanjutkan Pendaftaran Pelanggan"
+)
+_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE = re.compile(
+    r"^\s*Tidak\s+Dapat\s+Melanjutkan\s+Pendaftaran\s+Pelanggan\s*$",
+    re.IGNORECASE,
+)
+_REGISTRATION_REQUEST_LIMITED_MESSAGE_TEXT = (
+    "Terlalu banyak melakukan permintaan pendaftaran untuk NIK pelanggan ini. "
+    "Silakan coba lagi di hari berikutnya."
+)
+_REGISTRATION_REQUEST_LIMITED_MESSAGE_EXACT = re.compile(
+    r"^\s*Terlalu\s+banyak\s+melakukan\s+permintaan\s+pendaftaran\s+untuk\s+"
+    r"NIK\s+pelanggan\s+ini\.\s+Silakan\s+coba\s+lagi\s+di\s+hari\s+"
+    r"berikutnya\.\s*$",
+    re.IGNORECASE,
+)
+_REGISTRATION_REQUEST_LIMITED_TUTUP = re.compile(
+    r"^\s*Tutup\s*$",
+    re.IGNORECASE,
+)
 
 _ZERO_STOCK_CONFIRM_ATTEMPTS = 3
 _ZERO_STOCK_RETRY_DELAY_MS = 2500
@@ -36,10 +68,13 @@ PerbaruiDataPelangganAction = Literal[
 CatatPenjualanOutcome = Literal[
     "ready",
     "zero_stock",
+    "registration_request_limited",
 ]
 
 CustomerEntryOutcome = Literal[
     "transaction_ready",
+    "transaction_blocked",
+    "customer_type",
     "customer_type_selected",
     "under_17",
     "precheck_modal",
@@ -47,6 +82,8 @@ CustomerEntryOutcome = Literal[
 ]
 PrecheckModalName = Literal[
     "not_registered",
+    "registration_request_limited",
+    "nib_reminder",
     "perbarui",
     "invalid_registered_nik",
     "cannot_transact_at_base",
@@ -105,6 +142,15 @@ class Dashboard(BasePage):
 
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
 
+        self.transaction_blocker_alert = (
+            page.locator(
+                ".styles_alertInfo__WvEN4 .styles_content__fqQml > "
+                "span:nth-child(1):visible, div.mantine-Text-root:visible"
+            )
+            .filter(has_text=TRANSACTION_BLOCKER_ALERT_RE)
+            .first
+        )
+
         self.jenis_pelanggan_modal = (
             page.get_by_role("dialog")
             .filter(
@@ -148,6 +194,52 @@ class Dashboard(BasePage):
             .first
         )
 
+        registration_request_limited_heading = (
+            page.locator("h1, h2, h3, h4, h5, h6")
+            .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE)
+            .filter(visible=True)
+        )
+        registration_request_limited_message = page.locator(
+            "div.mantine-Text-root"
+        ).filter(has_text=_REGISTRATION_REQUEST_LIMITED_MESSAGE_EXACT).filter(
+            visible=True
+        )
+
+        # The deployed Mantine portal can be visually displayed beneath an
+        # aria-hidden wrapper. Use the visible modal section plus exact semantic
+        # descendants instead of accessibility roles, which exclude that live
+        # subtree. Visibility filters prevent stale portal copies from winning.
+        self.registration_request_limited_modal = (
+            page.locator("section")
+            .filter(has=registration_request_limited_heading)
+            .filter(has=registration_request_limited_message)
+            .filter(visible=True)
+            .first
+        )
+
+        self.registration_request_limited_title = (
+            self.registration_request_limited_modal.locator(
+                "h1, h2, h3, h4, h5, h6"
+            )
+            .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE)
+            .filter(visible=True)
+            .first
+        )
+
+        self.registration_request_limited_message = (
+            self.registration_request_limited_modal.locator("div.mantine-Text-root")
+            .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MESSAGE_EXACT)
+            .filter(visible=True)
+            .first
+        )
+
+        self.registration_request_limited_tutup = (
+            self.registration_request_limited_modal.locator("button")
+            .filter(has_text=_REGISTRATION_REQUEST_LIMITED_TUTUP)
+            .filter(visible=True)
+            .first
+        )
+
         self.perbarui_data_pelanggan_modal = page.locator(
             'section[role="dialog"]:has(.mantine-Text-root:has-text("Perbarui Data Pelanggan"))'
         )
@@ -158,20 +250,24 @@ class Dashboard(BasePage):
             )
         )
 
-        self.perbarui_data_pelanggan_lanjut_nanti = (
-            self.perbarui_data_pelanggan_modal.locator(
-                "button.styles_lightGreen__flYZ5"
-            )
-            .filter(
-                has_text=re.compile(
-                    r"^\s*nanti saja,\s*lanjut penjualan\s*$", re.IGNORECASE
-                )
-            )
+        self.perbarui_data_nib_pelanggan_modal = (
+            page.locator('section[role="dialog"]')
+            .filter(has_text=_PERBARUI_DATA_NIB_PELANGGAN_MESSAGE)
             .first
         )
 
+        self.perbarui_data_nib_pelanggan_lanjut_nanti = (
+            self.perbarui_data_nib_pelanggan_modal.get_by_role(
+                "button",
+                name=re.compile(
+                    r"^\s*nanti saja,\s*lanjut (?:penjualan|transaksi)\s*$",
+                    re.IGNORECASE,
+                ),
+            ).first
+        )
+
         self.nik_under_17_validation = (
-            page.locator("div.mantine-824czz")
+            page.locator("div.mantine-Text-root")
             .filter(
                 has_text=re.compile(
                     rf"^\s*{re.escape(_NIK_UNDER_17_VALIDATION_TEXT)}\s*$",
@@ -181,10 +277,15 @@ class Dashboard(BasePage):
             .first
         )
 
-        self.invalid_registered_nik_modal = page.locator(
-            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Tidak Dapat Melakukan Transaksi')), "
-            "section[role='dialog']:has(div.mantine-Text-root:has-text('NIK pelanggan yang didaftarkan tidak valid.'))"
-        ).first
+        self.invalid_registered_nik_modal = (
+            page.get_by_role("dialog")
+            .filter(
+                has_text=re.compile(
+                    re.escape(_INVALID_REGISTERED_NIK_MESSAGE), re.IGNORECASE
+                )
+            )
+            .first
+        )
 
         self.invalid_registered_nik_modal_title = (
             self.invalid_registered_nik_modal.locator(
@@ -211,14 +312,21 @@ class Dashboard(BasePage):
         )
 
         self.invalid_registered_nik_modal_tutup = (
-            self.invalid_registered_nik_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
-            .first
+            self.invalid_registered_nik_modal.get_by_role(
+                "button",
+                name=re.compile(r"^\s*tutup\s*$", re.IGNORECASE),
+            ).first
         )
 
-        self.cannot_transact_at_base_modal = page.locator(
-            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Pelanggan Tidak Dapat Transaksi di Pangkalan Ini'))"
-        ).first
+        self.cannot_transact_at_base_modal = (
+            page.get_by_role("dialog")
+            .filter(
+                has_text=re.compile(
+                    re.escape(_CANNOT_TRANSACT_AT_BASE_TITLE), re.IGNORECASE
+                )
+            )
+            .first
+        )
 
         self.cannot_transact_at_base_modal_title = (
             self.cannot_transact_at_base_modal.locator(
@@ -234,15 +342,21 @@ class Dashboard(BasePage):
         )
 
         self.cannot_transact_at_base_modal_tutup = (
-            self.cannot_transact_at_base_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
-            .first
+            self.cannot_transact_at_base_modal.get_by_role(
+                "button",
+                name=re.compile(r"^\s*tutup\s*$", re.IGNORECASE),
+            ).first
         )
 
-        self.unusual_transaction_modal = page.locator(
-            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Tidak Dapat Melanjutkan Transaksi')), "
-            "section[role='dialog']:has(div.mantine-Text-root:has-text('NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan.'))"
-        ).first
+        self.unusual_transaction_modal = (
+            page.get_by_role("dialog")
+            .filter(
+                has_text=re.compile(
+                    re.escape(_UNUSUAL_TRANSACTION_MESSAGE), re.IGNORECASE
+                )
+            )
+            .first
+        )
         self.unusual_transaction_modal_title = (
             self.unusual_transaction_modal.locator(
                 "h6.mantine-Text-root.mantine-Title-root"
@@ -267,21 +381,24 @@ class Dashboard(BasePage):
         )
 
         self.unusual_transaction_modal_tutup = (
-            self.unusual_transaction_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
+            self.unusual_transaction_modal.get_by_role(
+                "button",
+                name=re.compile(r"^\s*tutup\s*$", re.IGNORECASE),
+            ).first
+        )
+
+        self.failed_puzzle_modal = (
+            page.get_by_role("dialog")
+            .filter(
+                has_text=re.compile(
+                    re.escape(_FAILED_PUZZLE_MODAL_TITLE), re.IGNORECASE
+                )
+            )
             .first
         )
 
-        self.failed_puzzle_modal = page.locator(
-            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan')), "
-            "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan'))"
-        ).first
-
         self.failed_puzzle_modal_title = (
-            self.failed_puzzle_modal.locator(
-                "h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2, "
-                "h6.mantine-Text-root.mantine-Title-root"
-            )
+            self.failed_puzzle_modal.get_by_role("heading")
             .filter(
                 has_text=re.compile(
                     rf"^\s*{re.escape(_FAILED_PUZZLE_MODAL_TITLE)}\s*$", re.IGNORECASE
@@ -343,6 +460,13 @@ class Dashboard(BasePage):
         log_print("Stok Tabung Kosong modal closed")
 
     def catat_penjualan(self, nik: str) -> CatatPenjualanOutcome:
+        if self._is_visible(self.registration_request_limited_modal):
+            log_print(
+                "Customer registration request-limit modal is already visible; "
+                "deferring to customer prechecks."
+            )
+            return "registration_request_limited"
+
         already_on_form = False
 
         try:
@@ -367,6 +491,7 @@ class Dashboard(BasePage):
                     action_name="opening Catat Penjualan",
                     expected_text="Catat Penjualan",
                     timeout_ms=5000,
+                    load_state=None,
                 )
 
                 try:
@@ -438,19 +563,64 @@ class Dashboard(BasePage):
 
             expect(self.nik_input).to_be_visible(timeout=3000)
 
-        self.fill_input(
-            self.nik_input,
-            str(nik),
-            action_name=f"filling NIK {nik}",
-        )
+        try:
+            self.fill_input(
+                self.nik_input,
+                str(nik),
+                action_name=f"filling NIK {nik}",
+            )
+        except (PlaywrightError, AssertionError):
+            if self._is_visible(self.registration_request_limited_modal):
+                log_print(
+                    "Customer registration request-limit modal interrupted NIK fill; "
+                    "deferring to customer prechecks."
+                )
+                return "registration_request_limited"
+            raise
         log_print("NIK input filled with:", nik)
 
-        self.click_locator(
-            self.lanjutkan_penjualan_button,
-            action_name=f"continuing sale for NIK {nik}",
-            expected_text="LANJUTKAN PENJUALAN",
-            timeout_ms=5000,
-        )
+        if self._is_visible(self.registration_request_limited_modal):
+            log_print(
+                "Customer registration request-limit modal appeared during NIK "
+                "fill; deferring to customer prechecks."
+            )
+            return "registration_request_limited"
+
+        # Mantine renders matching NIKs in a portal below this combobox. On a
+        # same-NIK restart that suggestion can cover LANJUTKAN PENJUALAN even
+        # though Playwright correctly reports the button as visible/enabled.
+        # Dismiss the popup instead of force-clicking through a real overlay.
+        try:
+            self.nik_input.press("Escape")
+        except PlaywrightError:
+            if self._is_visible(self.registration_request_limited_modal):
+                return "registration_request_limited"
+            raise
+        log_print("NIK autocomplete dismissed before continuing sale")
+
+        if self._is_visible(self.registration_request_limited_modal):
+            log_print(
+                "Customer registration request-limit modal appeared before sale "
+                "continuation; deferring to customer prechecks."
+            )
+            return "registration_request_limited"
+
+        try:
+            self.click_locator(
+                self.lanjutkan_penjualan_button,
+                action_name=f"continuing sale for NIK {nik}",
+                expected_text="LANJUTKAN PENJUALAN",
+                timeout_ms=5000,
+                load_state=None,
+            )
+        except (PlaywrightError, AssertionError):
+            if self._is_visible(self.registration_request_limited_modal):
+                log_print(
+                    "Customer registration request-limit modal interrupted sale "
+                    "continuation; deferring to customer prechecks."
+                )
+                return "registration_request_limited"
+            raise
 
         log_print("Lanjutkan Penjualan button clicked")
 
@@ -467,18 +637,24 @@ class Dashboard(BasePage):
             log_print("No customer-entry outcome detected yet; continuing checks.")
             return "unknown"
 
+        return self.get_visible_customer_entry()
+
+    def get_visible_customer_entry(self) -> CustomerEntryOutcome:
+        """Return a non-waiting snapshot of the current customer-entry UI."""
         if self._is_visible(self.nik_under_17_validation):
             return "under_17"
 
-        if self._is_visible(self.jenis_pelanggan_modal):
-            self.select_jenis_pelanggan()
-            return "customer_type_selected"
-
-        if self.is_transaction_form_ready(detect_timeout=100):
-            return "transaction_ready"
-
         if self.get_visible_precheck_modal() is not None:
             return "precheck_modal"
+
+        if self._is_visible(self.jenis_pelanggan_modal):
+            return "customer_type"
+
+        if self._is_visible(self.transaction_blocker_alert):
+            return "transaction_blocked"
+
+        if self._is_visible(self.cek_pesanan_button) and not self._has_visible_dialog():
+            return "transaction_ready"
 
         return "unknown"
 
@@ -520,10 +696,15 @@ class Dashboard(BasePage):
     def get_visible_precheck_modal(self) -> PrecheckModalName | None:
         for modal_name, modal in [
             ("not_registered", self.pelanggan_tidak_terdaftar_modal),
-            ("perbarui", self.perbarui_data_pelanggan_modal),
+            (
+                "registration_request_limited",
+                self.registration_request_limited_modal,
+            ),
             ("invalid_registered_nik", self.invalid_registered_nik_modal),
             ("cannot_transact_at_base", self.cannot_transact_at_base_modal),
             ("unusual_transaction", self.unusual_transaction_modal),
+            ("nib_reminder", self.perbarui_data_nib_pelanggan_modal),
+            ("perbarui", self.perbarui_data_pelanggan_modal),
         ]:
             if self._is_visible(modal):
                 return modal_name
@@ -840,6 +1021,47 @@ class Dashboard(BasePage):
                 "Pelanggan Tidak Terdaftar modal stayed visible after click; continuing with recovery checks."
             )
 
+    def read_registration_request_limited_reason_if_present(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._read_simple_warning_modal_reason_if_present(
+            modal=self.registration_request_limited_modal,
+            detect_timeout=detect_timeout,
+            missing_log=(
+                "Customer registration request-limit modal not present; continuing."
+            ),
+            title_locator=self.registration_request_limited_title,
+            title_fallback=_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE_TEXT,
+            title_detect_log="Detected customer registration request-limit title",
+            message_locator=self.registration_request_limited_message,
+            message_fallback=_REGISTRATION_REQUEST_LIMITED_MESSAGE_TEXT,
+            message_detect_log="Detected customer registration request limit",
+            missing_content_log=(
+                "Customer registration request-limit modal became visible without "
+                "the expected message."
+            ),
+        )
+
+    def dismiss_registration_request_limited_modal(self) -> None:
+        self.click_locator(
+            self.registration_request_limited_tutup,
+            action_name="closing customer registration request-limit modal",
+            expected_text="Tutup",
+            timeout_ms=5000,
+            load_state=None,
+        )
+        try:
+            self.registration_request_limited_modal.wait_for(
+                state="hidden", timeout=7000
+            )
+        except TimeoutError:
+            # The click is one-shot. A slow stale portal is resolved by the
+            # central state machine; never click the server-limit action twice.
+            log_print(
+                "Customer registration request-limit modal remained visible "
+                "after Tutup was clicked."
+            )
+
     def read_under_17_validation_if_present(
         self, detect_timeout: int = 2000
     ) -> str | None:
@@ -953,33 +1175,51 @@ class Dashboard(BasePage):
             log_print("Perbarui Data Pelanggan modal not present; continuing.")
             return False
 
-    def attempt_continue_perbarui_data_pelanggan(self) -> PerbaruiDataPelangganAction:
-        if not self.detect_perbarui_data_pelanggan_if_needed():
+    def detect_perbarui_data_nib_pelanggan_if_needed(
+        self, detect_timeout: int = 6000
+    ) -> bool:
+        try:
+            self.perbarui_data_nib_pelanggan_modal.wait_for(
+                state="visible", timeout=detect_timeout
+            )
+            return True
+        except TimeoutError:
+            log_print("Perbarui Data NIB Pelanggan modal not present; continuing.")
+            return False
+
+    def continue_perbarui_data_nib_pelanggan(self) -> None:
+        """Continue past the distinct Usaha Mikro NIB reminder exactly once."""
+        self.perbarui_data_nib_pelanggan_modal.wait_for(state="visible", timeout=5000)
+        self.click_locator(
+            self.perbarui_data_nib_pelanggan_lanjut_nanti,
+            action_name="continuing past Perbarui Data NIB Pelanggan modal",
+            timeout_ms=5000,
+            load_state=None,
+        )
+        log_print(
+            "Clicked 'NANTI SAJA, LANJUT PENJUALAN' on the NIB reminder; "
+            "continuing state detection."
+        )
+
+    def attempt_continue_perbarui_data_nib_pelanggan(
+        self,
+    ) -> PerbaruiDataPelangganAction:
+        if not self.detect_perbarui_data_nib_pelanggan_if_needed():
             return "not_present"
 
         try:
-            self.click_locator(
-                self.perbarui_data_pelanggan_lanjut_nanti,
-                action_name="continuing past Perbarui Data Pelanggan modal",
-                timeout_ms=2000,
-                load_state=None,
-            )
-            self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
-            log_print(
-                "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
-            )
+            self.continue_perbarui_data_nib_pelanggan()
             return "continued"
         except TimeoutError, AssertionError:
-            log_print(
-                "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
-            )
+            log_print("Continue-transaction button on the NIB reminder was not usable.")
             return "close"
-        except Exception as exc:
-            log_print(
-                "Failed to continue past 'Perbarui Data Pelanggan'; closing modal instead.",
-                exc,
-            )
+        except Exception as exc:  # noqa: BLE001 - compatibility result distinguishes failure.
+            log_print("Failed to continue past the NIB reminder.", exc)
             return "cannot_continue"
+
+    def attempt_continue_perbarui_data_pelanggan(self) -> PerbaruiDataPelangganAction:
+        """Compatibility alias for the NIB-only continue-later behavior."""
+        return self.attempt_continue_perbarui_data_nib_pelanggan()
 
     def dismiss_perbarui_data_pelanggan_modal(self) -> None:
         self.click_locator(
@@ -1013,8 +1253,8 @@ class Dashboard(BasePage):
         try:
             if self.catat_penjualan_tile.is_visible(timeout=800):
                 return
-        except Exception:
-            pass
+        except (PlaywrightError, TypeError):
+            log_print("Dashboard tile visibility probe failed", level="DEBUG")
 
         for candidate in [
             self.page.get_by_role("button", name="KEMBALI KE HALAMAN UTAMA"),
@@ -1026,7 +1266,8 @@ class Dashboard(BasePage):
             try:
                 candidate.click(timeout=700)
                 break
-            except Exception:
+            except (PlaywrightError, TypeError):
+                log_print("Dashboard navigation candidate was not usable", level="DEBUG")
                 continue
 
         expect(self.catat_penjualan_tile).to_be_visible(timeout=8000)
@@ -1092,12 +1333,17 @@ class Dashboard(BasePage):
         return (
             self.nik_under_17_validation.or_(self.jenis_pelanggan_modal)
             .or_(self.cek_pesanan_button)
+            .or_(self.transaction_blocker_alert)
             .or_(self._precheck_modal_locator())
         )
 
     def _precheck_modal_locator(self):
         return (
-            self.pelanggan_tidak_terdaftar_modal.or_(self.perbarui_data_pelanggan_modal)
+            self.pelanggan_tidak_terdaftar_modal.or_(
+                self.registration_request_limited_modal
+            )
+            .or_(self.perbarui_data_nib_pelanggan_modal)
+            .or_(self.perbarui_data_pelanggan_modal)
             .or_(self.invalid_registered_nik_modal)
             .or_(self.cannot_transact_at_base_modal)
             .or_(self.unusual_transaction_modal)
@@ -1106,19 +1352,17 @@ class Dashboard(BasePage):
     @staticmethod
     def _is_visible(locator) -> bool:
         try:
-            return locator.is_visible(timeout=100)
-        except TypeError:
             try:
+                return locator.is_visible(timeout=100)
+            except TypeError:
                 return locator.is_visible()
-            except Exception:
-                return False
-        except Exception:
+        except (AttributeError, PlaywrightError):
             return False
 
     def _has_visible_dialog(self) -> bool:
         try:
             return self.page.locator("[role='dialog']:visible").count() > 0
-        except Exception:
+        except PlaywrightError:
             return False
 
     # Temporary compatibility wrappers for older callers.

@@ -42,7 +42,7 @@ class SessionRecoveryService:
         try:
             self.dashboard.ensure_on_dashboard()
             return
-        except Exception:
+        except Exception:  # noqa: BLE001 - hard navigation is the recovery fallback.
             self.page.goto(self.config.url_application)
             self.page.wait_for_load_state(self.load_state)
 
@@ -79,7 +79,7 @@ class SessionRecoveryService:
 
         logger.bind(
             event="transaction.session_probe.login_detected",
-            operator=self.config.email_user,
+            operator_id=getattr(self.config, "operator_id", "operator_01"),
             reason=reason,
             elapsed_ms=int(elapsed_ms),
         ).warning("Login page detected during periodic session probe")

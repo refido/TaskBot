@@ -169,4 +169,4 @@ pytest-cache-files-*/
 tmp*/
 db_query/
 .ruff_cache
-.pytest_tmp_taskbot 
+.pytest*

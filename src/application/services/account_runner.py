@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
+from src.logging_utils import operator_logging_context
+
 
 class AccountRunner:
     """Run one account end-to-end using injected infrastructure and workflow factories."""
@@ -25,14 +27,19 @@ class AccountRunner:
         self.logger = logger
 
     def run(self, config: Any) -> tuple[str, bool]:
-        reporter = self.reporter_factory(operator=config.email_user)
+        operator_id = getattr(config, "operator_id", "") or "operator_01"
+        with operator_logging_context(operator_id):
+            return self._run_with_context(config, operator_id)
+
+    def _run_with_context(self, config: Any, operator_id: str) -> tuple[str, bool]:
+        reporter = self.reporter_factory(operator=operator_id)
         limiter = self.limiter_factory()
         is_successful = True
         batch_sync_configured = False
 
         self.logger.bind(
             event="account.run.started",
-            operator=config.email_user,
+            operator_id=operator_id,
             nik_count=len(config.nik),
         ).info("Account run started")
 
@@ -56,7 +63,7 @@ class AccountRunner:
 
             self.logger.bind(
                 event="account.run.fatal_error",
-                operator=config.email_user,
+                operator_id=operator_id,
             ).exception("Fatal account-level error")
 
         finally:
@@ -74,7 +81,7 @@ class AccountRunner:
 
                     self.logger.bind(
                         event="account.report_db_sync_error",
-                        operator=config.email_user,
+                        operator_id=operator_id,
                     ).exception("Report database sync failed")
 
                 finally:
@@ -87,11 +94,11 @@ class AccountRunner:
 
         self.logger.bind(
             event="account.run.finished",
-            operator=config.email_user,
+            operator_id=operator_id,
             success=is_successful,
         ).info("Account run finished")
 
-        return config.email_user, is_successful
+        return operator_id, is_successful
 
     def _configure_batch_sync(self, reporter: Any) -> bool:
         if self.report_syncer is None:
