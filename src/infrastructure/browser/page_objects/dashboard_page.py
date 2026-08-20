@@ -20,9 +20,18 @@ _UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
 _UNUSUAL_TRANSACTION_MESSAGE = "NIK pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan."
 _FAILED_PUZZLE_MODAL_TITLE = "Cocokan Gambar untuk Proses Keamanan Penjualan"
 
+_ZERO_STOCK_CONFIRM_ATTEMPTS = 3
+_ZERO_STOCK_RETRY_DELAY_MS = 2500
+
 PerbaruiDataPelangganAction = Literal[
     "not_present", "continued", "close", "cannot_continue"
 ]
+
+CatatPenjualanOutcome = Literal[
+    "ready",
+    "zero_stock",
+]
+
 CustomerEntryOutcome = Literal[
     "transaction_ready",
     "customer_type_selected",
@@ -45,29 +54,65 @@ class Dashboard(BasePage):
         self.profile_name = page.locator(
             "#__next .styles_wrapper__ASq0Q .mantine-Text-root"
         ).first
+
         self.current_stock = page.get_by_text("Tabung").first
+
         self.catat_penjualan_tile = page.get_by_text(
             "Catat Penjualan", exact=True
         ).first
+
+        self.zero_stock_modal = page.locator(
+            "section[role='dialog']:has("
+            "h6.mantine-Text-root.mantine-Title-root:"
+            "has-text('Stok Tabung Kosong'))"
+        ).first
+
+        self.zero_stock_modal_title = (
+            self.zero_stock_modal.locator("h6.mantine-Text-root.mantine-Title-root")
+            .filter(
+                has_text=re.compile(
+                    r"^\s*Stok Tabung Kosong\s*$",
+                    re.IGNORECASE,
+                )
+            )
+            .first
+        )
+
+        self.zero_stock_modal_tutup = (
+            self.zero_stock_modal.get_by_role("button")
+            .filter(
+                has_text=re.compile(
+                    r"^\s*TUTUP\s*$",
+                    re.IGNORECASE,
+                )
+            )
+            .first
+        )
+
         self.nik_input = page.get_by_placeholder(
             "Masukkan 16 digit NIK Pelanggan", exact=True
         )
+
         self.lanjutkan_penjualan_button = page.get_by_role(
             "button", name="LANJUTKAN PENJUALAN"
         )
+
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
 
         self.jenis_pelanggan_modal = page.get_by_role("dialog").filter(
             has_text="Jenis Pelanggan"
         )
+
         self.jenis_pelanggan = self.jenis_pelanggan_modal.get_by_text(
             "Rumah Tangga", exact=True
         )
+
         self.jenis_pelanggan_usaha_mikro = (
             self.jenis_pelanggan_modal.locator("span.styles_label__6NaHc")
-            .filter(has_text=re.compile(r"^\s*Usaha Mikro\s*$", re.I))
+            .filter(has_text=re.compile(r"^\s*Usaha Mikro\s*$", re.IGNORECASE))
             .first
         )
+
         self.jenis_pelanggan_lanjutkan_penjualan_button = (
             self.jenis_pelanggan_modal.locator("button.styles_primary__k_AUJ")
             .filter(has_text=re.compile(r"^\s*LANJUTKAN PENJUALAN\s*$", re.IGNORECASE))
@@ -78,48 +123,60 @@ class Dashboard(BasePage):
             page.locator(
                 "section[role='dialog'] h5.mantine-Text-root.mantine-Title-root"
             )
-            .filter(has_text=re.compile(r"^\s*Pelanggan Tidak Terdaftar\s*$", re.I))
+            .filter(
+                has_text=re.compile(r"^\s*Pelanggan Tidak Terdaftar\s*$", re.IGNORECASE)
+            )
             .first
         )
+
         self.pelanggan_tidak_terdaftar_modal = page.locator(
             "section[role='dialog']:has(h5.mantine-Text-root.mantine-Title-root:has-text('Pelanggan Tidak Terdaftar'))"
         ).first
+
         self.pelanggan_tidak_terdaftar_tutup = (
             self.pelanggan_tidak_terdaftar_modal.get_by_role("button")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
             .first
         )
 
         self.perbarui_data_pelanggan_modal = page.locator(
             'section[role="dialog"]:has(.mantine-Text-root:has-text("Perbarui Data Pelanggan"))'
         )
+
         self.perbarui_data_pelanggan_tutup = (
             self.perbarui_data_pelanggan_modal.get_by_role("button").filter(
-                has_text=re.compile(r"^\s*tutup\s*$", re.I)
+                has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE)
             )
         )
+
         self.perbarui_data_pelanggan_lanjut_nanti = (
             self.perbarui_data_pelanggan_modal.locator(
                 "button.styles_lightGreen__flYZ5"
             )
             .filter(
-                has_text=re.compile(r"^\s*nanti saja,\s*lanjut penjualan\s*$", re.I)
-            )
-            .first
-        )
-        self.nik_under_17_validation = (
-            page.locator("div.mantine-824czz")
-            .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_NIK_UNDER_17_VALIDATION_TEXT)}\s*$", re.I
+                    r"^\s*nanti saja,\s*lanjut penjualan\s*$", re.IGNORECASE
                 )
             )
             .first
         )
+
+        self.nik_under_17_validation = (
+            page.locator("div.mantine-824czz")
+            .filter(
+                has_text=re.compile(
+                    rf"^\s*{re.escape(_NIK_UNDER_17_VALIDATION_TEXT)}\s*$",
+                    re.IGNORECASE,
+                )
+            )
+            .first
+        )
+
         self.invalid_registered_nik_modal = page.locator(
             "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Tidak Dapat Melakukan Transaksi')), "
             "section[role='dialog']:has(div.mantine-Text-root:has-text('NIK pelanggan yang didaftarkan tidak valid.'))"
         ).first
+
         self.invalid_registered_nik_modal_title = (
             self.invalid_registered_nik_modal.locator(
                 "h6.mantine-Text-root.mantine-Title-root"
@@ -127,43 +184,49 @@ class Dashboard(BasePage):
             .filter(
                 has_text=re.compile(
                     rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MODAL_TITLE)}\s*$",
-                    re.I,
+                    re.IGNORECASE,
                 )
             )
             .first
         )
+
         self.invalid_registered_nik_modal_message = (
             self.invalid_registered_nik_modal.locator("div.mantine-Text-root")
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MESSAGE)}\s*$", re.I
+                    rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MESSAGE)}\s*$",
+                    re.IGNORECASE,
                 )
             )
             .first
         )
+
         self.invalid_registered_nik_modal_tutup = (
             self.invalid_registered_nik_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
             .first
         )
 
         self.cannot_transact_at_base_modal = page.locator(
             "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Pelanggan Tidak Dapat Transaksi di Pangkalan Ini'))"
         ).first
+
         self.cannot_transact_at_base_modal_title = (
             self.cannot_transact_at_base_modal.locator(
                 "h6.mantine-Text-root.mantine-Title-root"
             )
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_CANNOT_TRANSACT_AT_BASE_TITLE)}\s*$", re.I
+                    rf"^\s*{re.escape(_CANNOT_TRANSACT_AT_BASE_TITLE)}\s*$",
+                    re.IGNORECASE,
                 )
             )
             .first
         )
+
         self.cannot_transact_at_base_modal_tutup = (
             self.cannot_transact_at_base_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
             .first
         )
 
@@ -177,29 +240,34 @@ class Dashboard(BasePage):
             )
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MODAL_TITLE)}\s*$", re.I
+                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MODAL_TITLE)}\s*$",
+                    re.IGNORECASE,
                 )
             )
             .first
         )
+
         self.unusual_transaction_modal_message = (
             self.unusual_transaction_modal.locator("div.mantine-Text-root")
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MESSAGE)}\s*$", re.I
+                    rf"^\s*{re.escape(_UNUSUAL_TRANSACTION_MESSAGE)}\s*$", re.IGNORECASE
                 )
             )
             .first
         )
+
         self.unusual_transaction_modal_tutup = (
             self.unusual_transaction_modal.locator("button.styles_root__eZpRx")
-            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.I))
+            .filter(has_text=re.compile(r"^\s*tutup\s*$", re.IGNORECASE))
             .first
         )
+
         self.failed_puzzle_modal = page.locator(
             "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan')), "
             "section[role='dialog']:has(h6.mantine-Text-root.mantine-Title-root:has-text('Cocokan Gambar untuk Proses Keamanan Penjualan'))"
         ).first
+
         self.failed_puzzle_modal_title = (
             self.failed_puzzle_modal.locator(
                 "h6.mantine-Text-root.mantine-Title-root.mantine-yzrvn2, "
@@ -207,7 +275,7 @@ class Dashboard(BasePage):
             )
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_FAILED_PUZZLE_MODAL_TITLE)}\s*$", re.I
+                    rf"^\s*{re.escape(_FAILED_PUZZLE_MODAL_TITLE)}\s*$", re.IGNORECASE
                 )
             )
             .first
@@ -229,23 +297,137 @@ class Dashboard(BasePage):
         log_print("Current stock retrieved:", stock)
         return stock
 
-    def catat_penjualan(self, nik: str) -> None:
-        already_on_form = False
+    def detect_zero_stock_modal(
+        self,
+        detect_timeout: int = 5000,
+    ) -> bool:
         try:
-            self.nik_input.wait_for(state="visible", timeout=800)
+            self.zero_stock_modal.wait_for(
+                state="visible",
+                timeout=detect_timeout,
+            )
+        except TimeoutError:
+            return False
+
+        log_print("Zero-stock modal detected: Stok Tabung Kosong")
+        return True
+
+    def dismiss_zero_stock_modal(self) -> None:
+        self.click_locator(
+            self.zero_stock_modal_tutup,
+            action_name="closing Stok Tabung Kosong modal",
+            expected_text="TUTUP",
+            timeout_ms=5000,
+            load_state=None,
+        )
+
+        try:
+            self.zero_stock_modal.wait_for(
+                state="hidden",
+                timeout=5000,
+            )
+        except TimeoutError:
+            log_print(
+                "Stok Tabung Kosong modal remained visible after TUTUP was clicked."
+            )
+
+        log_print("Stok Tabung Kosong modal closed")
+
+    def catat_penjualan(self, nik: str) -> CatatPenjualanOutcome:
+        already_on_form = False
+
+        try:
+            self.nik_input.wait_for(
+                state="visible",
+                timeout=800,
+            )
             already_on_form = True
             log_print("NIK input already visible; skipping tile click")
-        except Exception:
+        except TimeoutError:
             pass
 
         if not already_on_form:
-            self.click_locator(
-                self.catat_penjualan_tile,
-                action_name="opening Catat Penjualan",
-                expected_text="Catat Penjualan",
-                timeout_ms=5000,
-            )
-            expect(self.nik_input).to_be_visible(timeout=5000)
+            for attempt in range(1, _ZERO_STOCK_CONFIRM_ATTEMPTS + 1):
+                log_print(
+                    f"Opening Catat Penjualan "
+                    f"(attempt {attempt}/{_ZERO_STOCK_CONFIRM_ATTEMPTS})"
+                )
+
+                self.click_locator(
+                    self.catat_penjualan_tile,
+                    action_name="opening Catat Penjualan",
+                    expected_text="Catat Penjualan",
+                    timeout_ms=5000,
+                )
+
+                try:
+                    self.nik_input.or_(self.zero_stock_modal).first.wait_for(
+                        state="visible",
+                        timeout=5000,
+                    )
+                except TimeoutError as exc:
+                    raise RuntimeError(
+                        "Neither NIK input nor 'Stok Tabung Kosong' modal "
+                        "appeared after clicking Catat Penjualan."
+                    ) from exc
+
+                # Normal transaction form appeared.
+                if self._is_visible(self.nik_input):
+                    log_print("NIK input appeared; Catat Penjualan is ready.")
+                    break
+
+                # Zero-stock modal appeared.
+                if self._is_visible(self.zero_stock_modal):
+                    log_print(
+                        f"Stok Tabung Kosong detected "
+                        f"(confirmation {attempt}/"
+                        f"{_ZERO_STOCK_CONFIRM_ATTEMPTS})"
+                    )
+
+                    self.dismiss_zero_stock_modal()
+
+                    # Do NOT immediately treat the first modal as real zero stock.
+                    if attempt < _ZERO_STOCK_CONFIRM_ATTEMPTS:
+                        # Before the final attempt, reload the dashboard once
+                        # to avoid relying on stale frontend stock state.
+                        if attempt == _ZERO_STOCK_CONFIRM_ATTEMPTS - 1:
+                            log_print(
+                                "Zero stock detected repeatedly; "
+                                "refreshing dashboard before final confirmation."
+                            )
+
+                            self.page.reload(
+                                wait_until="load",
+                                timeout=10000,
+                            )
+
+                            expect(self.catat_penjualan_tile).to_be_visible(
+                                timeout=8000
+                            )
+
+                        log_print(
+                            f"Waiting {_ZERO_STOCK_RETRY_DELAY_MS}ms "
+                            "before checking stock again."
+                        )
+
+                        self.page.wait_for_timeout(_ZERO_STOCK_RETRY_DELAY_MS)
+
+                        continue
+
+                    # Zero-stock was confirmed multiple times.
+                    log_print(
+                        "Stok Tabung Kosong confirmed after "
+                        f"{_ZERO_STOCK_CONFIRM_ATTEMPTS} attempts."
+                    )
+
+                    return "zero_stock"
+
+            else:
+                # Defensive fallback. Normally the loop either breaks
+                # because the NIK form appears or returns zero_stock.
+                raise RuntimeError("Unable to determine Catat Penjualan state.")
+
+            expect(self.nik_input).to_be_visible(timeout=3000)
 
         self.fill_input(
             self.nik_input,
@@ -260,7 +442,10 @@ class Dashboard(BasePage):
             expected_text="LANJUTKAN PENJUALAN",
             timeout_ms=5000,
         )
+
         log_print("Lanjutkan Penjualan button clicked")
+
+        return "ready"
 
     def resolve_customer_entry(
         self, detect_timeout: int = 4000

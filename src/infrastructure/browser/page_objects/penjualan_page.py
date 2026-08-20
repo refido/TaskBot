@@ -13,19 +13,19 @@ TransactionBlockerAlert = tuple[TransactionBlockerKind, str]
 class Penjualan(BasePage):
     _ZERO_STOCK_ALERT_RE = re.compile(
         r"tidak\s+dapat\s+transaksi.*stok\s+tabung.*(?:kosong|\b0\b)",
-        re.I | re.S,
+        re.IGNORECASE | re.DOTALL,
     )
 
     def __init__(self, page: Page) -> None:
         super().__init__(page)
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
         self.cek_max_kuota_alert = page.locator("div.mantine-Text-root").filter(
-            has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.I | re.S)
+            has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.IGNORECASE | re.DOTALL)
         )
         self.transaction_blocker_alert = page.locator(
             ".styles_alertInfo__WvEN4 .styles_content__fqQml > span:nth-child(1), "
             "div.mantine-Text-root"
-        ).filter(has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.I | re.S))
+        ).filter(has_text=re.compile(r"Tidak\s+dapat\s+transaksi", re.IGNORECASE | re.DOTALL))
         self.zero_stock_alert_text = page.locator(
             ".styles_alertInfo__WvEN4 .styles_content__fqQml > span:nth-child(1)"
         )

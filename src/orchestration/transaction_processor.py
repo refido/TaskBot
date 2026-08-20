@@ -1,4 +1,3 @@
-from typing import Optional
 
 from playwright.sync_api import Page
 
@@ -95,7 +94,7 @@ class TransactionProcessor:
         attempt_number = 1
 
         while True:
-            puzzle_solved: Optional[bool] = None
+            puzzle_solved: bool | None = None
             puzzle_attempts = 0
             puzzle_retry_count = 0
             puzzle_retry_process = ""
@@ -186,10 +185,7 @@ class TransactionProcessor:
                     retry_limit=self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK,
                 ).warning(str(exc))
 
-                if (
-                    session_retries_used
-                    >= self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK
-                ):
+                if session_retries_used >= self._MAX_SESSION_RECOVERY_RETRIES_PER_NIK:
                     self.reporter.error(
                         nik,
                         started_at,
@@ -216,10 +212,7 @@ class TransactionProcessor:
                 attempt_number += 1
                 continue
             except Exception as exc:
-                if (
-                    general_error_retries_used
-                    < self._MAX_GENERAL_ERROR_RETRIES_PER_NIK
-                ):
+                if general_error_retries_used < self._MAX_GENERAL_ERROR_RETRIES_PER_NIK:
                     general_error_retries_used += 1
                     logger.bind(
                         event="transaction.retrying_after_general_error",
@@ -291,7 +284,13 @@ class TransactionProcessor:
         self.limiter.wait_if_needed(self.page)
 
     def _navigate_to_transaction(self, nik: str) -> None:
-        self.dashboard.catat_penjualan(nik)
+        outcome = self.dashboard.catat_penjualan(nik)
+
+        if outcome == "zero_stock":
+            raise OutOfSellableStockError(
+                "Stok Tabung Kosong; transaction processing stopped."
+            )
+
         self.page.wait_for_load_state(self._LOAD_STATE)
 
     def _return_to_dashboard(self, cek_penjualan: CekPenjualan) -> None:
