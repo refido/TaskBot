@@ -1,7 +1,13 @@
 import re
 from typing import Literal
 
-from playwright.sync_api import Page, TimeoutError, expect
+from playwright.sync_api import (
+    Error as PlaywrightError,
+    Locator,
+    Page,
+    TimeoutError,
+    expect,
+)
 
 from src.infrastructure.browser.page_objects.base_page import BasePage
 from src.logging_utils import log_print
@@ -99,24 +105,27 @@ class Dashboard(BasePage):
 
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
 
-        self.jenis_pelanggan_modal = page.get_by_role("dialog").filter(
-            has_text="Jenis Pelanggan"
-        )
-
-        self.jenis_pelanggan = self.jenis_pelanggan_modal.get_by_text(
-            "Rumah Tangga", exact=True
-        )
-
-        self.jenis_pelanggan_usaha_mikro = (
-            self.jenis_pelanggan_modal.locator("span.styles_label__6NaHc")
-            .filter(has_text=re.compile(r"^\s*Usaha Mikro\s*$", re.IGNORECASE))
+        self.jenis_pelanggan_modal = (
+            page.get_by_role("dialog")
+            .filter(
+                has_text=re.compile(
+                    r"Jenis\s+Pelanggan|"
+                    r"Pelanggan\s+Terdaftar|"
+                    r"pilihan\s+jenis\s+pelanggan",
+                    re.IGNORECASE,
+                )
+            )
             .first
         )
 
         self.jenis_pelanggan_lanjutkan_penjualan_button = (
-            self.jenis_pelanggan_modal.locator("button.styles_primary__k_AUJ")
-            .filter(has_text=re.compile(r"^\s*LANJUTKAN PENJUALAN\s*$", re.IGNORECASE))
-            .first
+            self.jenis_pelanggan_modal.get_by_role(
+                "button",
+                name=re.compile(
+                    r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
+                    re.IGNORECASE,
+                ),
+            ).first
         )
 
         self.pelanggan_tidak_terdaftar_title = (
@@ -520,55 +529,286 @@ class Dashboard(BasePage):
                 return modal_name
         return None
 
-    def select_jenis_pelanggan_if_needed(self, detect_timeout: int = 2000) -> bool:
+    def select_jenis_pelanggan_if_needed(
+        self,
+        detect_timeout: int = 5000,
+    ) -> bool:
         try:
-            self.jenis_pelanggan_modal.wait_for(state="visible", timeout=detect_timeout)
-        except TimeoutError as exc:
-            log_print("Jenis Pelanggan modal not present; skipping.", exc)
+            self.jenis_pelanggan_modal.wait_for(
+                state="visible",
+                timeout=detect_timeout,
+            )
+        except TimeoutError:
+            log_print("Jenis Pelanggan modal not present; skipping.")
             return False
 
         self.select_jenis_pelanggan()
         return True
 
     def select_jenis_pelanggan(self) -> None:
-        selected_option_name = ""
-        selection_errors: list[str] = []
+        """
+        Select a usable customer type and continue.
 
-        for option_name, radio_button in [
-            ("Rumah Tangga", self.jenis_pelanggan),
-            ("Usaha Mikro", self.jenis_pelanggan_usaha_mikro),
-        ]:
-            try:
-                expect(radio_button).to_be_visible(timeout=10000)
-                self.click_locator(
-                    radio_button,
-                    action_name=f"selecting jenis pelanggan '{option_name}'",
-                    expected_text=option_name,
-                    timeout_ms=10000,
-                )
-                log_print(f"Jenis Pelanggan radio_button clicked ({option_name})")
-                selected_option_name = option_name
-                break
-            except Exception as exc:
-                selection_errors.append(f"{option_name}: {exc}")
-                log_print(
-                    f"Jenis Pelanggan option '{option_name}' was not usable; trying next option.",
-                    exc,
-                )
+        Selection policy:
+        1. Rumah Tangga
+        2. Usaha Mikro
+        3. First visible/enabled generic radio as fallback
+        """
 
-        if not selected_option_name:
+        expect(self.jenis_pelanggan_modal).to_be_visible(timeout=15000)
+
+        selection = self._find_customer_type_choice()
+
+        if selection is None:
             raise RuntimeError(
-                "Failed to select any Jenis Pelanggan option: "
-                + " | ".join(selection_errors)
+                "Jenis Pelanggan modal is visible, but no usable "
+                "customer-type option could be found."
             )
 
-        self.click_locator(
-            self.jenis_pelanggan_lanjutkan_penjualan_button,
-            action_name="continuing Jenis Pelanggan flow",
-            expected_text="LANJUTKAN PENJUALAN",
-            timeout_ms=10000,
+        option_name, choice = selection
+
+        log_print(f"Jenis Pelanggan option selected for interaction: {option_name}")
+
+        # Important:
+        # Once we attempt this click, DO NOT try another customer type.
+        # The click might succeed even if the UI is slow afterward.
+        try:
+            choice.click(timeout=15000)
+        except PlaywrightError as exc:
+            raise RuntimeError(
+                f"Failed to click Jenis Pelanggan option '{option_name}'."
+            ) from exc
+
+        log_print(f"Jenis Pelanggan option clicked: {option_name}")
+
+        # Wait for selection to propagate to the UI.
+        continue_button = self._find_jenis_pelanggan_continue_button()
+
+        if continue_button is None:
+            raise RuntimeError(
+                "Jenis Pelanggan option was clicked, but "
+                "LANJUTKAN PENJUALAN button could not be found."
+            )
+
+        try:
+            expect(continue_button).to_be_visible(timeout=15000)
+
+            expect(continue_button).to_be_enabled(timeout=15000)
+
+        except AssertionError as exc:
+            raise RuntimeError(
+                "LANJUTKAN PENJUALAN button did not become "
+                "visible and enabled after selecting customer type."
+            ) from exc
+
+        log_print("Jenis Pelanggan selection accepted; LANJUTKAN PENJUALAN is enabled.")
+
+        # Click only once.
+        try:
+            continue_button.click(timeout=15000)
+        except PlaywrightError as exc:
+            raise RuntimeError(
+                "Failed to click LANJUTKAN PENJUALAN from Jenis Pelanggan modal."
+            ) from exc
+
+        log_print("Lanjutkan Penjualan button clicked from Jenis Pelanggan modal")
+
+        # The customer-type modal should disappear after successful continue.
+        try:
+            self.jenis_pelanggan_modal.wait_for(
+                state="hidden",
+                timeout=7000,
+            )
+        except TimeoutError:
+            # Don't immediately click again.
+            #
+            # The action may already have succeeded and the application
+            # may simply be slow transitioning to the next state.
+            log_print(
+                "Jenis Pelanggan modal did not disappear immediately "
+                "after LANJUTKAN PENJUALAN; continuing state detection."
+            )
+
+    def _find_customer_type_choice(
+        self,
+    ) -> tuple[str, Locator] | None:
+        """
+        Find a customer-type option without relying on generated CSS classes.
+
+        Prefer the known business order:
+        Rumah Tangga -> Usaha Mikro.
+
+        If neither known label can be resolved, fall back to the first
+        visible/enabled semantic radio control.
+        """
+
+        for option_name in (
+            "Rumah Tangga",
+            "Usaha Mikro",
+        ):
+            log_print(f"Inspecting Jenis Pelanggan option: {option_name}")
+
+            choice = self._find_named_customer_type_choice(option_name)
+
+            if choice is not None:
+                return option_name, choice
+
+            log_print(
+                f"Jenis Pelanggan option '{option_name}' "
+                "not usable; trying next option."
+            )
+
+        log_print(
+            "Known Jenis Pelanggan options were not usable; "
+            "trying generic radio fallback."
         )
-        log_print("Lanjutkan Penjualan button clicked")
+
+        generic_choice = self._find_first_available_customer_type_choice()
+
+        if generic_choice is not None:
+            return "first visible/enabled customer type", generic_choice
+
+        return None
+
+    def _find_named_customer_type_choice(
+        self,
+        option_name: str,
+    ) -> Locator | None:
+        """
+        Locate a known customer type through semantic selectors.
+
+        Try:
+        1. accessible radio
+        2. visible label
+        3. visible text
+
+        No generated CSS-module classes are used.
+        """
+
+        scope = self.jenis_pelanggan_modal
+
+        option_pattern = re.compile(
+            rf"^\s*{re.escape(option_name)}\s*$",
+            re.IGNORECASE,
+        )
+
+        candidates = (
+            scope.get_by_role(
+                "radio",
+                name=option_pattern,
+            ),
+            scope.locator("label").filter(has_text=option_pattern),
+            scope.get_by_text(
+                option_pattern,
+            ),
+        )
+
+        for collection in candidates:
+            choice = self._first_usable_locator(collection)
+
+            if choice is not None:
+                return choice
+
+        return None
+
+    def _find_first_available_customer_type_choice(
+        self,
+    ) -> Locator | None:
+        """
+        Generic fallback when the known customer labels cannot be resolved.
+
+        This allows the automation to survive markup changes while still
+        avoiding generated CSS classes.
+        """
+
+        scope = self.jenis_pelanggan_modal
+
+        candidates = (
+            # Best case: accessible semantic radios.
+            scope.get_by_role("radio"),
+            # Common custom-radio implementation:
+            # visible label wrapping a hidden native radio.
+            scope.locator("label:has(input[type='radio'])"),
+            # Last semantic fallback.
+            scope.locator("input[type='radio']"),
+        )
+
+        for collection in candidates:
+            choice = self._first_usable_locator(collection)
+
+            if choice is not None:
+                return choice
+
+        return None
+
+    def _find_jenis_pelanggan_continue_button(
+        self,
+    ) -> Locator | None:
+        """
+        Locate LANJUTKAN PENJUALAN inside the customer-type modal.
+
+        Semantic role is primary. Plain button text is a fallback.
+        """
+
+        scope = self.jenis_pelanggan_modal
+
+        button_pattern = re.compile(
+            r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
+            re.IGNORECASE,
+        )
+
+        candidates = (
+            scope.get_by_role(
+                "button",
+                name=button_pattern,
+            ),
+            scope.locator("button").filter(has_text=button_pattern),
+        )
+
+        for collection in candidates:
+            button = self._first_usable_locator(
+                collection,
+                require_enabled=False,
+            )
+
+            if button is not None:
+                return button
+
+        return None
+
+    def _first_usable_locator(
+        self,
+        collection: Locator,
+        *,
+        require_enabled: bool = True,
+    ) -> Locator | None:
+        """
+        Return the first visible/actionable locator from a collection.
+        """
+
+        try:
+            count = collection.count()
+        except PlaywrightError as exc:
+            raise RuntimeError("Unable to inspect Jenis Pelanggan controls.") from exc
+
+        for index in range(count):
+            candidate = collection.nth(index)
+
+            try:
+                if not candidate.is_visible():
+                    continue
+
+                if require_enabled and not candidate.is_enabled():
+                    continue
+
+                return candidate
+
+            except PlaywrightError:
+                # DOM may have rerendered while inspecting.
+                # Try the next current candidate.
+                continue
+
+        return None
 
     def read_pelanggan_tidak_terdaftar_reason_if_present(
         self, detect_timeout: int = 6000
