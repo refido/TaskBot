@@ -4,7 +4,7 @@ import math
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Any
@@ -16,8 +16,9 @@ from src.infrastructure.browser.page_objects.dashboard_page import Dashboard
 from src.infrastructure.browser.page_objects.login_page import Login
 from src.infrastructure.sessions.xhr_tracker import XHRTracker
 from src.logging_utils import log_print, logger
+from src.privacy import sanitize_public_value
 
-CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=timezone.utc)
+CHROMIUM_EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 DEFAULT_NETWORK_WAIT_MS = 3000
 
 
@@ -59,7 +60,7 @@ def datetime_to_rfc1123(value: datetime | None) -> str | None:
     if value is None:
         return None
 
-    return format_datetime(value.astimezone(timezone.utc), usegmt=True)
+    return format_datetime(value.astimezone(UTC), usegmt=True)
 
 
 def unix_seconds_to_datetime(value: Any) -> datetime | None:
@@ -68,15 +69,15 @@ def unix_seconds_to_datetime(value: Any) -> datetime | None:
 
     try:
         seconds = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
     if not math.isfinite(seconds) or seconds < 0:
         return None
 
     try:
-        return datetime.fromtimestamp(seconds, tz=timezone.utc)
-    except (OverflowError, OSError, ValueError):
+        return datetime.fromtimestamp(seconds, tz=UTC)
+    except OverflowError, OSError, ValueError:
         return None
 
 
@@ -86,7 +87,7 @@ def chromium_timestamp_to_datetime(value: Any) -> datetime | None:
 
     try:
         microseconds = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
     if microseconds <= 0:
@@ -261,7 +262,9 @@ def build_enriched_cookies(
         last_accessed = chromium_timestamp_to_datetime(
             sqlite_cookie.get("last_access_utc")
         )
-        updated_at = chromium_timestamp_to_datetime(sqlite_cookie.get("last_update_utc"))
+        updated_at = chromium_timestamp_to_datetime(
+            sqlite_cookie.get("last_update_utc")
+        )
         expires_at = chromium_timestamp_to_datetime(sqlite_cookie.get("expires_utc"))
         if expires_at is None:
             expires_at = unix_seconds_to_datetime(cdp_cookie.get("expires"))
@@ -366,14 +369,13 @@ def build_enriched_cookies(
 
 
 def log_cookie(operator: str, index: int, cookie: dict[str, Any]) -> None:
-    serialized = json.dumps(cookie, ensure_ascii=True, sort_keys=True)
     log_print(
-        f"[{operator}] Cookie {index}: {serialized}",
+        f"[{operator}] Cookie {index}: metadata captured (value redacted)",
         event="user_session.cookie",
-        operator=operator,
+        operator_id=operator,
         cookie_index=index,
         cookie_name=str(cookie.get("name", "")),
-        cookie_value=str(cookie.get("value", "")),
+        cookie_value="<redacted>",
         cookie_domain=str(cookie.get("domain", "")),
         cookie_path=str(cookie.get("path", "")),
         cookie_created=str(cookie.get("created", "")),
@@ -430,13 +432,13 @@ def build_operator_paths(output_dir: Path, operator: str) -> dict[str, Path]:
 
 
 def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts:
-    operator = config.email_user or "unknown"
+    operator = config.operator_id
     paths = build_operator_paths(output_dir, operator)
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
             user_data_dir=str(paths["profile_dir"]),
-            headless=True,
+            headless=config.headless,
         )
 
         try:
@@ -468,7 +470,11 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             web_storage = capture_browser_state(page)
             xhr_entries = xhr_tracker.export()
             session_summary = {
-                "captured_at_iso": datetime.now(timezone.utc).isoformat(),
+                "captured_at_iso": datetime.now(UTC).isoformat(),
+                "run_id": str(
+                    getattr(getattr(config, "run_context", None), "run_id", "")
+                ),
+                "operator_id": operator,
                 "operator": operator,
                 "application_url": config.url_application,
                 "final_url": page.url,
@@ -507,7 +513,7 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
     write_json(paths["storage_state"], storage_state)
     write_json(paths["web_storage"], web_storage)
     write_json(paths["xhr"], xhr_entries)
-    write_json(paths["session_summary"], session_summary)
+    write_json(paths["session_summary"], sanitize_public_value(session_summary))
 
     log_print(
         f"[{operator}] Session captured with {len(enriched_cookies)} cookies and {len(xhr_entries)} XHR/fetch requests",

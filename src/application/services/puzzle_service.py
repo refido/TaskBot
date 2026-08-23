@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.logging_utils import log_print, logger
+from src.privacy import display_nik
 
 
 @dataclass(slots=True)
@@ -38,7 +40,8 @@ class PuzzleService:
     ) -> None:
         self.page = page
         self.dashboard = dashboard
-        self.operator_email = operator_email
+        # Parameter name is kept for compatibility; callers now pass the safe ID.
+        self.operator_id = operator_email
         self.helpers_factory = helpers_factory
         self.puzzle_solver_factory = puzzle_solver_factory
         self.slider_solver = slider_solver
@@ -98,6 +101,7 @@ class PuzzleService:
 
             success = self._call_slider_solver(
                 imgs={"background": Path(bg_path), "piece": Path(piece_path)},
+                nik=nik,
                 image_arrays=image_arrays,
                 puzzle_result=position,
                 puzzle_result_path=result_path,
@@ -128,7 +132,7 @@ class PuzzleService:
             retry_process = self.retry_process
             logger.bind(
                 event="transaction.puzzle_retry",
-                operator=self.operator_email,
+                operator_id=self.operator_id,
                 nik=str(nik),
                 retry_count=retry_count,
                 retry_process=retry_process,
@@ -155,6 +159,7 @@ class PuzzleService:
         self,
         *,
         imgs: dict[str, Path],
+        nik: str,
         image_arrays: dict[str, Any] | None,
         puzzle_result: Any,
         puzzle_result_path: Path,
@@ -162,6 +167,7 @@ class PuzzleService:
     ) -> bool:
         kwargs: dict[str, Any] = {"max_wait_success_ms": self.max_wait_success_ms}
         optional_kwargs: dict[str, Any] = {
+            "nik": display_nik(nik),
             "image_arrays": image_arrays,
             "puzzle_result": puzzle_result,
             "puzzle_result_path": puzzle_result_path,
@@ -170,7 +176,7 @@ class PuzzleService:
 
         try:
             params = signature(self.slider_solver).parameters
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             params = {}
 
         accepts_kwargs = any(

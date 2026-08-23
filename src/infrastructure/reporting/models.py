@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 def now_iso() -> str:
@@ -14,7 +13,7 @@ def parse_iso(iso_str: str) -> datetime:
     """Parse ISO format timestamp to datetime object."""
     try:
         return datetime.fromisoformat(iso_str)
-    except Exception:
+    except TypeError, ValueError:
         # Preserve original behavior: fallback to "now" on any parsing error.
         return datetime.now().astimezone()
 
@@ -26,17 +25,26 @@ class TransactionRow:
     nik: str
     status: str
     operator: str = ""
+    run_id: str = ""
+    operator_id: str = ""
     started_at: str = ""
     finished_at: str = ""
     url: str = ""
     error: str = ""
     error_label: str = ""
     duration_seconds: float = 0.0
-    puzzle_solved: Optional[bool] = None
+    puzzle_solved: bool | None = None
     puzzle_attempts: int = 0
     puzzle_retry_count: int = 0
     puzzle_retry_process: str = ""
     reason: str = ""
+
+    def __post_init__(self) -> None:
+        """Keep the legacy ``operator`` field as a safe-ID compatibility alias."""
+        if not self.operator_id:
+            self.operator_id = self.operator
+        if not self.operator:
+            self.operator = self.operator_id
 
     def compute_duration(self) -> None:
         """Calculate duration between started_at and finished_at."""
@@ -47,7 +55,7 @@ class TransactionRow:
             start = parse_iso(self.started_at)
             finish = parse_iso(self.finished_at)
             self.duration_seconds = (finish - start).total_seconds()
-        except Exception:
+        except TypeError, ValueError:
             # Preserve original behavior: default to 0.0 on error.
             self.duration_seconds = 0.0
 
@@ -67,3 +75,32 @@ class RetryEvent:
     url: str = ""
     reason: str = ""
     error_label: str = ""
+    run_id: str = ""
+    operator_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.operator_id:
+            self.operator_id = self.operator
+        if not self.operator:
+            self.operator = self.operator_id
+
+
+@dataclass(frozen=True)
+class WorkflowEvent:
+    """Business-state telemetry kept separate from terminal transaction rows."""
+
+    operator: str
+    nik: str
+    event: str
+    recorded_at: str
+    stage: str = ""
+    url: str = ""
+    reason: str = ""
+    run_id: str = ""
+    operator_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.operator_id:
+            object.__setattr__(self, "operator_id", self.operator)
+        if not self.operator:
+            object.__setattr__(self, "operator", self.operator_id)

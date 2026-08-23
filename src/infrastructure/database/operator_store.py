@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,9 +15,16 @@ from dotenv import load_dotenv
 from psycopg2 import sql
 
 from src.logging_utils import logger
+from src.privacy import register_private_values
 
 OPERATOR_TABLE_NAMES = ("OPERATOR_1", "OPERATOR_2")
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
+
+_OPERATOR_TABLE_PATTERN = re.compile(r"^OPERATOR_\d+$")
+_NUMBERED_TARGET_KEY_PATTERN = re.compile(
+    r"^(?:NAME_OPERATORS|EMAIL|PIN|NIK)_(\d+)$|^OPERATOR_(\d+)_ID$"
+)
+_NUMBERED_ACCOUNT_KEY_PATTERN = re.compile(r"^(?:EMAIL|PIN|NIK)_(\d+)$")
 
 _COLUMN_NAMES = (
     "OPERATOR",
@@ -28,6 +36,8 @@ _COLUMN_NAMES = (
     "STATUS_CODE",
     "STATUS_CODE_DESCRIPTION",
     "PROBLEM",
+    "LAST_TRANSACTION_TIME",
+    "PREVIOUS_TRANSACTION_TIME",
     "UPDATED_TIME",
     "CREATED_TIME",
 )
@@ -49,6 +59,9 @@ _STATUS_MAPPINGS = {
     "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
     "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
     "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
+    "skipped_registration_request_limited": ReportStatusMapping(
+        429, "Consumer registration request limit reached"
+    ),
     "failed_puzzle_solve": ReportStatusMapping(422, "Puzzle solving failed"),
     "skipped_need updated customer data": ReportStatusMapping(
         422, "Consumer data needs update"
@@ -87,7 +100,7 @@ class DatabaseConfig:
         environ: Mapping[str, str] | None = None,
         *,
         load_env_file: bool = True,
-    ) -> "DatabaseConfig":
+    ) -> DatabaseConfig:
         if load_env_file:
             load_dotenv()
 
@@ -107,12 +120,14 @@ class DatabaseConfig:
         except ValueError as exc:
             raise ValueError("DB_PORT must be a number.") from exc
 
+        password = source["DB_PASSWORD"]
+        register_private_values(password)
         return cls(
             host=source["DB_HOST"].strip(),
             port=port,
             name=source["DB_NAME"].strip(),
             user=source["DB_USER"].strip(),
-            password=source["DB_PASSWORD"],
+            password=password,
             maintenance_name=source.get("DB_MAINTENANCE_NAME", "postgres").strip()
             or "postgres",
         )
@@ -123,10 +138,15 @@ class OperatorTarget:
     table_name: str
     operator_name: str
     aliases: tuple[str, ...] = ()
+    operator_id: str = ""
 
     def matches(self, operator: str) -> bool:
         normalized = _normalize_key(operator)
-        return any(_normalize_key(alias) == normalized for alias in self.aliases)
+        return any(
+            _normalize_key(alias) == normalized
+            for alias in (*self.aliases, self.operator_id)
+            if alias
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,21 +159,66 @@ class OperatorTargets:
         environ: Mapping[str, str] | None = None,
         *,
         load_env_file: bool = True,
-    ) -> "OperatorTargets":
+    ) -> OperatorTargets:
         if load_env_file:
             load_dotenv()
 
         source = os.environ if environ is None else environ
         targets: list[OperatorTarget] = []
-        for index, table_name in enumerate(OPERATOR_TABLE_NAMES, start=1):
-            operator_name = source.get(f"NAME_OPERATORS_{index}", "").strip()
+        configured_operator_ids: dict[str, str] = {}
+        numbered_account_configured = any(
+            _NUMBERED_ACCOUNT_KEY_PATTERN.fullmatch(key)
+            and str(value).strip()
+            for key, value in source.items()
+        )
+        use_legacy_account = not numbered_account_configured and any(
+            source.get(key, "").strip() for key in ("EMAIL", "PIN", "NIK")
+        )
+        suffixes = _collect_operator_suffixes(source)
+        if use_legacy_account:
+            suffixes.add("1")
+
+        for suffix in sorted(suffixes, key=lambda value: (int(value), value)):
+            table_name = f"OPERATOR_{suffix}"
+            legacy_target = use_legacy_account and int(suffix) == 1
+            email_key = "EMAIL" if legacy_target else f"EMAIL_{suffix}"
+            pin_key = "PIN" if legacy_target else f"PIN_{suffix}"
+            nik_key = "NIK" if legacy_target else f"NIK_{suffix}"
+            operator_id_key = (
+                "OPERATOR_ID" if legacy_target else f"OPERATOR_{suffix}_ID"
+            )
+            target_keys = (
+                f"NAME_OPERATORS_{suffix}",
+                email_key,
+                pin_key,
+                nik_key,
+                operator_id_key,
+            )
+            if not any(source.get(key, "").strip() for key in target_keys):
+                continue
+
+            operator_name = source.get(f"NAME_OPERATORS_{suffix}", "").strip()
             if not operator_name:
-                raise ValueError(f"Missing NAME_OPERATORS_{index}.")
+                raise ValueError(f"Missing NAME_OPERATORS_{suffix}.")
+
+            operator_id = (
+                source.get(operator_id_key, "").strip()
+                or f"operator_{int(suffix):02d}"
+            )
+            normalized_operator_id = _normalize_key(operator_id)
+            existing_table = configured_operator_ids.get(normalized_operator_id)
+            if existing_table is not None:
+                raise ValueError(
+                    "Operator IDs must be unique; "
+                    f"{existing_table} and {table_name} use the same ID."
+                )
+            configured_operator_ids[normalized_operator_id] = table_name
 
             aliases = _dedupe_nonempty(
                 (
+                    operator_id,
                     operator_name,
-                    source.get(f"EMAIL_{index}", ""),
+                    source.get(email_key, ""),
                     table_name,
                 )
             )
@@ -162,7 +227,14 @@ class OperatorTargets:
                     table_name=table_name,
                     operator_name=operator_name,
                     aliases=aliases,
+                    operator_id=operator_id,
                 )
+            )
+
+        if not targets:
+            raise ValueError(
+                "No operator targets configured. Define NAME_OPERATORS_<n> for "
+                "at least one configured account."
             )
 
         return cls(tuple(targets))
@@ -182,7 +254,7 @@ class OperatorTargets:
                 return target
 
         configured = ", ".join(
-            f"{target.table_name}={target.operator_name}" for target in self.targets
+            f"{target.table_name}={target.operator_id}" for target in self.targets
         )
         raise ValueError(
             f"Report operator {operator!r} does not match configured operators: {configured}"
@@ -206,7 +278,7 @@ class OperatorDbRecord:
         cls,
         payload: Mapping[str, Any],
         target: OperatorTarget,
-    ) -> "OperatorDbRecord":
+    ) -> OperatorDbRecord:
         status = _normalize_status(payload.get("status"))
         is_successful = status in _SUCCESS_STATUSES
         status_mapping = _map_report_status(status)
@@ -233,11 +305,22 @@ class OperatorDbRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviousTransactionReport:
+    table_name: str
+    operator: str
+    nik: int
+    previous_transaction_time: datetime
+    current_transaction_time: datetime
+    kuota_before: int
+
+
+@dataclass(frozen=True, slots=True)
 class SyncSummary:
     source: str
     processed: int = 0
     inserted_or_updated: int = 0
     skipped: int = 0
+    previous_transactions: tuple[PreviousTransactionReport, ...] = ()
 
 
 class OperatorDatabaseManager:
@@ -252,7 +335,7 @@ class OperatorDatabaseManager:
         *,
         load_env_file: bool = True,
         require_operator_targets: bool = True,
-    ) -> "OperatorDatabaseManager":
+    ) -> OperatorDatabaseManager:
         config = DatabaseConfig.from_env(environ, load_env_file=load_env_file)
         targets = (
             OperatorTargets.from_env(environ, load_env_file=False)
@@ -262,6 +345,7 @@ class OperatorDatabaseManager:
         return cls(config=config, targets=targets)
 
     def ensure_database_and_tables(self) -> None:
+        table_names = self._operator_table_names()
         logger.bind(
             event="database.ensure.started",
             **self._log_context(),
@@ -278,12 +362,14 @@ class OperatorDatabaseManager:
             raise
         logger.bind(
             event="database.ensure.finished",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(),
         ).info("Database setup finished")
 
     def ensure_database_exists(self) -> None:
-        log_context = self._log_context(connection_database=self.config.maintenance_name)
+        log_context = self._log_context(
+            connection_database=self.config.maintenance_name
+        )
         logger.bind(
             event="database.database_check.started",
             **log_context,
@@ -316,33 +402,44 @@ class OperatorDatabaseManager:
             connection.close()
 
     def ensure_tables_exist(self) -> None:
+        table_names = self._operator_table_names()
         logger.bind(
             event="database.tables.ensure.started",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Ensuring PostgreSQL operator tables")
-        with self._connect(self.config.name) as connection:
-            with connection.cursor() as cursor:
-                for table_name in OPERATOR_TABLE_NAMES:
-                    logger.bind(
-                        event="database.table.ensure.started",
-                        table_name=table_name,
-                        **self._log_context(connection_database=self.config.name),
-                    ).info("Ensuring PostgreSQL operator table")
-                    cursor.execute(self._create_table_sql(table_name))
-                    self._migrate_table_schema(cursor, table_name)
-                    logger.bind(
-                        event="database.table.ensure.finished",
-                        table_name=table_name,
-                        **self._log_context(connection_database=self.config.name),
-                    ).info("PostgreSQL operator table is ready")
+        with (
+            self._connect(self.config.name) as connection,
+            connection.cursor() as cursor,
+        ):
+            for table_name in table_names:
+                operator_id = self._operator_id_for_table(table_name)
+                logger.bind(
+                    event="database.table.ensure.started",
+                    table_name=table_name,
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=operator_id,
+                    ),
+                ).info("Ensuring PostgreSQL operator table")
+                cursor.execute(self._create_table_sql(table_name))
+                self._migrate_table_schema(cursor, table_name)
+                logger.bind(
+                    event="database.table.ensure.finished",
+                    table_name=table_name,
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=operator_id,
+                    ),
+                ).info("PostgreSQL operator table is ready")
         logger.bind(
             event="database.tables.ensure.finished",
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("PostgreSQL operator tables are ready")
 
     def reset_monthly_quotas(self, reference_time: datetime | None = None) -> None:
+        table_names = self._operator_table_names()
         normalized_time = _normalize_datetime(
             reference_time or datetime.now().astimezone()
         )
@@ -350,35 +447,40 @@ class OperatorDatabaseManager:
         logger.bind(
             event="database.monthly_quota_reset.started",
             reference_time=format_db_datetime(normalized_time),
-            tables=list(OPERATOR_TABLE_NAMES),
+            tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Monthly quota reset started")
-        with self._connect(self.config.name) as connection:
-            with connection.cursor() as cursor:
-                for table_name in OPERATOR_TABLE_NAMES:
-                    cursor.execute(
-                        sql.SQL(
-                            """
-                            UPDATE {table}
-                            SET {kuota} = 0
-                            WHERE date_trunc('month', {updated_time})
-                                  < date_trunc('month', %s::timestamp)
-                              AND {kuota} <> 0
-                            """
-                        ).format(
-                            table=sql.Identifier(table_name),
-                            kuota=sql.Identifier("KUOTA"),
-                            updated_time=sql.Identifier("UPDATED_TIME"),
-                        ),
-                        (normalized_time,),
-                    )
-                    row_counts[table_name] = getattr(cursor, "rowcount", None)
-                    logger.bind(
-                        event="database.monthly_quota_reset.table_finished",
-                        table_name=table_name,
-                        rows_updated=row_counts[table_name],
-                        **self._log_context(connection_database=self.config.name),
-                    ).info("Monthly quota reset table finished")
+        with (
+            self._connect(self.config.name) as connection,
+            connection.cursor() as cursor,
+        ):
+            for table_name in table_names:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        UPDATE {table}
+                        SET {kuota} = 0
+                        WHERE date_trunc('month', {updated_time})
+                              < date_trunc('month', %s::timestamp)
+                          AND {kuota} <> 0
+                        """
+                    ).format(
+                        table=sql.Identifier(table_name),
+                        kuota=sql.Identifier("KUOTA"),
+                        updated_time=sql.Identifier("UPDATED_TIME"),
+                    ),
+                    (normalized_time,),
+                )
+                row_counts[table_name] = getattr(cursor, "rowcount", None)
+                logger.bind(
+                    event="database.monthly_quota_reset.table_finished",
+                    table_name=table_name,
+                    rows_updated=row_counts[table_name],
+                    **self._log_context(
+                        connection_database=self.config.name,
+                        operator_id=self._operator_id_for_table(table_name),
+                    ),
+                ).info("Monthly quota reset table finished")
         logger.bind(
             event="database.monthly_quota_reset.finished",
             row_counts=row_counts,
@@ -391,60 +493,128 @@ class OperatorDatabaseManager:
         report_path: str | Path,
         *,
         table_name: str | None = None,
+        connection: Any | None = None,
     ) -> SyncSummary:
         path = Path(report_path)
+
+        return self.sync_report_payloads(
+            read_report_payloads(path),
+            source=str(path),
+            table_name=table_name,
+            connection=connection,
+        )
+
+    def sync_report_payloads(
+        self,
+        payloads: Iterable[Mapping[str, Any]],
+        *,
+        source: str,
+        table_name: str | None = None,
+        connection: Any | None = None,
+    ) -> SyncSummary:
+        """
+        Synchronize one ordered batch of report payloads.
+
+        When a connection is supplied, the caller owns the connection lifecycle.
+        Each call still uses its own transaction, allowing one persistent
+        PostgreSQL connection to be reused across multiple report rows.
+        """
         processed = 0
         changed = 0
         skipped = 0
+        previous_transactions: list[PreviousTransactionReport] = []
+        sync_operator_id = self._operator_id_for_table(table_name)
+
         logger.bind(
             event="database.report_sync.started",
-            report_path=str(path),
+            report_path=source,
             table_name=table_name,
-            **self._log_context(connection_database=self.config.name),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=sync_operator_id,
+            ),
         ).info("Report database sync started")
 
+        owns_connection = connection is None
+        db_connection = (
+            self._connect(self.config.name) if owns_connection else connection
+        )
+
         try:
-            with self._connect(self.config.name) as connection:
-                with connection.cursor() as cursor:
-                    for payload in read_report_payloads(path):
-                        processed += 1
-                        try:
-                            self.upsert_report_payload(
-                                payload,
-                                cursor=cursor,
-                                table_name=table_name,
-                            )
-                        except ValueError as exc:
-                            skipped += 1
-                            logger.bind(
-                                event="database.report_sync.row_skipped",
-                                report_path=str(path),
-                                row_number=processed,
-                                reason=str(exc),
-                                **self._log_context(
-                                    connection_database=self.config.name
+            # psycopg2 connection context creates a transaction boundary.
+            #
+            # On successful exit:
+            #     COMMIT
+            #
+            # On exception:
+            #     ROLLBACK
+            #
+            # It does NOT close a caller-owned persistent connection.
+            with db_connection, db_connection.cursor() as cursor:
+                for payload in payloads:
+                    processed += 1
+
+                    try:
+                        previous_transaction = self.upsert_report_payload(
+                            payload,
+                            cursor=cursor,
+                            table_name=table_name,
+                        )
+
+                    except ValueError as exc:
+                        skipped += 1
+
+                        logger.bind(
+                            event="database.report_sync.row_skipped",
+                            report_path=source,
+                            row_number=processed,
+                            reason=str(exc),
+                            **self._log_context(
+                                connection_database=self.config.name,
+                                operator_id=self._operator_id_for_payload(
+                                    payload,
+                                    table_name=table_name,
                                 ),
-                            ).warning("Report row skipped during database sync")
-                            continue
-                        changed += 1
+                            ),
+                        ).warning("Report row skipped during database sync")
+
+                        continue
+
+                    if previous_transaction is not None:
+                        previous_transactions.append(previous_transaction)
+
+                    changed += 1
+
         except Exception:
             logger.bind(
                 event="database.report_sync.failed",
-                report_path=str(path),
+                report_path=source,
                 table_name=table_name,
                 processed=processed,
                 inserted_or_updated=changed,
                 skipped=skipped,
-                **self._log_context(connection_database=self.config.name),
+                **self._log_context(
+                    connection_database=self.config.name,
+                    operator_id=sync_operator_id,
+                ),
             ).exception("Report database sync failed")
+
             raise
 
+        finally:
+            if owns_connection:
+                close_connection = getattr(db_connection, "close", None)
+                if callable(close_connection):
+                    close_connection()
+
         summary = SyncSummary(
-            source=str(path),
+            source=source,
             processed=processed,
             inserted_or_updated=changed,
             skipped=skipped,
+            previous_transactions=tuple(previous_transactions),
         )
+
         logger.bind(
             event="database.report_sync.finished",
             report_path=summary.source,
@@ -452,8 +622,13 @@ class OperatorDatabaseManager:
             processed=summary.processed,
             inserted_or_updated=summary.inserted_or_updated,
             skipped=summary.skipped,
-            **self._log_context(connection_database=self.config.name),
+            previous_transaction_count=len(summary.previous_transactions),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=sync_operator_id,
+            ),
         ).info("Report database sync finished")
+
         return summary
 
     def upsert_report_payload(
@@ -462,20 +637,93 @@ class OperatorDatabaseManager:
         *,
         cursor,
         table_name: str | None = None,
-    ) -> None:
+    ) -> PreviousTransactionReport | None:
         if self.targets is None:
             raise ValueError("Operator targets are required to sync report payloads.")
 
-        operator = str(payload.get("operator", "")).strip()
-        target = self.targets.resolve(operator, table_name=table_name)
+        target = self._resolve_payload_target(payload, table_name=table_name)
         record = OperatorDbRecord.from_report_payload(payload, target)
-        self.upsert_record(target.table_name, record, cursor=cursor)
+        return self.upsert_record(
+            target.table_name,
+            record,
+            cursor=cursor,
+            operator_id=target.operator_id,
+        )
+
+    def _resolve_payload_target(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        table_name: str | None = None,
+    ) -> OperatorTarget:
+        if self.targets is None:
+            raise ValueError("Operator targets are required to sync report payloads.")
+
+        if table_name is not None:
+            return self.targets.resolve("", table_name=table_name)
+
+        identifiers = _dedupe_nonempty(
+            (
+                str(payload.get("operator_id", "")),
+                str(payload.get("operator", "")),
+            )
+        )
+        for identifier in identifiers:
+            for target in self.targets.targets:
+                if target.matches(identifier):
+                    return target
+
+        unresolved_identifier = identifiers[0] if identifiers else ""
+        return self.targets.resolve(unresolved_identifier)
+
+    def _operator_id_for_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        table_name: str | None = None,
+    ) -> str | None:
+        try:
+            return self._resolve_payload_target(
+                payload,
+                table_name=table_name,
+            ).operator_id
+        except ValueError:
+            return self._operator_id_for_table(table_name)
+
+    def _operator_id_for_table(self, table_name: str | None) -> str | None:
+        if self.targets is None:
+            return None
+        if table_name is None:
+            if len(self.targets.targets) == 1:
+                return self.targets.targets[0].operator_id
+            return None
+        try:
+            return self.targets.resolve("", table_name=table_name).operator_id
+        except ValueError:
+            return None
 
     def upsert_record(
-        self, table_name: str, record: OperatorDbRecord, *, cursor
-    ) -> None:
+        self,
+        table_name: str,
+        record: OperatorDbRecord,
+        *,
+        cursor,
+        operator_id: str | None = None,
+    ) -> PreviousTransactionReport | None:
         normalized_table = _normalize_table_name(table_name)
         event_time = _normalize_datetime(record.event_time)
+        previous_transaction = self._find_previous_transaction(
+            normalized_table,
+            record,
+            event_time=event_time,
+            cursor=cursor,
+        )
+        last_transaction_time = event_time if record.kuota_delta > 0 else None
+        previous_transaction_time = (
+            previous_transaction.previous_transaction_time
+            if previous_transaction is not None
+            else None
+        )
         cursor.execute(
             self._upsert_sql(normalized_table),
             (
@@ -488,6 +736,8 @@ class OperatorDatabaseManager:
                 record.status_code,
                 record.status_code_description,
                 record.problem,
+                last_transaction_time,
+                previous_transaction_time,
                 event_time,
                 event_time,
             ),
@@ -500,8 +750,86 @@ class OperatorDatabaseManager:
             status_code=record.status_code,
             conflict=record.conflict,
             event_time=format_db_datetime(event_time),
-            **self._log_context(connection_database=self.config.name),
+            **self._log_context(
+                connection_database=self.config.name,
+                operator_id=operator_id,
+            ),
         ).debug("Report row upserted into database")
+        if previous_transaction is not None:
+            logger.bind(
+                event="database.report_sync.previous_transaction_detected",
+                table_name=normalized_table,
+                operator=record.operator,
+                nik=record.nik,
+                previous_transaction_time=format_db_datetime(
+                    previous_transaction.previous_transaction_time
+                ),
+                current_transaction_time=format_db_datetime(event_time),
+                kuota_before=previous_transaction.kuota_before,
+                **self._log_context(
+                    connection_database=self.config.name,
+                    operator_id=operator_id,
+                ),
+            ).info("Previous successful transaction found for report NIK")
+        return previous_transaction
+
+    @staticmethod
+    def _find_previous_transaction(
+        table_name: str,
+        record: OperatorDbRecord,
+        *,
+        event_time: datetime,
+        cursor,
+    ) -> PreviousTransactionReport | None:
+        if record.kuota_delta <= 0:
+            return None
+
+        normalized_table = _normalize_table_name(table_name)
+        last_transaction_time = sql.Identifier("LAST_TRANSACTION_TIME")
+        updated_time = sql.Identifier("UPDATED_TIME")
+        kuota = sql.Identifier("KUOTA")
+        nik = sql.Identifier("NIK")
+        cursor.execute(
+            sql.SQL(
+                """
+                SELECT {last_transaction_time}, {updated_time}, {kuota}
+                FROM {table}
+                WHERE {nik} = %s
+                """
+            ).format(
+                table=sql.Identifier(normalized_table),
+                last_transaction_time=last_transaction_time,
+                updated_time=updated_time,
+                kuota=kuota,
+                nik=nik,
+            ),
+            (record.nik,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        stored_last_transaction_time, stored_updated_time, stored_kuota = row
+        current_stored_time = _coerce_db_datetime(stored_updated_time)
+        if current_stored_time is not None and event_time <= current_stored_time:
+            return None
+
+        kuota_before = int(stored_kuota or 0)
+        previous_transaction_time = _coerce_db_datetime(stored_last_transaction_time)
+        if previous_transaction_time is None and kuota_before > 0:
+            previous_transaction_time = current_stored_time
+
+        if previous_transaction_time is None:
+            return None
+
+        return PreviousTransactionReport(
+            table_name=normalized_table,
+            operator=record.operator,
+            nik=record.nik,
+            previous_transaction_time=previous_transaction_time,
+            current_transaction_time=event_time,
+            kuota_before=kuota_before,
+        )
 
     def _connect(self, database_name: str):
         logger.bind(
@@ -516,7 +844,26 @@ class OperatorDatabaseManager:
             password=self.config.password,
         )
 
-    def _log_context(self, *, connection_database: str | None = None) -> dict[str, Any]:
+    def open_connection(self):
+        """Open a connection to the configured application database."""
+        return self._connect(self.config.name)
+
+    def _operator_table_names(self) -> tuple[str, ...]:
+        if self.targets is None:
+            return OPERATOR_TABLE_NAMES
+        return tuple(
+            dict.fromkeys(
+                _normalize_table_name(target.table_name)
+                for target in self.targets.targets
+            )
+        )
+
+    def _log_context(
+        self,
+        *,
+        connection_database: str | None = None,
+        operator_id: str | None = None,
+    ) -> dict[str, Any]:
         context: dict[str, Any] = {
             "db_host": self.config.host,
             "db_port": self.config.port,
@@ -524,6 +871,25 @@ class OperatorDatabaseManager:
         }
         if connection_database is not None:
             context["connection_database"] = connection_database
+
+        configured_operator_ids = (
+            [
+                target.operator_id
+                for target in self.targets.targets
+                if target.operator_id
+            ]
+            if self.targets is not None
+            else []
+        )
+        if configured_operator_ids:
+            context["operator_ids"] = configured_operator_ids
+
+        resolved_operator_id = operator_id
+        if resolved_operator_id is None and len(configured_operator_ids) == 1:
+            resolved_operator_id = configured_operator_ids[0]
+        if resolved_operator_id:
+            context["operator_id"] = resolved_operator_id
+
         return context
 
     @staticmethod
@@ -544,6 +910,8 @@ class OperatorDatabaseManager:
                 {status_code} INTEGER NOT NULL DEFAULT 0,
                 {status_code_description} TEXT NOT NULL DEFAULT '',
                 {problem} TEXT NOT NULL DEFAULT '',
+                {last_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
+                {previous_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
                 {updated_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 {created_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
@@ -559,6 +927,8 @@ class OperatorDatabaseManager:
             status_code=identifiers["status_code"],
             status_code_description=identifiers["status_code_description"],
             problem=identifiers["problem"],
+            last_transaction_time=identifiers["last_transaction_time"],
+            previous_transaction_time=identifiers["previous_transaction_time"],
             updated_time=identifiers["updated_time"],
             created_time=identifiers["created_time"],
         )
@@ -576,6 +946,9 @@ class OperatorDatabaseManager:
             (normalized_table,),
         )
         existing_columns = {str(row[0]).upper() for row in cursor.fetchall()}
+        should_backfill_last_transaction_time = (
+            "LAST_TRANSACTION_TIME" not in existing_columns
+        )
 
         if "NAMA" in existing_columns and "OPERATOR" not in existing_columns:
             cursor.execute(
@@ -598,12 +971,24 @@ class OperatorDatabaseManager:
             ("STATUS_CODE_DESCRIPTION", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             ("PROBLEM", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             (
+                "LAST_TRANSACTION_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE"),
+            ),
+            (
+                "PREVIOUS_TRANSACTION_TIME",
+                sql.SQL("TIMESTAMP WITHOUT TIME ZONE"),
+            ),
+            (
                 "UPDATED_TIME",
-                sql.SQL("TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                sql.SQL(
+                    "TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ),
             ),
             (
                 "CREATED_TIME",
-                sql.SQL("TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+                sql.SQL(
+                    "TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ),
             ),
         )
         for column_name, column_type in add_columns:
@@ -618,6 +1003,23 @@ class OperatorDatabaseManager:
             )
             existing_columns.add(column_name)
 
+        if should_backfill_last_transaction_time:
+            cursor.execute(
+                sql.SQL(
+                    """
+                    UPDATE {table}
+                    SET {last_transaction_time} = {updated_time}
+                    WHERE {kuota} > 0
+                      AND {last_transaction_time} IS NULL
+                    """
+                ).format(
+                    table=sql.Identifier(normalized_table),
+                    last_transaction_time=sql.Identifier("LAST_TRANSACTION_TIME"),
+                    updated_time=sql.Identifier("UPDATED_TIME"),
+                    kuota=sql.Identifier("KUOTA"),
+                )
+            )
+
     @staticmethod
     def _upsert_sql(table_name: str):
         table = sql.Identifier(_normalize_table_name(table_name))
@@ -630,6 +1032,8 @@ class OperatorDatabaseManager:
         status_code = sql.Identifier("STATUS_CODE")
         status_code_description = sql.Identifier("STATUS_CODE_DESCRIPTION")
         problem = sql.Identifier("PROBLEM")
+        last_transaction_time = sql.Identifier("LAST_TRANSACTION_TIME")
+        previous_transaction_time = sql.Identifier("PREVIOUS_TRANSACTION_TIME")
         updated_time = sql.Identifier("UPDATED_TIME")
         created_time = sql.Identifier("CREATED_TIME")
 
@@ -665,6 +1069,45 @@ class OperatorDatabaseManager:
             next_kuota=next_kuota,
         )
 
+        next_last_transaction_time = sql.SQL(
+            """
+            CASE
+                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
+                    THEN target.{last_transaction_time}
+                WHEN EXCLUDED.{kuota} > 0
+                    THEN EXCLUDED.{last_transaction_time}
+                ELSE target.{last_transaction_time}
+            END
+            """
+        ).format(
+            updated_time=updated_time,
+            kuota=kuota,
+            last_transaction_time=last_transaction_time,
+        )
+
+        next_previous_transaction_time = sql.SQL(
+            """
+            CASE
+                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
+                    THEN target.{previous_transaction_time}
+                WHEN EXCLUDED.{kuota} > 0
+                    THEN COALESCE(
+                        target.{last_transaction_time},
+                        CASE
+                            WHEN target.{kuota} > 0 THEN target.{updated_time}
+                            ELSE target.{previous_transaction_time}
+                        END
+                    )
+                ELSE target.{previous_transaction_time}
+            END
+            """
+        ).format(
+            updated_time=updated_time,
+            kuota=kuota,
+            last_transaction_time=last_transaction_time,
+            previous_transaction_time=previous_transaction_time,
+        )
+
         return sql.SQL(
             """
             INSERT INTO {table} AS target (
@@ -677,10 +1120,12 @@ class OperatorDatabaseManager:
                 {status_code},
                 {status_code_description},
                 {problem},
+                {last_transaction_time},
+                {previous_transaction_time},
                 {updated_time},
                 {created_time}
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ({nik}) DO UPDATE SET
                 {operator} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
@@ -714,6 +1159,8 @@ class OperatorDatabaseManager:
                         THEN EXCLUDED.{problem}
                     ELSE target.{problem}
                 END,
+                {last_transaction_time} = {next_last_transaction_time},
+                {previous_transaction_time} = {next_previous_transaction_time},
                 {updated_time} = GREATEST(target.{updated_time}, EXCLUDED.{updated_time})
             """
         ).format(
@@ -727,10 +1174,14 @@ class OperatorDatabaseManager:
             status_code=status_code,
             status_code_description=status_code_description,
             problem=problem,
+            last_transaction_time=last_transaction_time,
+            previous_transaction_time=previous_transaction_time,
             updated_time=updated_time,
             created_time=created_time,
             next_kuota=next_kuota,
             next_max_kuota=next_max_kuota,
+            next_last_transaction_time=next_last_transaction_time,
+            next_previous_transaction_time=next_previous_transaction_time,
         )
 
 
@@ -770,7 +1221,9 @@ def _read_json_report(path: Path) -> Iterable[Mapping[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows = payload.get("items") if isinstance(payload, Mapping) else payload
     if not isinstance(rows, list):
-        raise ValueError("JSON report must be a list or contain an 'items' list.")
+        raise ValueError(  # noqa: TRY004 - malformed report content is a value error.
+            "JSON report must be a list or contain an 'items' list."
+        )
 
     for row in rows:
         if isinstance(row, Mapping):
@@ -834,8 +1287,8 @@ def _parse_report_datetime(value: Any) -> datetime:
 
     raw_value = str(value).strip()
     for parser in (
-        lambda text: datetime.fromisoformat(text.replace("Z", "+00:00")),
-        lambda text: datetime.strptime(text, TIMESTAMP_FORMAT),
+        datetime.fromisoformat,
+        lambda text: datetime.strptime(text, TIMESTAMP_FORMAT).astimezone(),
     ):
         try:
             return _normalize_datetime(parser(raw_value))
@@ -843,6 +1296,14 @@ def _parse_report_datetime(value: Any) -> datetime:
             continue
 
     return _normalize_datetime(datetime.now().astimezone())
+
+
+def _coerce_db_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _normalize_datetime(value)
+    return _parse_report_datetime(value)
 
 
 def _normalize_datetime(value: datetime) -> datetime:
@@ -853,9 +1314,18 @@ def _normalize_datetime(value: datetime) -> datetime:
 
 def _normalize_table_name(value: str) -> str:
     normalized = value.strip().upper()
-    if normalized not in OPERATOR_TABLE_NAMES:
+    if _OPERATOR_TABLE_PATTERN.fullmatch(normalized) is None:
         raise ValueError(f"Unsupported operator table: {value}")
     return normalized
+
+
+def _collect_operator_suffixes(source: Mapping[str, str]) -> set[str]:
+    suffixes: set[str] = set()
+    for key in source:
+        match = _NUMBERED_TARGET_KEY_PATTERN.fullmatch(key)
+        if match is not None:
+            suffixes.add(match.group(1) or match.group(2))
+    return suffixes
 
 
 def _normalize_key(value: str) -> str:

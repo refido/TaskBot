@@ -32,28 +32,30 @@ def process_accounts(
         max_workers=len(configs),
         thread_name_prefix="taskbot-account",
     ) as executor:
-        future_to_email = {
-            executor.submit(run_account, account_config): account_config.email_user
+        future_to_operator_id = {
+            executor.submit(run_account, account_config): getattr(
+                account_config, "operator_id", "operator_01"
+            )
             for account_config in configs
         }
 
-        for future in as_completed(future_to_email):
-            email = future_to_email[future]
+        for future in as_completed(future_to_operator_id):
+            operator_id = future_to_operator_id[future]
             try:
                 result = future.result()
                 _, is_successful = result
                 status = "completed" if is_successful else "completed with errors"
                 log.bind(
                     event="account.thread.finished",
-                    operator=email,
+                    operator_id=operator_id,
                     success=is_successful,
                     status=status,
                 ).info("Thread finished")
                 results.append(result)
-            except Exception:
+            except Exception:  # noqa: BLE001 - isolate failures between account threads.
                 log.bind(
                     event="account.thread.crashed",
-                    operator=email,
+                    operator_id=operator_id,
                 ).exception("Thread crashed unexpectedly")
 
     return results

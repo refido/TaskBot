@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from src.logging_utils import logger
 from src.web.session_state import is_login_page
@@ -41,7 +42,7 @@ class SessionRecoveryService:
         try:
             self.dashboard.ensure_on_dashboard()
             return
-        except Exception:
+        except Exception:  # noqa: BLE001 - hard navigation is the recovery fallback.
             self.page.goto(self.config.url_application)
             self.page.wait_for_load_state(self.load_state)
 
@@ -78,7 +79,7 @@ class SessionRecoveryService:
 
         logger.bind(
             event="transaction.session_probe.login_detected",
-            operator=self.config.email_user,
+            operator_id=getattr(self.config, "operator_id", "operator_01"),
             reason=reason,
             elapsed_ms=int(elapsed_ms),
         ).warning("Login page detected during periodic session probe")

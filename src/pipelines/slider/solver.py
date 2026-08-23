@@ -93,12 +93,15 @@ class SliderSolver:
             mapping,
             bg_dimensions,
             solver_timing_ms=solver_timing_ms,
+            run_id=self.config.run_id,
+            operator_id=self.config.operator_id,
+            nik=self.config.nik,
         )
         self.drag_executor.execute_drag(page, mapping)
         return self.success_detector.check_success(page, elements.root)
 
     def _create_debug_dir(self) -> Path:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
         attempt_dir = Path(self.config.debug_root) / ts
         attempt_dir.mkdir(parents=True, exist_ok=True)
         return attempt_dir
@@ -140,8 +143,8 @@ class SliderSolver:
             h, w = bg_img.shape[:2]
             return int(w), int(h)
 
-        with Image.open(bg_path) as bg_img:
-            return bg_img.width, bg_img.height
+        with Image.open(bg_path) as loaded_bg:
+            return loaded_bg.width, loaded_bg.height
 
     def _create_visualizations(
         self,

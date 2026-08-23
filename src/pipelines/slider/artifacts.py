@@ -137,7 +137,7 @@ class DiagramCreator:
 
         piece_center_x = mapping.slot_left_x_img + mapping.puzzle_tile_width / 2.0
         u = piece_center_x / float(bg_img_width)
-        piece_center_img_x = int(round(u * base_w))
+        piece_center_img_x = round(u * base_w)
 
         margin = 20
         rail_start = margin
@@ -164,6 +164,9 @@ class MetadataWriter:
         mapping: CoordinateMapping,
         bg_dimensions: tuple[int, int],
         solver_timing_ms: dict[str, float] | None = None,
+        run_id: str = "",
+        operator_id: str = "",
+        nik: str = "",
     ) -> None:
         """Save solving metadata."""
         x_piece, y_piece, score, scale, (tpl_w, tpl_h) = puzzle_result
@@ -173,6 +176,9 @@ class MetadataWriter:
         piece_center_y = y_piece + tpl_h / 2.0
 
         metadata = {
+            "run_id": run_id,
+            "operator_id": operator_id,
+            "nik": nik,
             "puzzle_result": {
                 "x": x_piece,
                 "y": y_piece,
