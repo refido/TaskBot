@@ -118,6 +118,7 @@ class FakePrecheckService:
         self.action = PrecheckAction.SKIP if should_skip else PrecheckAction.CONTINUE
         self.precheck_calls: list[tuple[str, str]] = []
         self.blocker_calls: list[str] = []
+        self.blocker_timeouts: list[int | None] = []
 
     def handle_pre_checks(
         self, nik: str, started_at: str, *, allow_customer_update: bool = True
@@ -129,6 +130,7 @@ class FakePrecheckService:
         self, penjualan, nik: str, started_at: str, stage: str
     ):
         self.blocker_calls.append(stage)
+        self.blocker_timeouts.append(timeout_ms)
         return SimpleNamespace(should_skip=False, stop_reason=None)
 
 
@@ -362,8 +364,11 @@ def test_solve_puzzle_stops_after_five_attempts(monkeypatch):
 
     solve_calls = {"count": 0}
 
-    def fake_solve_slider_with_puzzle(page, imgs, max_wait_success_ms: int) -> bool:
+    def fake_solve_slider_with_puzzle(
+        page, imgs, max_wait_success_ms: int, **kwargs
+    ) -> bool:
         solve_calls["count"] += 1
+        assert "puzzle_result" in kwargs
         return False
 
     monkeypatch.setattr(transaction_processor, "Helpers", FakeHelpers)
@@ -536,6 +541,7 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
         "before cek pesanan",
         "after cek pesanan",
     ]
+    assert precheck_service.blocker_timeouts == [300, 1500]
     assert puzzle_service.calls == ["3174"]
     assert FakePenjualan.instances == 1
     assert FakePenjualan.cek_pesanan_calls == 1

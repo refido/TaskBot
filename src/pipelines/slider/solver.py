@@ -51,7 +51,9 @@ class SliderSolver:
         solver_timing_ms: dict[str, float] | None = None,
     ) -> bool:
         """Solve slider CAPTCHA."""
-        attempt_dir = self._create_debug_dir()
+        attempt_dir = (
+            self._create_debug_dir() if self.config.write_debug_artifacts else None
+        )
         elements = self.element_resolver.resolve(page)
 
         if puzzle_result is None or puzzle_result_path is None:
@@ -183,6 +185,11 @@ def solve_slider_with_puzzle(
 
     Solve slider CAPTCHA with human-like movement patterns.
     """
+    puzzle_result = kwargs.pop("puzzle_result", None)
+    raw_puzzle_result_path = kwargs.pop("puzzle_result_path", None)
+    puzzle_result_path = (
+        Path(raw_puzzle_result_path) if raw_puzzle_result_path is not None else None
+    )
     config = SliderConfig(
         **{k: v for k, v in kwargs.items() if hasattr(SliderConfig, k)}
     )

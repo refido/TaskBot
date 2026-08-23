@@ -32,6 +32,7 @@ class SliderConfig:
     success_selector: str = ".captcha-success"
     success_text: str = "Berhasil"
     max_wait_success_ms: int = 3500
+    success_poll_interval_ms: int = 100
 
     # Movement parameters
     min_steps: int = 20

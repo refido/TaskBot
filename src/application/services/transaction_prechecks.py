@@ -592,6 +592,18 @@ class TransactionPrechecksService:
                 f"Customer state repeated after its action completed: {state.value}"
             )
 
+    def _handle_customer_type_follow_up(self, nik: str, started_at: str) -> bool:
+        follow_up_outcome = self.dashboard.wait_for_transaction_form_or_precheck_modal()
+        if follow_up_outcome == "transaction_ready":
+            return False
+        if follow_up_outcome != "precheck_modal":
+            return False
+
+        modal_name = self.dashboard.get_visible_precheck_modal()
+        if modal_name is None:
+            return False
+        return self._handle_precheck_modal(modal_name, nik, started_at)
+
     def _handle_precheck_modal(
         self, modal_name: str, nik: str, started_at: str
     ) -> bool:
@@ -820,7 +832,11 @@ class TransactionPrechecksService:
     ) -> TransactionBlockerOutcome:
         """Return the handling outcome for a visible transaction blocker alert."""
         alert = penjualan.read_transaction_blocker_alert(
-            timeout=max(self.max_kuota_timeout_ms, self.zero_stock_timeout_ms)
+            timeout=(
+                timeout_ms
+                if timeout_ms is not None
+                else max(self.max_kuota_timeout_ms, self.zero_stock_timeout_ms)
+            )
         )
         if alert is None:
             return TransactionBlockerOutcome()
