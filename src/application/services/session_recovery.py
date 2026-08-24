@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from src.logging_utils import logger
+from src.web.rate_limiter import LoginRetryRateLimiter
 from src.web.session_state import is_login_page
 
 
@@ -22,6 +23,7 @@ class SessionRecoveryService:
         logged_out_check_timeout_ms: int,
         session_probe_interval_ms: int,
         login_page_detector: Callable[..., bool] = is_login_page,
+        login_retry_rate_limiter: LoginRetryRateLimiter | None = None,
     ) -> None:
         self.page = page
         self.config = config
@@ -31,6 +33,11 @@ class SessionRecoveryService:
         self.logged_out_check_timeout_ms = logged_out_check_timeout_ms
         self.session_probe_interval_ms = session_probe_interval_ms
         self.login_page_detector = login_page_detector
+        self.login_retry_rate_limiter = (
+            login_retry_rate_limiter
+            if login_retry_rate_limiter is not None
+            else LoginRetryRateLimiter()
+        )
         self._last_session_probe_at = time.monotonic()
 
     def handle_session_recovery(self) -> None:
@@ -53,6 +60,11 @@ class SessionRecoveryService:
         self.dashboard.ensure_on_dashboard()
 
     def restore_logged_out_session(self) -> None:
+        account_key = str(
+            getattr(self.config, "operator_id", None)
+            or getattr(self.config, "email_user", "operator_01")
+        )
+        self.login_retry_rate_limiter.wait_before_retry(self.page, account_key)
         self.page.goto(self.config.url_application)
         self.page.wait_for_load_state(self.load_state)
         self.login.login(self.config.email_user, self.config.pin_user)

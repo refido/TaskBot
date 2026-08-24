@@ -1,3 +1,4 @@
+import csv
 import json
 from types import SimpleNamespace
 
@@ -282,9 +283,7 @@ def test_main_delegates_account_fanout_to_process_accounts(monkeypatch, tmp_path
     monkeypatch.setattr(taskbot_main, "logger", DummyLogger())
     monkeypatch.setattr(taskbot_main, "Config", FakeConfig)
     monkeypatch.setattr(taskbot_main, "process_accounts", fake_process_accounts)
-    monkeypatch.setattr(
-        taskbot_main, "_build_customer_update_rate_limiter", object
-    )
+    monkeypatch.setattr(taskbot_main, "_build_customer_update_rate_limiter", object)
 
     taskbot_main.main()
 
@@ -354,9 +353,7 @@ def test_main_drains_queued_logs_when_startup_fails(monkeypatch, tmp_path):
     assert run_meta["operators"] == []
 
 
-def test_reporter_write_files_preserves_snapshot_and_meta_schema(
-    monkeypatch, tmp_path
-):
+def test_reporter_write_files_preserves_snapshot_and_meta_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(reporter_module, "log_print", lambda *args, **kwargs: None)
 
     reporter = reporter_module.TransactionReporter(
@@ -450,6 +447,76 @@ def test_reporter_write_files_preserves_snapshot_and_meta_schema(
     assert "events" not in meta_payload["retry_report"]
 
 
+def test_customer_identity_fields_follow_nik_through_reports_and_db_payload(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(reporter_module, "log_print", lambda *args, **kwargs: None)
+    reporter = reporter_module.TransactionReporter(
+        out_dir=str(tmp_path), operator_id="operator_01"
+    )
+
+    reporter.complete(
+        "3174",
+        reporter.start_item("3174"),
+        nama_pengguna="John Doe",
+        jenis_pengguna="Rumah Tangga",
+    )
+
+    row = reporter.rows[0]
+    assert row.nama_pengguna == "John Doe"
+    assert row.jenis_pengguna == "Rumah Tangga"
+
+    jsonl_payload = json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))
+    jsonl_keys = list(jsonl_payload)
+    nik_index = jsonl_keys.index("nik")
+    assert jsonl_keys[nik_index : nik_index + 3] == [
+        "nik",
+        "nama_pengguna",
+        "jenis_pengguna",
+    ]
+    assert jsonl_payload["nama_pengguna"] == "John Doe"
+    assert jsonl_payload["jenis_pengguna"] == "Rumah Tangga"
+
+    with reporter.csv_path.open(newline="", encoding="utf-8") as file_handle:
+        csv_rows = list(csv.DictReader(file_handle))
+        csv_fields = list(csv_rows[0])
+    csv_nik_index = csv_fields.index("nik")
+    assert csv_fields[csv_nik_index : csv_nik_index + 3] == [
+        "nik",
+        "nama_pengguna",
+        "jenis_pengguna",
+    ]
+    assert csv_rows[0]["nama_pengguna"] == "John Doe"
+    assert csv_rows[0]["jenis_pengguna"] == "Rumah Tangga"
+
+    reporter.write_files()
+    snapshot = json.loads(reporter.final_json_path.read_text(encoding="utf-8"))
+    assert snapshot["items"][0]["nama_pengguna"] == "John Doe"
+    assert snapshot["items"][0]["jenis_pengguna"] == "Rumah Tangga"
+
+    db_payload = taskbot_main._database_report_payload(row)
+    assert db_payload["nama_pengguna"] == "John Doe"
+    assert db_payload["jenis_pengguna"] == "Rumah Tangga"
+
+    reporter.skip_max_kuota(
+        "3175",
+        reporter.start_item("3175"),
+        nama_pengguna="Jane Doe",
+        jenis_pengguna="Usaha Mikro",
+    )
+    assert reporter.rows[-1].nama_pengguna == "Jane Doe"
+    assert reporter.rows[-1].jenis_pengguna == "Usaha Mikro"
+
+    reporter.complete("3176", reporter.start_item("3176"))
+    assert reporter.rows[-1].nama_pengguna == ""
+    assert reporter.rows[-1].jenis_pengguna == ""
+
+    legacy_row = reporter_module.TransactionRow("3177", "completed", "operator_legacy")
+    assert legacy_row.operator == "operator_legacy"
+    assert legacy_row.nama_pengguna == ""
+    assert legacy_row.jenis_pengguna == ""
+
+
 def test_workflow_events_append_immediately_without_creating_terminal_rows(tmp_path):
     set_nik_masking(True)
     reporter = reporter_module.TransactionReporter(
@@ -526,7 +593,9 @@ def test_two_operators_share_one_run_root_and_keep_distinct_safe_ids(tmp_path):
         operator_id="operator_02",
     )
 
-    assert first.application_run_dir == second.application_run_dir == run_context.run_dir
+    assert (
+        first.application_run_dir == second.application_run_dir == run_context.run_dir
+    )
     assert first.run_id == second.run_id == run_context.run_id
     assert first.run_dir == run_context.run_dir / "operators" / "operator_01"
     assert second.run_dir == run_context.run_dir / "operators" / "operator_02"

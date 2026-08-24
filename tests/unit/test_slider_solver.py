@@ -106,3 +106,33 @@ def test_solve_slider_with_puzzle_forwards_precomputed_result(monkeypatch):
         "puzzle_result": (80, 20, 0.98, 1.0, (40, 40)),
         "puzzle_result_path": Path("result.jpg"),
     }
+
+
+def test_debug_disabled_internal_solve_does_not_require_output_path(monkeypatch):
+    captured = {}
+
+    class FakePuzzleSolver:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.timing_metrics = {"total": 4.2}
+
+        def discern_xy(self):
+            return (80, 20, 0.98, 1.0, (40, 40))
+
+    monkeypatch.setattr(slider_solver_module, "PuzzleSolver", FakePuzzleSolver)
+
+    solver = SliderSolver(SliderConfig(write_debug_artifacts=False))
+    solver.element_resolver = FakeElementResolver()
+    solver.coord_mapper = FakeCoordinateMapper()
+    solver.drag_executor = FakeDragExecutor()
+    solver.success_detector = FakeSuccessDetector()
+    solver._get_image_dimensions = lambda bg_path: (300, 150)
+
+    solved = solver.solve(
+        page=object(),
+        imgs={"background": Path("bg.png"), "piece": Path("piece.png")},
+    )
+
+    assert solved is True
+    assert captured["output_image_path"] is None
+    assert solver.drag_executor.calls == 1

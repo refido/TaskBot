@@ -5,10 +5,75 @@ from collections import deque
 from collections.abc import Callable
 from math import ceil, isfinite
 from threading import Lock
+from typing import ClassVar
 
 from playwright.sync_api import Page
 
 from src.logging_utils import log_print
+
+
+class LoginRetryRateLimiter:
+    """Schedule login retries with a minimum delay per account.
+
+    Bootstrap login is intentionally outside this limiter. Each call represents
+    a reauthentication attempt after the application has returned to its login
+    page, so even the first reserved retry waits for the configured interval.
+    Shared reservations keep concurrent recovery paths for the same account
+    from attempting to authenticate at the same time.
+    """
+
+    _reservation_lock = Lock()
+    _next_retry_at_by_account: ClassVar[dict[str, float]] = {}
+
+    def __init__(
+        self,
+        min_retry_delay_seconds: float = 120.0,
+        *,
+        monotonic_func: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.min_retry_delay_seconds = self._validate_duration(min_retry_delay_seconds)
+        self._monotonic = monotonic_func
+
+    def wait_before_retry(self, page: Page, account_key: str) -> None:
+        """Wait for this account's atomically reserved reauthentication slot."""
+        delay_seconds = self._reserve_delay_seconds(account_key)
+        wait_ms = ceil(delay_seconds * 1000)
+        log_print(
+            f"Rate-limiting login retry for {delay_seconds:.1f}s",
+            event="login.retry.rate_limit",
+            wait_ms=wait_ms,
+        )
+        page.wait_for_timeout(wait_ms)
+
+    def _reserve_delay_seconds(self, account_key: str) -> float:
+        normalized_key = str(account_key).strip().casefold()
+        if not normalized_key:
+            raise ValueError("account_key must not be empty")
+
+        with self._reservation_lock:
+            now = float(self._monotonic())
+            previously_reserved_at = self._next_retry_at_by_account.get(
+                normalized_key,
+                now,
+            )
+            retry_at = max(now, previously_reserved_at) + self.min_retry_delay_seconds
+            LoginRetryRateLimiter._next_retry_at_by_account[normalized_key] = retry_at
+        return retry_at - now
+
+    @classmethod
+    def _reset_shared_reservations_for_tests(cls) -> None:
+        """Reset shared retry slots for deterministic isolated tests."""
+        with cls._reservation_lock:
+            cls._next_retry_at_by_account.clear()
+
+    @staticmethod
+    def _validate_duration(value: float) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("min_retry_delay_seconds must be a number")
+        normalized = float(value)
+        if not isfinite(normalized) or normalized < 0:
+            raise ValueError("min_retry_delay_seconds must be finite and non-negative")
+        return normalized
 
 
 class CustomerUpdateRateLimiter:
@@ -34,9 +99,7 @@ class CustomerUpdateRateLimiter:
         self.min_interval_seconds = self._validate_duration(
             min_interval_seconds, "min_interval_seconds"
         )
-        self.jitter_seconds = self._validate_duration(
-            jitter_seconds, "jitter_seconds"
-        )
+        self.jitter_seconds = self._validate_duration(jitter_seconds, "jitter_seconds")
         self._monotonic = monotonic_func
         self._jitter = jitter_func
 
@@ -65,7 +128,9 @@ class CustomerUpdateRateLimiter:
                 else 0.0
             )
             if not isfinite(jitter) or jitter < 0:
-                raise ValueError("Customer-update jitter must be finite and non-negative")
+                raise ValueError(
+                    "Customer-update jitter must be finite and non-negative"
+                )
             CustomerUpdateRateLimiter._next_available_at = (
                 reserved_at + self.min_interval_seconds + jitter
             )

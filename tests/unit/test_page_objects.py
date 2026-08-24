@@ -134,9 +134,7 @@ class FakeDashboard:
     def dismiss_pelanggan_tidak_terdaftar_modal(self):
         raise AssertionError("should not be called")
 
-    def read_registration_request_limited_reason_if_present(
-        self, detect_timeout=6000
-    ):
+    def read_registration_request_limited_reason_if_present(self, detect_timeout=6000):
         return None
 
     def dismiss_registration_request_limited_modal(self):
@@ -169,9 +167,6 @@ class FakePerbaruiDashboard(FakeDashboard):
         self.form_or_modal_waits += 1
         return "precheck_modal"
 
-    def get_visible_precheck_modal(self):
-        return "perbarui"
-
     def read_invalid_registered_nik_reason_if_present(self, detect_timeout=6000):
         self.invalid_reason_calls += 1
 
@@ -200,8 +195,18 @@ class FakeReadyDashboard(FakeDashboard):
 
 
 class FakeCustomerTypeReadyDashboard(FakeDashboard):
+    def __init__(self) -> None:
+        super().__init__()
+        self.resolve_calls = 0
+
     def resolve_customer_entry(self):
-        return "customer_type_selected"
+        self.resolve_calls += 1
+        return (
+            "customer_type_selected" if self.resolve_calls == 1 else "transaction_ready"
+        )
+
+    def get_visible_precheck_modal(self):
+        return None
 
     def wait_for_transaction_form_or_precheck_modal(self):
         self.form_or_modal_waits += 1
@@ -329,8 +334,7 @@ def test_catat_penjualan_defers_existing_registration_limit_without_clicking():
     )
 
     assert (
-        dashboard.catat_penjualan("3573051108720003")
-        == "registration_request_limited"
+        dashboard.catat_penjualan("3573051108720003") == "registration_request_limited"
     )
 
 
@@ -368,10 +372,7 @@ def test_registration_request_limit_beats_stale_customer_update_modal():
     }
     dashboard._is_visible = lambda locator: locator in visible
 
-    assert (
-        dashboard.get_visible_precheck_modal()
-        == "registration_request_limited"
-    )
+    assert dashboard.get_visible_precheck_modal() == "registration_request_limited"
 
 
 def test_nib_reminder_marker_matches_supplied_text_only():
@@ -434,9 +435,7 @@ def test_registration_request_limit_requires_revised_title_and_message():
         item["has_text"] for item in heading.filters if "has_text" in item
     )
     message_filter = next(
-        item["has_text"]
-        for item in message_element.filters
-        if "has_text" in item
+        item["has_text"] for item in message_element.filters if "has_text" in item
     )
     close_button = dashboard.registration_request_limited_tutup
     close_filter = next(
@@ -450,9 +449,7 @@ def test_registration_request_limit_requires_revised_title_and_message():
     assert close_button.selector == "button"
     assert close_filter.fullmatch("Tutup")
     assert not title_filter.fullmatch("Tidak Dapat Melanjutkan Transaksi")
-    assert not message_filter.fullmatch(
-        "NIK pelanggan yang didaftarkan tidak valid."
-    )
+    assert not message_filter.fullmatch("NIK pelanggan yang didaftarkan tidak valid.")
     assert not message_filter.fullmatch(f"{message} Pesan tambahan.")
 
 
@@ -528,10 +525,72 @@ def test_exact_monthly_purchase_warning_is_the_only_max_kuota_classification():
     assert penjualan_module.classify_transaction_blocker_text(warning) == "max_kuota"
     assert (
         penjualan_module.classify_transaction_blocker_text(
+            "Tidak dapat transaksi karena telah melebihi batas kewajaran "
+            "pembelian LPG\u00a03kg bulan ini"
+        )
+        == "max_kuota"
+    )
+    assert (
+        penjualan_module.classify_transaction_blocker_text(
             "Tidak dapat transaksi karena alasan yang belum dikenal."
         )
         is None
     )
+    assert (
+        penjualan_module.classify_transaction_blocker_text(
+            f"{warning} Informasi tambahan"
+        )
+        is None
+    )
+
+
+class FakeCustomerInformationLocator:
+    def __init__(self, text: str = "", *, missing: bool = False) -> None:
+        self.text = text
+        self.missing = missing
+        self.waits: list[tuple[str, int]] = []
+
+    def wait_for(self, *, state: str, timeout: int) -> None:
+        self.waits.append((state, timeout))
+        if self.missing:
+            raise PlaywrightTimeoutError("customer information not visible")
+
+    def inner_text(self) -> str:
+        return self.text
+
+
+def test_penjualan_reads_customer_information_from_scoped_values():
+    penjualan = Penjualan.__new__(Penjualan)
+    penjualan.customer_information_heading = FakeCustomerInformationLocator(
+        "Informasi Pelanggan"
+    )
+    penjualan.customer_name = FakeCustomerInformationLocator("  JOHN   DOE  ")
+    penjualan.customer_type = FakeCustomerInformationLocator(" RUMAH\nTANGGA ")
+
+    information = penjualan.read_customer_information(timeout=750)
+
+    assert information == penjualan_module.CustomerInformation(
+        nama_pengguna="JOHN DOE",
+        jenis_pengguna="RUMAH TANGGA",
+    )
+    assert penjualan.customer_information_heading.waits == [("visible", 750)]
+    assert penjualan.customer_name.waits == [("visible", 750)]
+    assert penjualan.customer_type.waits == [("visible", 750)]
+
+
+def test_penjualan_returns_empty_customer_information_when_section_is_missing():
+    penjualan = Penjualan.__new__(Penjualan)
+    penjualan.customer_information_heading = FakeCustomerInformationLocator(
+        missing=True
+    )
+    penjualan.customer_name = FakeCustomerInformationLocator("SHOULD NOT BE READ")
+    penjualan.customer_type = FakeCustomerInformationLocator("SHOULD NOT BE READ")
+
+    information = penjualan.read_customer_information(timeout=250)
+
+    assert information == penjualan_module.CustomerInformation()
+    assert penjualan.customer_name.waits == []
+    assert penjualan.customer_type.waits == []
 
 
 def test_inline_transaction_blocker_is_a_known_customer_entry_outcome():
@@ -734,8 +793,7 @@ def test_prechecks_service_returns_when_customer_type_reaches_form():
 
     handled = service.handle_pre_checks("3174", "started-at")
 
-    assert handled is False
-    assert dashboard.form_or_modal_waits == 1
+    assert handled is PrecheckAction.CONTINUE
     assert limiter.skip_calls == 0
     assert page.timeouts == []
     assert reporter.calls == []
@@ -762,7 +820,12 @@ def test_prechecks_service_handles_max_kuota_from_combined_blocker():
     )
 
     outcome = service.check_transaction_blocker(
-        penjualan, "3174", "started-at", "before cek pesanan"
+        penjualan,
+        "3174",
+        "started-at",
+        "before cek pesanan",
+        nama_pengguna="JOHN DOE",
+        jenis_pengguna="RUMAH TANGGA",
     )
 
     assert outcome.should_skip is True
@@ -778,6 +841,8 @@ def test_prechecks_service_handles_max_kuota_from_combined_blocker():
             {
                 "url": "https://app.test/dashboard",
                 "reason": f"Max kuota before cek pesanan: {alert_text}",
+                "nama_pengguna": "JOHN DOE",
+                "jenis_pengguna": "RUMAH TANGGA",
             },
         )
     ]
@@ -801,7 +866,12 @@ def test_prechecks_service_handles_zero_stock_from_combined_blocker():
     )
 
     outcome = service.check_transaction_blocker(
-        penjualan, "3174", "started-at", "after cek pesanan"
+        penjualan,
+        "3174",
+        "started-at",
+        "after cek pesanan",
+        nama_pengguna="JOHN DOE",
+        jenis_pengguna="RUMAH TANGGA",
     )
 
     expected_reason = f"Sellable stock empty after cek pesanan: {alert_text}"
@@ -815,6 +885,11 @@ def test_prechecks_service_handles_zero_stock_from_combined_blocker():
         (
             "skip_out_of_stock",
             ("3174", "started-at"),
-            {"url": "https://app.test/dashboard", "reason": expected_reason},
+            {
+                "url": "https://app.test/dashboard",
+                "reason": expected_reason,
+                "nama_pengguna": "JOHN DOE",
+                "jenis_pengguna": "RUMAH TANGGA",
+            },
         )
     ]

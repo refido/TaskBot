@@ -17,7 +17,10 @@ from src.config import Config
 from src.infrastructure.browser.page_objects.cek_penjualan_page import CekPenjualan
 from src.infrastructure.browser.page_objects.dashboard_page import Dashboard
 from src.infrastructure.browser.page_objects.login_page import Login
-from src.infrastructure.browser.page_objects.penjualan_page import Penjualan
+from src.infrastructure.browser.page_objects.penjualan_page import (
+    CustomerInformation,
+    Penjualan,
+)
 from src.logging_utils import log_print, logger
 from src.pipelines.solve_slider import solve_slider_with_puzzle
 from src.privacy import artifact_nik
@@ -108,6 +111,7 @@ class TransactionProcessor:
         general_error_retries_used = 0
         update_rechecks_used = 0
         attempt_number = 1
+        customer_information = CustomerInformation()
 
         self._log_transaction_stage(nik, "started", attempt_number=attempt_number)
 
@@ -181,6 +185,10 @@ class TransactionProcessor:
                     continue
 
                 penjualan = Penjualan(self.page)
+                customer_information = self._merge_customer_information(
+                    customer_information,
+                    self._read_customer_information(penjualan),
+                )
 
                 self._probe_session_if_due(reason=f"before cek pesanan for NIK {nik}")
                 if self._check_transaction_blocker(
@@ -189,6 +197,7 @@ class TransactionProcessor:
                     started_at,
                     stage="before cek pesanan",
                     timeout_ms=self._PRE_CEK_PESANAN_BLOCKER_TIMEOUT_MS,
+                    customer_information=customer_information,
                 ):
                     return
 
@@ -206,6 +215,7 @@ class TransactionProcessor:
                     timeout_ms=max(
                         self._MAX_KUOTA_TIMEOUT_MS, self._ZERO_STOCK_TIMEOUT_MS
                     ),
+                    customer_information=customer_information,
                 ):
                     return
 
@@ -243,6 +253,8 @@ class TransactionProcessor:
                     puzzle_attempts=puzzle_attempts,
                     puzzle_retry_count=puzzle_retry_count,
                     puzzle_retry_process=puzzle_retry_process,
+                    nama_pengguna=customer_information.nama_pengguna,
+                    jenis_pengguna=customer_information.jenis_pengguna,
                 )
                 self.limiter.record_success()
                 self._log_transaction_stage(
@@ -257,6 +269,8 @@ class TransactionProcessor:
                         started_at,
                         url=self.page.url,
                         reason=str(exc),
+                        nama_pengguna=customer_information.nama_pengguna,
+                        jenis_pengguna=customer_information.jenis_pengguna,
                     )
                 raise
             except CustomerUpdateFailedError as exc:
@@ -280,6 +294,8 @@ class TransactionProcessor:
                     puzzle_attempts=puzzle_attempts,
                     puzzle_retry_count=puzzle_retry_count,
                     puzzle_retry_process=puzzle_retry_process,
+                    nama_pengguna=customer_information.nama_pengguna,
+                    jenis_pengguna=customer_information.jenis_pengguna,
                 )
                 self._capture_failure_artifact(nik, "customer_update_failed")
                 self._handle_session_recovery()
@@ -298,6 +314,8 @@ class TransactionProcessor:
                     puzzle_attempts=puzzle_attempts,
                     puzzle_retry_count=puzzle_retry_count,
                     puzzle_retry_process=puzzle_retry_process,
+                    nama_pengguna=customer_information.nama_pengguna,
+                    jenis_pengguna=customer_information.jenis_pengguna,
                 )
                 self._handle_session_recovery()
                 return
@@ -321,6 +339,8 @@ class TransactionProcessor:
                         puzzle_attempts=puzzle_attempts,
                         puzzle_retry_count=puzzle_retry_count,
                         puzzle_retry_process=puzzle_retry_process,
+                        nama_pengguna=customer_information.nama_pengguna,
+                        jenis_pengguna=customer_information.jenis_pengguna,
                     )
                     self._handle_session_recovery()
                     return
@@ -377,6 +397,8 @@ class TransactionProcessor:
                     puzzle_attempts=puzzle_attempts,
                     puzzle_retry_count=puzzle_retry_count,
                     puzzle_retry_process=puzzle_retry_process,
+                    nama_pengguna=customer_information.nama_pengguna,
+                    jenis_pengguna=customer_information.jenis_pengguna,
                 )
                 self._handle_session_recovery()
                 return
@@ -498,17 +520,48 @@ class TransactionProcessor:
         started_at: str,
         stage: str,
         timeout_ms: int | None = None,
+        customer_information: CustomerInformation | None = None,
     ) -> bool:
+        information = customer_information or CustomerInformation()
         outcome = self._get_precheck_service().check_transaction_blocker(
             penjualan,
             nik,
             started_at,
             stage,
             timeout_ms=timeout_ms,
+            nama_pengguna=information.nama_pengguna,
+            jenis_pengguna=information.jenis_pengguna,
         )
         if outcome.stop_reason:
             raise OutOfSellableStockError(outcome.stop_reason, reported=True)
         return outcome.should_skip
+
+    @staticmethod
+    def _read_customer_information(penjualan: Penjualan) -> CustomerInformation:
+        reader = getattr(penjualan, "read_customer_information", None)
+        if reader is None:
+            # Lightweight compatibility doubles and legacy page objects may not
+            # expose the new scraper yet.
+            return CustomerInformation()
+
+        observed = reader()
+        if isinstance(observed, CustomerInformation):
+            return observed
+        return CustomerInformation(
+            nama_pengguna=str(getattr(observed, "nama_pengguna", "") or "").strip(),
+            jenis_pengguna=str(getattr(observed, "jenis_pengguna", "") or "").strip(),
+        )
+
+    @staticmethod
+    def _merge_customer_information(
+        current: CustomerInformation,
+        observed: CustomerInformation,
+    ) -> CustomerInformation:
+        """Retain the last non-empty values across bounded same-NIK retries."""
+        return CustomerInformation(
+            nama_pengguna=observed.nama_pengguna or current.nama_pengguna,
+            jenis_pengguna=observed.jenis_pengguna or current.jenis_pengguna,
+        )
 
     def _solve_puzzle(self, nik: str) -> PuzzleSolveOutcome:
         return self._get_puzzle_service().solve(nik)
@@ -557,23 +610,19 @@ class TransactionProcessor:
         if service is None:
             helpers_factory = Helpers
             slider_solver = solve_slider_with_puzzle
-            run_dir = getattr(getattr(self.config, "run_context", None), "run_dir", None)
+            run_dir = getattr(
+                getattr(self.config, "run_context", None), "run_dir", None
+            )
             if run_dir is not None:
                 artifact_root = Path(run_dir) / "artifacts"
                 helpers_factory = partial(
                     Helpers,
-                    output_dir=(
-                        artifact_root / "screenshots" / self.operator_id
-                    ),
+                    output_dir=(artifact_root / "screenshots" / self.operator_id),
                 )
                 slider_solver = partial(
                     solve_slider_with_puzzle,
-                    debug_root=str(
-                        artifact_root / "traces" / self.operator_id
-                    ),
-                    run_id=str(
-                        getattr(self.config.run_context, "run_id", "")
-                    ),
+                    debug_root=str(artifact_root / "traces" / self.operator_id),
+                    run_id=str(getattr(self.config.run_context, "run_id", "")),
                     operator_id=self.operator_id,
                 )
             service = PuzzleService(

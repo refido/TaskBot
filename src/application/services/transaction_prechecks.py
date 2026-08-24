@@ -144,13 +144,12 @@ class TransactionPrechecksService:
                 self._raise_if_repeated(state, handled_states)
                 self._record_workflow_event(nik, "customer_type_detected")
                 self._log_customer_action(nik, state, "select_customer_type")
-                if (
-                    getattr(self, "_customer_type_action_pending", False)
-                    and self._run_customer_step(
-                        self.dashboard.select_jenis_pelanggan,
-                        nik=nik,
-                        started_at=started_at,
-                    )
+                if getattr(
+                    self, "_customer_type_action_pending", False
+                ) and self._run_customer_step(
+                    self.dashboard.select_jenis_pelanggan,
+                    nik=nik,
+                    started_at=started_at,
                 ):
                     return PrecheckAction.SKIP
                 self._record_workflow_event(nik, "customer_type_selected")
@@ -283,9 +282,7 @@ class TransactionPrechecksService:
                     started_at=started_at,
                 ):
                     return PrecheckAction.SKIP
-                if self._handle_registration_request_limit_if_present(
-                    nik, started_at
-                ):
+                if self._handle_registration_request_limit_if_present(nik, started_at):
                     return PrecheckAction.SKIP
                 if self._run_update_step(
                     self.dashboard.ensure_on_dashboard,
@@ -294,9 +291,7 @@ class TransactionPrechecksService:
                     started_at=started_at,
                 ):
                     return PrecheckAction.SKIP
-                if self._handle_registration_request_limit_if_present(
-                    nik, started_at
-                ):
+                if self._handle_registration_request_limit_if_present(nik, started_at):
                     return PrecheckAction.SKIP
                 self._log_customer_transition(
                     nik,
@@ -525,9 +520,7 @@ class TransactionPrechecksService:
         except SessionExpiredError:
             raise
         except Exception as exc:
-            if self._handle_registration_request_limit_if_present(
-                nik, started_at
-            ):
+            if self._handle_registration_request_limit_if_present(nik, started_at):
                 return True
             if self._is_login_page_visible():
                 raise SessionExpiredError(
@@ -554,9 +547,7 @@ class TransactionPrechecksService:
         except SessionExpiredError:
             raise
         except Exception as exc:
-            if self._handle_registration_request_limit_if_present(
-                nik, started_at
-            ):
+            if self._handle_registration_request_limit_if_present(nik, started_at):
                 return True
             if self._is_login_page_visible():
                 raise SessionExpiredError(
@@ -669,9 +660,7 @@ class TransactionPrechecksService:
         )
         return True
 
-    def _handle_registration_request_limited(
-        self, nik: str, started_at: str
-    ) -> bool:
+    def _handle_registration_request_limited(self, nik: str, started_at: str) -> bool:
         reason = self.dashboard.read_registration_request_limited_reason_if_present(
             detect_timeout=500
         )
@@ -828,7 +817,15 @@ class TransactionPrechecksService:
         return True
 
     def check_transaction_blocker(
-        self, penjualan: Penjualan, nik: str, started_at: str, stage: str
+        self,
+        penjualan: Penjualan,
+        nik: str,
+        started_at: str,
+        stage: str,
+        *,
+        timeout_ms: int | None = None,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> TransactionBlockerOutcome:
         """Return the handling outcome for a visible transaction blocker alert."""
         alert = penjualan.read_transaction_blocker_alert(
@@ -859,6 +856,8 @@ class TransactionPrechecksService:
                 started_at=started_at,
                 stage=stage,
                 alert_text=alert_text,
+                nama_pengguna=nama_pengguna,
+                jenis_pengguna=jenis_pengguna,
             )
             return TransactionBlockerOutcome(stop_reason=stop_reason)
 
@@ -868,6 +867,8 @@ class TransactionPrechecksService:
             started_at=started_at,
             stage=stage,
             alert_text=alert_text,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
         return TransactionBlockerOutcome(should_skip=True)
 
@@ -911,6 +912,8 @@ class TransactionPrechecksService:
         started_at: str,
         stage: str,
         alert_text: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         try:
             penjualan.ganti_pelanggan()
@@ -929,13 +932,25 @@ class TransactionPrechecksService:
             nik=nik,
             started_at=started_at,
             skip_callback=lambda: self.reporter.skip_max_kuota(
-                nik, started_at, url=self.page.url, reason=reason
+                nik,
+                started_at,
+                url=self.page.url,
+                reason=reason,
+                nama_pengguna=nama_pengguna,
+                jenis_pengguna=jenis_pengguna,
             ),
             message=f"Skipping NIK {nik} ({reason}).",
         )
 
     def _record_zero_stock_skip(
-        self, *, nik: str, started_at: str, stage: str, alert_text: str
+        self,
+        *,
+        nik: str,
+        started_at: str,
+        stage: str,
+        alert_text: str,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> str:
         reason = f"Sellable stock empty {stage}: {alert_text}"
         self._record_skip_and_cooldown(
@@ -946,6 +961,8 @@ class TransactionPrechecksService:
                 started_at,
                 url=self.page.url,
                 reason=reason,
+                nama_pengguna=nama_pengguna,
+                jenis_pengguna=jenis_pengguna,
             ),
             message=(
                 f"Stopping account run for NIK {nik} because sellable stock "

@@ -105,7 +105,7 @@ class PuzzleSolver:
         self,
         gap_image_path: str,
         bg_image_path: str,
-        output_image_path: str,
+        output_image_path: str | None,
         *,
         gap_image: ImageArray | None = None,
         bg_image: ImageArray | None = None,
@@ -888,17 +888,18 @@ class PuzzleSolver:
                 float(self.tpl_center_local[1] * best_scale),
             )
 
-        with self._timed("debug.write_visualization"):
-            vis = draw_match_visualization(
-                bg_gray_raw,
-                (float(refined_xy[0]), float(refined_xy[1])),
-                tw,
-                th,
-                refined_score,
-                tpl_center_local=tpl_center_for_vis,
-            )
-            ensure_output_dir(self.output_image_path)
-            cv2.imwrite(self.output_image_path, vis)
+        if self.output_image_path:
+            with self._timed("debug.write_visualization"):
+                vis = draw_match_visualization(
+                    bg_gray_raw,
+                    (float(refined_xy[0]), float(refined_xy[1])),
+                    tw,
+                    th,
+                    refined_score,
+                    tpl_center_local=tpl_center_for_vis,
+                )
+                ensure_output_dir(self.output_image_path)
+                cv2.imwrite(self.output_image_path, vis)
 
         if self.enable_timing:
             self.timing_metrics["total"] = (perf_counter() - total_started) * 1000.0

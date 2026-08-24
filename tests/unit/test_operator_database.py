@@ -143,8 +143,7 @@ def test_operator_targets_discover_arbitrary_numbered_suffixes():
     assert targets.resolve("third@example.com").table_name == "OPERATOR_3"
     assert targets.resolve("operator-ten").table_name == "OPERATOR_10"
     assert (
-        targets.resolve("", table_name="operator_10").operator_name
-        == "Tenth Operator"
+        targets.resolve("", table_name="operator_10").operator_name == "Tenth Operator"
     )
 
 
@@ -202,6 +201,8 @@ def test_operator_record_from_successful_report_maps_operator_and_status():
             "operator": "first@example.com",
             "nik": "001234",
             "status": "completed",
+            "nama_pengguna": "John Doe",
+            "jenis_pengguna": "Rumah Tangga",
             "finished_at": "20260525 101112",
         },
         target,
@@ -209,7 +210,8 @@ def test_operator_record_from_successful_report_maps_operator_and_status():
 
     assert record.nik == 1234
     assert record.operator == "First Operator"
-    assert record.nama_konsumer == ""
+    assert record.nama_konsumer == "John Doe"
+    assert record.jenis_pengguna == "Rumah Tangga"
     assert record.kuota_delta == 1
     assert record.status_code == 200
     assert record.status_code_description == "Transaction successful"
@@ -275,14 +277,13 @@ def test_registration_request_limit_maps_to_http_429_without_kuota_delta():
     assert record.kuota_delta == 0
     assert record.status_code == 429
     assert (
-        record.status_code_description
-        == "Consumer registration request limit reached"
+        record.status_code_description == "Consumer registration request limit reached"
     )
     assert record.conflict is True
     assert record.problem == f"skipped_registration_request_limited: {reason}"
 
 
-def test_operator_record_uses_consumer_name_when_report_contains_it():
+def test_operator_record_uses_customer_fields_when_report_contains_them():
     targets = OperatorTargets.from_env(
         {
             "NAME_OPERATORS_1": "First Operator",
@@ -297,13 +298,54 @@ def test_operator_record_uses_consumer_name_when_report_contains_it():
             "operator": "OPERATOR_1",
             "nik": "1234",
             "status": "completed",
-            "customer_name": "Consumer Name",
+            "nama_pengguna": "Consumer Name",
+            "jenis_pengguna": "Usaha Mikro",
         },
         target,
     )
 
     assert record.operator == "First Operator"
     assert record.nama_konsumer == "Consumer Name"
+    assert record.jenis_pengguna == "Usaha Mikro"
+
+
+def test_operator_record_customer_fields_default_to_empty_strings():
+    targets = OperatorTargets.from_env(
+        {"NAME_OPERATORS_1": "First Operator"},
+        load_env_file=False,
+    )
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator_id": "operator_01",
+            "nik": "1234",
+            "status": "completed",
+        },
+        targets.resolve("operator_01"),
+    )
+
+    assert record.nama_konsumer == ""
+    assert record.jenis_pengguna == ""
+
+
+def test_operator_record_keeps_partial_customer_fields():
+    targets = OperatorTargets.from_env(
+        {"NAME_OPERATORS_1": "First Operator"},
+        load_env_file=False,
+    )
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator_id": "operator_01",
+            "nik": "1234",
+            "status": "skipped_max_kuota",
+            "jenis_pengguna": "Rumah Tangga",
+        },
+        targets.resolve("operator_01"),
+    )
+
+    assert record.nama_konsumer == ""
+    assert record.jenis_pengguna == "Rumah Tangga"
 
 
 def test_report_payload_reader_supports_jsonl_csv_and_snapshot_json(tmp_path):
@@ -354,6 +396,7 @@ def test_upsert_record_passes_expected_values_to_cursor():
         operator="First Operator",
         nik=1234,
         nama_konsumer="Consumer Name",
+        jenis_pengguna="Rumah Tangga",
         kuota_delta=1,
         status_code=200,
         status_code_description="Transaction successful",
@@ -371,6 +414,7 @@ def test_upsert_record_passes_expected_values_to_cursor():
         "First Operator",
         1234,
         "Consumer Name",
+        "Rumah Tangga",
         1,
         1,
         False,
@@ -382,6 +426,14 @@ def test_upsert_record_passes_expected_values_to_cursor():
         event_time,
         event_time,
     )
+
+
+def test_upsert_preserves_stored_customer_fields_when_newer_payload_is_blank():
+    statement = repr(OperatorDatabaseManager._upsert_sql("OPERATOR_1"))
+
+    assert statement.count("NULLIF(EXCLUDED.") == 2
+    assert "Identifier('NAMA_KONSUMER')" in statement
+    assert "Identifier('JENIS_PENGGUNA')" in statement
 
 
 def test_sync_report_payloads_only_writes_the_supplied_batch():
@@ -464,6 +516,7 @@ def test_sync_report_payloads_only_writes_the_supplied_batch():
             "First Operator",
             1001,
             "",
+            "",
             1,
             1,
             False,
@@ -478,6 +531,7 @@ def test_sync_report_payloads_only_writes_the_supplied_batch():
         (
             "Second Operator",
             2002,
+            "",
             "",
             0,
             0,
@@ -685,9 +739,9 @@ def test_successful_repeat_reports_previous_transaction_time_to_sync_summary(tmp
 
     _select_call, upsert_call = connection.cursor_instance.calls
     assert _select_call[1] == (1234,)
-    assert upsert_call[1][3] == 1
-    assert upsert_call[1][9] == datetime(2026, 5, 25, 10, 11, 12)
-    assert upsert_call[1][10] == datetime(2026, 5, 20, 8, 30, 0)
+    assert upsert_call[1][4] == 1
+    assert upsert_call[1][10] == datetime(2026, 5, 25, 10, 11, 12)
+    assert upsert_call[1][11] == datetime(2026, 5, 20, 8, 30, 0)
 
 
 def test_migrate_table_schema_moves_old_nama_to_operator_and_adds_new_columns():
@@ -715,7 +769,10 @@ def test_migrate_table_schema_moves_old_nama_to_operator_and_adds_new_columns():
     OperatorDatabaseManager._migrate_table_schema(cursor, "OPERATOR_1")
 
     assert cursor.calls[0][1] == ("OPERATOR_1",)
-    assert len(cursor.calls) == 8
+    assert len(cursor.calls) == 9
+    statements = "\n".join(repr(statement) for statement, _params in cursor.calls)
+    assert "JENIS_PENGGUNA" in statements
+    assert "NAMA_PENGGUNA" not in statements
 
 
 def test_manager_uses_configured_dynamic_tables_for_setup_reset_and_logging(
@@ -779,9 +836,7 @@ def test_manager_uses_configured_dynamic_tables_for_setup_reset_and_logging(
     monkeypatch.setattr(
         OperatorDatabaseManager,
         "_migrate_table_schema",
-        staticmethod(
-            lambda _cursor, table_name: migrated_tables.append(table_name)
-        ),
+        staticmethod(lambda _cursor, table_name: migrated_tables.append(table_name)),
     )
     targets = OperatorTargets.from_env(
         {

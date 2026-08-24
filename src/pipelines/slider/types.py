@@ -55,6 +55,7 @@ class SliderConfig:
 
     # Debugging
     debug_root: str = "data_puzzle/puzzle_debug/"
+    write_debug_artifacts: bool = False
     run_id: str = ""
     operator_id: str = ""
     nik: str = ""

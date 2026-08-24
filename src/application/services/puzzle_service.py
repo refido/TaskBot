@@ -74,14 +74,13 @@ class PuzzleService:
                 piece_path = Path(helpers.save_puzzle_piece(nik))
                 bg_path = Path(helpers.save_puzzle_bg(nik))
 
-            result_path = (
-                Path(piece_path).parent / helpers.build_puzzle_output_name(nik, "result")
-                if self.write_debug_artifacts
-                else None
+            # Keep the fused match image on the same concrete .png path used by the
+            # working flow.  This is a normal solver output, not an optional
+            # slider-debug artifact.
+            result_path = Path(piece_path).parent / helpers.build_puzzle_output_name(
+                nik, "result"
             )
-
-            if result_path is not None:
-                self.log_func(f"Result path (abs): {result_path.resolve()}")
+            self.log_func(f"Result path (abs): {result_path.resolve()}")
 
             solver_kwargs: dict[str, Any] = {
                 "gap_image_path": piece_path,
@@ -172,6 +171,7 @@ class PuzzleService:
             "puzzle_result": puzzle_result,
             "puzzle_result_path": puzzle_result_path,
             "solver_timing_ms": solver_timing_ms,
+            "write_debug_artifacts": self.write_debug_artifacts,
         }
 
         try:
