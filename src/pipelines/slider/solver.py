@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from inspect import Parameter, signature
 from pathlib import Path
 
 import numpy as np
@@ -56,16 +57,18 @@ class SliderSolver:
         )
         elements = self.element_resolver.resolve(page)
 
-        if puzzle_result is None or puzzle_result_path is None:
+        if puzzle_result is None:
             puzzle_result, puzzle_result_path, solver_timing_ms = self._solve_puzzle(
                 imgs, attempt_dir, image_arrays=image_arrays
             )
 
         boxes = self._get_bounding_boxes(elements)
-        bg_dimensions = self._get_image_dimensions(
-            imgs["background"],
-            None if image_arrays is None else image_arrays.get("background"),
-        )
+        if image_arrays is None:
+            bg_dimensions = self._get_image_dimensions(imgs["background"])
+        else:
+            bg_dimensions = self._get_image_dimensions(
+                imgs["background"], image_arrays.get("background")
+            )
 
         mapping = self.coord_mapper.map_coordinates(
             imgs["piece"],
@@ -76,27 +79,28 @@ class SliderSolver:
             piece_img=None if image_arrays is None else image_arrays.get("piece"),
         )
 
-        self._create_visualizations(
-            puzzle_result=puzzle_result,
-            puzzle_result_path=puzzle_result_path,
-            imgs=imgs,
-            mapping=mapping,
-            boxes=boxes,
-            bg_dimensions=bg_dimensions,
-            attempt_dir=attempt_dir,
-            image_arrays=image_arrays,
-        )
+        if attempt_dir is not None:
+            self._create_visualizations(
+                puzzle_result=puzzle_result,
+                puzzle_result_path=puzzle_result_path,
+                imgs=imgs,
+                mapping=mapping,
+                boxes=boxes,
+                bg_dimensions=bg_dimensions,
+                attempt_dir=attempt_dir,
+                image_arrays=image_arrays,
+            )
 
-        self.metadata_writer.write_metadata(
-            attempt_dir,
-            puzzle_result,
-            mapping,
-            bg_dimensions,
-            solver_timing_ms=solver_timing_ms,
-            run_id=self.config.run_id,
-            operator_id=self.config.operator_id,
-            nik=self.config.nik,
-        )
+            self.metadata_writer.write_metadata(
+                attempt_dir,
+                puzzle_result,
+                mapping,
+                bg_dimensions,
+                solver_timing_ms=solver_timing_ms,
+                run_id=self.config.run_id,
+                operator_id=self.config.operator_id,
+                nik=self.config.nik,
+            )
         self.drag_executor.execute_drag(page, mapping)
         return self.success_detector.check_success(page, elements.root)
 
@@ -109,15 +113,19 @@ class SliderSolver:
     def _solve_puzzle(
         self,
         imgs: dict[str, Path],
-        attempt_dir: Path,
+        attempt_dir: Path | None,
         *,
         image_arrays: dict[str, np.ndarray] | None = None,
-    ) -> tuple[PuzzleResult, Path, dict[str, float]]:
-        puzzle_result_path = attempt_dir / "puzzle_fused_vis.jpg"
+    ) -> tuple[PuzzleResult, Path | None, dict[str, float]]:
+        puzzle_result_path = (
+            attempt_dir / "puzzle_fused_vis.jpg" if attempt_dir is not None else None
+        )
         solver = PuzzleSolver(
             gap_image_path=str(imgs["piece"]),
             bg_image_path=str(imgs["background"]),
-            output_image_path=str(puzzle_result_path),
+            output_image_path=(
+                str(puzzle_result_path) if puzzle_result_path is not None else None
+            ),
             gap_image=None if image_arrays is None else image_arrays.get("piece"),
             bg_image=None if image_arrays is None else image_arrays.get("background"),
         )
@@ -149,7 +157,7 @@ class SliderSolver:
     def _create_visualizations(
         self,
         puzzle_result: PuzzleResult,
-        puzzle_result_path: Path,
+        puzzle_result_path: Path | None,
         imgs: dict[str, Path],
         mapping: CoordinateMapping,
         boxes: BoundingBoxes,
@@ -167,14 +175,15 @@ class SliderSolver:
             bg_img=None if image_arrays is None else image_arrays.get("background"),
         )
 
-        self.diagram_creator.create_diagram(
-            puzzle_result_path=puzzle_result_path,
-            mapping=mapping,
-            ctrl_bb_x=boxes.control["x"],
-            ctrl_bb_width=boxes.control["width"],
-            bg_img_width=bg_dimensions[0],
-            output_dir=attempt_dir,
-        )
+        if puzzle_result_path is not None:
+            self.diagram_creator.create_diagram(
+                puzzle_result_path=puzzle_result_path,
+                mapping=mapping,
+                ctrl_bb_x=boxes.control["x"],
+                ctrl_bb_width=boxes.control["width"],
+                bg_img_width=bg_dimensions[0],
+                output_dir=attempt_dir,
+            )
 
 
 def solve_slider_with_puzzle(
@@ -195,18 +204,26 @@ def solve_slider_with_puzzle(
     )
     solver = SliderSolver(config)
     image_arrays = kwargs.get("image_arrays")
-    puzzle_result = kwargs.get("puzzle_result")
-    puzzle_result_path = kwargs.get("puzzle_result_path")
     solver_timing_ms = kwargs.get("solver_timing_ms")
-    return solver.solve(
-        page,
-        imgs,
-        image_arrays=image_arrays if isinstance(image_arrays, dict) else None,
-        puzzle_result=puzzle_result if isinstance(puzzle_result, tuple) else None,
-        puzzle_result_path=(
-            Path(puzzle_result_path) if puzzle_result_path is not None else None
-        ),
-        solver_timing_ms=(
+    optional_solve_kwargs: dict[str, object] = {
+        "image_arrays": image_arrays if isinstance(image_arrays, dict) else None,
+        "puzzle_result": puzzle_result if isinstance(puzzle_result, tuple) else None,
+        "puzzle_result_path": puzzle_result_path,
+        "solver_timing_ms": (
             solver_timing_ms if isinstance(solver_timing_ms, dict) else None
         ),
+    }
+
+    try:
+        solve_params = signature(solver.solve).parameters
+    except (TypeError, ValueError):
+        solve_params = {}
+    accepts_kwargs = any(
+        param.kind == Parameter.VAR_KEYWORD for param in solve_params.values()
     )
+    solve_kwargs = {
+        key: value
+        for key, value in optional_solve_kwargs.items()
+        if value is not None and (accepts_kwargs or key in solve_params)
+    }
+    return solver.solve(page, imgs, **solve_kwargs)

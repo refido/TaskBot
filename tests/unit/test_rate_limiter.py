@@ -5,7 +5,11 @@ from threading import Barrier
 
 import pytest
 
-from src.web.rate_limiter import CustomerUpdateRateLimiter, SkipRateLimiter
+from src.web.rate_limiter import (
+    CustomerUpdateRateLimiter,
+    LoginRetryRateLimiter,
+    SkipRateLimiter,
+)
 
 
 class FakePage:
@@ -17,10 +21,68 @@ class FakePage:
 
 
 @pytest.fixture(autouse=True)
-def reset_customer_update_reservations():
+def reset_shared_rate_limiter_reservations():
     CustomerUpdateRateLimiter._reset_shared_reservations_for_tests()
+    LoginRetryRateLimiter._reset_shared_reservations_for_tests()
     yield
     CustomerUpdateRateLimiter._reset_shared_reservations_for_tests()
+    LoginRetryRateLimiter._reset_shared_reservations_for_tests()
+
+
+def test_login_retries_wait_two_minutes_and_serialize_same_account():
+    first_page = FakePage()
+    second_page = FakePage()
+    limiter = LoginRetryRateLimiter(
+        min_retry_delay_seconds=120,
+        monotonic_func=lambda: 100.0,
+    )
+
+    limiter.wait_before_retry(first_page, "Operator_01")
+    limiter.wait_before_retry(second_page, "operator_01")
+
+    assert first_page.timeouts == [120_000]
+    assert second_page.timeouts == [240_000]
+
+
+def test_each_sequential_login_retry_waits_the_full_default_two_minutes():
+    clock = [100.0]
+
+    class AdvancingPage(FakePage):
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            super().wait_for_timeout(timeout_ms)
+            clock[0] += timeout_ms / 1000
+
+    page = AdvancingPage()
+    limiter = LoginRetryRateLimiter(monotonic_func=lambda: clock[0])
+
+    limiter.wait_before_retry(page, "operator_01")
+    limiter.wait_before_retry(page, "operator_01")
+
+    assert page.timeouts == [120_000, 120_000]
+
+
+def test_login_retry_reservations_are_independent_between_accounts():
+    first_page = FakePage()
+    second_page = FakePage()
+    limiter = LoginRetryRateLimiter(
+        min_retry_delay_seconds=120,
+        monotonic_func=lambda: 100.0,
+    )
+
+    limiter.wait_before_retry(first_page, "operator_01")
+    limiter.wait_before_retry(second_page, "operator_02")
+
+    assert first_page.timeouts == [120_000]
+    assert second_page.timeouts == [120_000]
+
+
+@pytest.mark.parametrize(
+    ("value", "error_type"),
+    [(-1, ValueError), (True, TypeError), (float("inf"), ValueError)],
+)
+def test_login_retry_limiter_rejects_invalid_delay(value, error_type):
+    with pytest.raises(error_type):
+        LoginRetryRateLimiter(min_retry_delay_seconds=value)
 
 
 def test_customer_update_reservations_are_shared_and_thread_safe():

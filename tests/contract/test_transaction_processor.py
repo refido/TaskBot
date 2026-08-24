@@ -66,9 +66,7 @@ class FakeReporter:
     def skip_out_of_stock(self, nik: str, started_at: str, **kwargs) -> None:
         self.out_of_stock_calls.append((nik, started_at, kwargs))
 
-    def skip(
-        self, nik: str, started_at: str, skip_type: str, **kwargs
-    ) -> None:
+    def skip(self, nik: str, started_at: str, skip_type: str, **kwargs) -> None:
         self.skip_calls.append((nik, started_at, skip_type, kwargs))
 
 
@@ -119,6 +117,7 @@ class FakePrecheckService:
         self.precheck_calls: list[tuple[str, str]] = []
         self.blocker_calls: list[str] = []
         self.blocker_timeouts: list[int | None] = []
+        self.blocker_customer_information: list[tuple[str, str]] = []
 
     def handle_pre_checks(
         self, nik: str, started_at: str, *, allow_customer_update: bool = True
@@ -127,10 +126,19 @@ class FakePrecheckService:
         return self.action
 
     def check_transaction_blocker(
-        self, penjualan, nik: str, started_at: str, stage: str
+        self,
+        penjualan,
+        nik: str,
+        started_at: str,
+        stage: str,
+        *,
+        timeout_ms: int | None = None,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ):
         self.blocker_calls.append(stage)
         self.blocker_timeouts.append(timeout_ms)
+        self.blocker_customer_information.append((nama_pengguna, jenis_pengguna))
         return SimpleNamespace(should_skip=False, stop_reason=None)
 
 
@@ -460,6 +468,9 @@ def test_puzzle_service_reuses_single_solver_result_with_in_memory_images():
     assert len(solver_instances) == 1
     assert solver_instances[0].kwargs["gap_image"] is piece_img
     assert solver_instances[0].kwargs["bg_image"] is bg_img
+    assert solver_instances[0].kwargs["output_image_path"] == str(
+        Path("data_puzzle/3174_result.png")
+    )
     assert len(slider_calls) == 1
     _page, imgs, max_wait_success_ms, kwargs = slider_calls[0]
     assert imgs == {
@@ -469,7 +480,9 @@ def test_puzzle_service_reuses_single_solver_result_with_in_memory_images():
     assert max_wait_success_ms == 3500
     assert kwargs["image_arrays"] == {"background": bg_img, "piece": piece_img}
     assert kwargs["puzzle_result"] == puzzle_result
+    assert kwargs["puzzle_result_path"] == Path("data_puzzle/3174_result.png")
     assert kwargs["solver_timing_ms"] == {"total": 12.5}
+    assert kwargs["write_debug_artifacts"] is False
 
 
 def test_process_single_nik_completes_and_records_success(monkeypatch):
@@ -479,6 +492,12 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
 
         def __init__(self, page) -> None:
             FakePenjualan.instances += 1
+
+        def read_customer_information(self):
+            return SimpleNamespace(
+                nama_pengguna="JOHN DOE",
+                jenis_pengguna="RUMAH TANGGA",
+            )
 
         def cek_pesanan(self) -> None:
             FakePenjualan.cek_pesanan_calls += 1
@@ -531,6 +550,8 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
                 "puzzle_attempts": 2,
                 "puzzle_retry_count": 1,
                 "puzzle_retry_process": "proses_penjualan",
+                "nama_pengguna": "JOHN DOE",
+                "jenis_pengguna": "RUMAH TANGGA",
             },
         )
     ]
@@ -542,6 +563,10 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
         "after cek pesanan",
     ]
     assert precheck_service.blocker_timeouts == [300, 1500]
+    assert precheck_service.blocker_customer_information == [
+        ("JOHN DOE", "RUMAH TANGGA"),
+        ("JOHN DOE", "RUMAH TANGGA"),
+    ]
     assert puzzle_service.calls == ["3174"]
     assert FakePenjualan.instances == 1
     assert FakePenjualan.cek_pesanan_calls == 1
@@ -591,7 +616,12 @@ def test_inline_transaction_blocker_stops_before_cek_pesanan_and_puzzle(monkeypa
 
     class BlockingPrechecks(FakePrecheckService):
         def check_transaction_blocker(
-            self, penjualan, nik: str, started_at: str, stage: str
+            self,
+            penjualan,
+            nik: str,
+            started_at: str,
+            stage: str,
+            **_kwargs,
         ):
             self.blocker_calls.append(stage)
             return SimpleNamespace(should_skip=True, stop_reason=None)

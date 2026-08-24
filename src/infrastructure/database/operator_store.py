@@ -30,6 +30,7 @@ _COLUMN_NAMES = (
     "OPERATOR",
     "NIK",
     "NAMA_KONSUMER",
+    "JENIS_PENGGUNA",
     "KUOTA",
     "MAX_KUOTA",
     "CONFLICT",
@@ -41,7 +42,22 @@ _COLUMN_NAMES = (
     "UPDATED_TIME",
     "CREATED_TIME",
 )
-_NAME_FIELDS = ("nama", "NAMA", "name", "NAME", "customer_name", "customerName")
+_NAME_FIELDS = (
+    "nama_pengguna",
+    "NAMA_PENGGUNA",
+    "namaPengguna",
+    "nama",
+    "NAMA",
+    "name",
+    "NAME",
+    "customer_name",
+    "customerName",
+)
+_CUSTOMER_TYPE_FIELDS = (
+    "jenis_pengguna",
+    "JENIS_PENGGUNA",
+    "jenisPengguna",
+)
 _SUCCESS_STATUSES = {"completed", "success", "successful"}
 _DEFAULT_STATUS = "unknown"
 
@@ -167,8 +183,7 @@ class OperatorTargets:
         targets: list[OperatorTarget] = []
         configured_operator_ids: dict[str, str] = {}
         numbered_account_configured = any(
-            _NUMBERED_ACCOUNT_KEY_PATTERN.fullmatch(key)
-            and str(value).strip()
+            _NUMBERED_ACCOUNT_KEY_PATTERN.fullmatch(key) and str(value).strip()
             for key, value in source.items()
         )
         use_legacy_account = not numbered_account_configured and any(
@@ -202,8 +217,7 @@ class OperatorTargets:
                 raise ValueError(f"Missing NAME_OPERATORS_{suffix}.")
 
             operator_id = (
-                source.get(operator_id_key, "").strip()
-                or f"operator_{int(suffix):02d}"
+                source.get(operator_id_key, "").strip() or f"operator_{int(suffix):02d}"
             )
             normalized_operator_id = _normalize_key(operator_id)
             existing_table = configured_operator_ids.get(normalized_operator_id)
@@ -272,6 +286,7 @@ class OperatorDbRecord:
     problem: str
     conflict: bool
     event_time: datetime
+    jenis_pengguna: str = ""
 
     @classmethod
     def from_report_payload(
@@ -301,6 +316,7 @@ class OperatorDbRecord:
             problem=problem,
             conflict=bool(problem),
             event_time=event_time,
+            jenis_pengguna=_extract_first_text(payload, _CUSTOMER_TYPE_FIELDS),
         )
 
 
@@ -730,6 +746,7 @@ class OperatorDatabaseManager:
                 record.operator,
                 record.nik,
                 record.nama_konsumer,
+                record.jenis_pengguna,
                 record.kuota_delta,
                 record.kuota_delta,
                 record.conflict,
@@ -904,6 +921,7 @@ class OperatorDatabaseManager:
                 {operator} TEXT NOT NULL DEFAULT '',
                 {nik} BIGINT PRIMARY KEY,
                 {nama_konsumer} TEXT NOT NULL DEFAULT '',
+                {jenis_pengguna} TEXT NOT NULL DEFAULT '',
                 {kuota} INTEGER NOT NULL DEFAULT 0,
                 {max_kuota} INTEGER NOT NULL DEFAULT 0,
                 {conflict} BOOLEAN NOT NULL DEFAULT FALSE,
@@ -921,6 +939,7 @@ class OperatorDatabaseManager:
             operator=identifiers["operator"],
             nik=identifiers["nik"],
             nama_konsumer=identifiers["nama_konsumer"],
+            jenis_pengguna=identifiers["jenis_pengguna"],
             kuota=identifiers["kuota"],
             max_kuota=identifiers["max_kuota"],
             conflict=identifiers["conflict"],
@@ -964,6 +983,7 @@ class OperatorDatabaseManager:
         add_columns = (
             ("OPERATOR", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             ("NAMA_KONSUMER", sql.SQL("TEXT NOT NULL DEFAULT ''")),
+            ("JENIS_PENGGUNA", sql.SQL("TEXT NOT NULL DEFAULT ''")),
             ("KUOTA", sql.SQL("INTEGER NOT NULL DEFAULT 0")),
             ("MAX_KUOTA", sql.SQL("INTEGER NOT NULL DEFAULT 0")),
             ("CONFLICT", sql.SQL("BOOLEAN NOT NULL DEFAULT FALSE")),
@@ -1025,6 +1045,7 @@ class OperatorDatabaseManager:
         table = sql.Identifier(_normalize_table_name(table_name))
         operator = sql.Identifier("OPERATOR")
         nik = sql.Identifier("NIK")
+        jenis_pengguna = sql.Identifier("JENIS_PENGGUNA")
         nama_konsumer = sql.Identifier("NAMA_KONSUMER")
         kuota = sql.Identifier("KUOTA")
         max_kuota = sql.Identifier("MAX_KUOTA")
@@ -1114,6 +1135,7 @@ class OperatorDatabaseManager:
                 {operator},
                 {nik},
                 {nama_konsumer},
+                {jenis_pengguna},
                 {kuota},
                 {max_kuota},
                 {conflict},
@@ -1125,16 +1147,30 @@ class OperatorDatabaseManager:
                 {updated_time},
                 {created_time}
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s
+            )
             ON CONFLICT ({nik}) DO UPDATE SET
                 {operator} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
                         THEN EXCLUDED.{operator}
                     ELSE target.{operator}
                 END,
+                {jenis_pengguna} = CASE
+                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
+                        THEN COALESCE(
+                            NULLIF(EXCLUDED.{jenis_pengguna}, ''),
+                            target.{jenis_pengguna}
+                        )
+                    ELSE target.{jenis_pengguna}
+                END,
                 {nama_konsumer} = CASE
                     WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{nama_konsumer}
+                        THEN COALESCE(
+                            NULLIF(EXCLUDED.{nama_konsumer}, ''),
+                            target.{nama_konsumer}
+                        )
                     ELSE target.{nama_konsumer}
                 END,
                 {kuota} = {next_kuota},
@@ -1167,6 +1203,7 @@ class OperatorDatabaseManager:
             table=table,
             operator=operator,
             nik=nik,
+            jenis_pengguna=jenis_pengguna,
             nama_konsumer=nama_konsumer,
             kuota=kuota,
             max_kuota=max_kuota,
@@ -1263,7 +1300,11 @@ def _build_problem(payload: Mapping[str, Any]) -> str:
 
 
 def _extract_name(payload: Mapping[str, Any]) -> str:
-    for field_name in _NAME_FIELDS:
+    return _extract_first_text(payload, _NAME_FIELDS)
+
+
+def _extract_first_text(payload: Mapping[str, Any], field_names: Iterable[str]) -> str:
+    for field_name in field_names:
         value = payload.get(field_name)
         if value is not None and str(value).strip():
             return str(value).strip()

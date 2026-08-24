@@ -24,6 +24,8 @@ class FileWriter:
         "operator_id",
         "operator",
         "nik",
+        "nama_pengguna",
+        "jenis_pengguna",
         "status",
         "started_at",
         "finished_at",
@@ -93,10 +95,24 @@ class FileWriter:
 
     @staticmethod
     def public_row_payload(row: TransactionRow) -> dict:
-        payload = asdict(row)
+        raw_payload = asdict(row)
+        payload = {
+            key: value
+            for key, value in raw_payload.items()
+            if key not in {"nama_pengguna", "jenis_pengguna"}
+        }
+        nik_position = list(payload).index("nik") + 1
+        ordered_items = list(payload.items())
+        ordered_items[nik_position:nik_position] = [
+            ("nama_pengguna", raw_payload["nama_pengguna"]),
+            ("jenis_pengguna", raw_payload["jenis_pengguna"]),
+        ]
+        payload = dict(ordered_items)
         payload["operator_id"] = public_operator(payload["operator_id"])
         payload["operator"] = public_operator(payload["operator"])
         payload["nik"] = display_nik(payload["nik"])
+        payload["nama_pengguna"] = sanitize_text(payload["nama_pengguna"])
+        payload["jenis_pengguna"] = sanitize_text(payload["jenis_pengguna"])
         payload["url"] = sanitize_text(payload["url"])
         payload["reason"] = sanitize_text(payload["reason"])
         payload["error"] = sanitize_text(payload["error"])

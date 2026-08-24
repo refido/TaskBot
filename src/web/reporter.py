@@ -103,9 +103,7 @@ class TransactionReporter:
         self.operator = self.operator_id
         self.run_context = run_context
         self.run_id = str(getattr(run_context, "run_id", "") or run_name or "")
-        self.run_started_at = str(
-            getattr(run_context, "started_at", "") or now_iso()
-        )
+        self.run_started_at = str(getattr(run_context, "started_at", "") or now_iso())
         self.rows: list[TransactionRow] = []
         self.retry_events: list[RetryEvent] = []
         self.workflow_events: list[WorkflowEvent] = []
@@ -171,6 +169,8 @@ class TransactionReporter:
         puzzle_retry_count: int = 0,
         puzzle_retry_process: str = "",
         reason: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record a completed transaction."""
         self._add_row(
@@ -183,6 +183,8 @@ class TransactionReporter:
             puzzle_retry_count=puzzle_retry_count,
             puzzle_retry_process=puzzle_retry_process,
             reason=reason,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
 
     def skip(
@@ -192,11 +194,19 @@ class TransactionReporter:
         skip_type: str,
         url: str = "",
         reason: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record a skipped transaction with specific type."""
         status = f"skipped_{skip_type}"
         self._add_row(
-            status=status, nik=nik, started_at=started_at, url=url, reason=reason
+            status=status,
+            nik=nik,
+            started_at=started_at,
+            url=url,
+            reason=reason,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
 
     def skip_max_kuota(
@@ -205,9 +215,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = "Max kuota alert",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record max kuota skip."""
-        self.skip(nik, started_at, "max_kuota", url, reason)
+        self.skip(
+            nik,
+            started_at,
+            "max_kuota",
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_out_of_stock(
         self,
@@ -215,9 +235,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = "Sellable stock is empty",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record out-of-stock stop."""
-        self.skip(nik, started_at, "out_of_stock", url, reason)
+        self.skip(
+            nik,
+            started_at,
+            "out_of_stock",
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_needs_update(
         self,
@@ -225,9 +255,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = _NEEDS_UPDATE_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record needs update skip."""
-        self.skip(nik, started_at, _NEEDS_UPDATE_SKIP_TYPE, url, reason)
+        self.skip(
+            nik,
+            started_at,
+            _NEEDS_UPDATE_SKIP_TYPE,
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_under_17(
         self,
@@ -235,9 +275,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = _UNDER_17_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record under-17 NIK skip."""
-        self.skip(nik, started_at, _UNDER_17_SKIP_TYPE, url, reason)
+        self.skip(
+            nik,
+            started_at,
+            _UNDER_17_SKIP_TYPE,
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_invalid_registered_nik(
         self,
@@ -245,9 +295,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = _INVALID_REGISTERED_NIK_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record invalid registered-customer NIK skip."""
-        self.skip(nik, started_at, _INVALID_REGISTERED_NIK_SKIP_TYPE, url, reason)
+        self.skip(
+            nik,
+            started_at,
+            _INVALID_REGISTERED_NIK_SKIP_TYPE,
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_cannot_transact_at_base(
         self,
@@ -255,9 +315,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = _CANNOT_TRANSACT_AT_BASE_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record base-restriction skip."""
-        self.skip(nik, started_at, _CANNOT_TRANSACT_AT_BASE_SKIP_TYPE, url, reason)
+        self.skip(
+            nik,
+            started_at,
+            _CANNOT_TRANSACT_AT_BASE_SKIP_TYPE,
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def skip_unusual_transaction_at_other_base(
         self,
@@ -265,10 +335,18 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = _UNUSUAL_TRANSACTION_OTHER_BASE_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record unusual transaction at another base skip."""
         self.skip(
-            nik, started_at, _UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE, url, reason
+            nik,
+            started_at,
+            _UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE,
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
         )
 
     def skip_not_registered(
@@ -277,9 +355,19 @@ class TransactionReporter:
         started_at: str,
         url: str = "",
         reason: str = "Pelanggan Tidak Terdaftar",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record not registered skip."""
-        self.skip(nik, started_at, "not_registered", url, reason)
+        self.skip(
+            nik,
+            started_at,
+            "not_registered",
+            url,
+            reason,
+            nama_pengguna,
+            jenis_pengguna,
+        )
 
     def error(
         self,
@@ -291,6 +379,8 @@ class TransactionReporter:
         puzzle_attempts: int = 0,
         puzzle_retry_count: int = 0,
         puzzle_retry_process: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record an error."""
         reason = str(exc)
@@ -307,6 +397,8 @@ class TransactionReporter:
                 puzzle_attempts=puzzle_attempts,
                 puzzle_retry_count=puzzle_retry_count,
                 puzzle_retry_process=puzzle_retry_process,
+                nama_pengguna=nama_pengguna,
+                jenis_pengguna=jenis_pengguna,
             )
             return
         if self._reason_indicates_unregistered(combined_reason):
@@ -345,6 +437,8 @@ class TransactionReporter:
             reason=reason,
             error=error_details,
             error_label=error_label,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
         self._record_row(row)
 
@@ -358,6 +452,8 @@ class TransactionReporter:
         puzzle_retry_count: int = 0,
         puzzle_retry_process: str = "",
         reason: str = _FAILED_PUZZLE_SOLVE_REASON,
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         """Record a failed puzzle solve separately from actual errors."""
         error_details = traceback.format_exc() if exc is not None else ""
@@ -373,6 +469,8 @@ class TransactionReporter:
             puzzle_retry_process=puzzle_retry_process,
             reason=resolved_reason or _FAILED_PUZZLE_SOLVE_REASON,
             error=error_details,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
 
     def record_retry(
@@ -779,14 +877,11 @@ class TransactionReporter:
                 self.run_id = self.application_run_dir.name
         else:
             if not self.run_id:
-                self.run_id = (
-                    f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
-                )
+                self.run_id = f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
             report_root = Path(out_dir)
-            self.application_run_dir = (
-                build_dated_dir(report_root, now_local)
-                / self._sanitize_folder_name(self.run_id)
-            )
+            self.application_run_dir = build_dated_dir(
+                report_root, now_local
+            ) / self._sanitize_folder_name(self.run_id)
 
         self.operator_dir = self.application_run_dir / "operators" / safe_operator
         self.base_dir = self.operator_dir
@@ -908,6 +1003,8 @@ class TransactionReporter:
         reason: str = "",
         error: str = "",
         error_label: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> None:
         row = self._create_row(
             status=status,
@@ -921,6 +1018,8 @@ class TransactionReporter:
             reason=reason,
             error=error,
             error_label=error_label,
+            nama_pengguna=nama_pengguna,
+            jenis_pengguna=jenis_pengguna,
         )
         self._record_row(row)
 
@@ -937,6 +1036,8 @@ class TransactionReporter:
         reason: str = "",
         error: str = "",
         error_label: str = "",
+        nama_pengguna: str = "",
+        jenis_pengguna: str = "",
     ) -> TransactionRow:
         row = TransactionRow(
             operator=self.operator,
@@ -944,6 +1045,8 @@ class TransactionReporter:
             run_id=self.run_id,
             nik=nik,
             status=status,
+            nama_pengguna=str(nama_pengguna or "").strip(),
+            jenis_pengguna=str(jenis_pengguna or "").strip(),
             started_at=started_at or self.run_started_at,
             finished_at=now_iso(),
             url=url,
@@ -1025,9 +1128,7 @@ class TransactionReporter:
         skipped = sum(
             count for key, count in counts.items() if key.startswith("skipped_")
         )
-        failed = counts.get("error", 0) + counts.get(
-            _FAILED_PUZZLE_SOLVE_STATUS, 0
-        )
+        failed = counts.get("error", 0) + counts.get(_FAILED_PUZZLE_SOLVE_STATUS, 0)
         payload = {
             "run_id": self.run_id,
             "operator": self.operator_id,

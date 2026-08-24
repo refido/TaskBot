@@ -38,6 +38,8 @@ class TransactionRow:
     puzzle_retry_count: int = 0
     puzzle_retry_process: str = ""
     reason: str = ""
+    nama_pengguna: str = ""
+    jenis_pengguna: str = ""
 
     def __post_init__(self) -> None:
         """Keep the legacy ``operator`` field as a safe-ID compatibility alias."""
