@@ -240,6 +240,8 @@ On macOS/Linux, use `cp .env.example .env` for the last command.
 URL_APPLICATION=https://your-app.example
 HEADLESS=True
 MASK=0
+TASKBOT_INTERACTION_DEBUG=0
+TASKBOT_INTERACTION_PAUSE=0
 
 EMAIL_1=first.operator@example.com
 PIN_1=123456
@@ -262,6 +264,17 @@ The update interval and jitter are non-negative seconds. They pace only customer
 ### Browser and privacy modes
 
 `HEADLESS=True` or `1` hides the browser; `False` or `0` shows it.
+
+Interaction diagnostics are controlled from `.env`:
+
+- `TASKBOT_INTERACTION_DEBUG=1` enables traces, screenshots, DOM/state logs,
+  and network timing; `0` disables them.
+- `TASKBOT_INTERACTION_PAUSE=1` opens Playwright Inspector at diagnostic
+  checkpoints; `0` disables pauses. Pauses require both
+  `TASKBOT_INTERACTION_DEBUG=1` and `HEADLESS=0`.
+
+Both settings default to disabled. `main.py` loads `.env` before the browser
+session starts, so no PowerShell environment-variable setup is needed.
 
 `MASK` accepts case-insensitive values:
 

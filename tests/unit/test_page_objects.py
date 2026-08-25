@@ -687,6 +687,100 @@ def test_nib_reminder_continue_uses_renamed_locator_once():
     ]
 
 
+def test_nib_live_path_instruments_detection_click_and_twenty_second_observation():
+    class Modal:
+        def wait_for(self, **_kwargs) -> None:
+            return None
+
+    dashboard = Dashboard.__new__(Dashboard)
+    dashboard.perbarui_data_nib_pelanggan_modal = Modal()
+    dashboard.perbarui_data_nib_pelanggan_lanjut_nanti = object()
+    events: list[tuple] = []
+    dashboard.click_locator = lambda locator, **kwargs: events.append(
+        ("click", locator, kwargs)
+    )
+    dashboard._debug_interaction_checkpoint = lambda label, **_kwargs: events.append(
+        ("checkpoint", label)
+    )
+    dashboard._debug_pause = lambda label: events.append(("pause", label))
+    dashboard._debug_poll_interaction_states = lambda label: events.append(
+        ("poll", label)
+    )
+
+    dashboard.continue_perbarui_data_nib_pelanggan()
+
+    assert [event[:2] for event in events] == [
+        ("checkpoint", "nib_modal_detected"),
+        ("pause", "nib_modal_detected"),
+        ("checkpoint", "nib_continue_later_before_click"),
+        ("click", dashboard.perbarui_data_nib_pelanggan_lanjut_nanti),
+        ("checkpoint", "nib_continue_later_after_click"),
+        ("poll", "nib_continue_later_post_click_20s"),
+    ]
+    assert sum(event[0] == "click" for event in events) == 1
+
+
+def test_nib_live_path_captures_after_state_even_when_click_raises():
+    class Modal:
+        def wait_for(self, **_kwargs) -> None:
+            return None
+
+    dashboard = Dashboard.__new__(Dashboard)
+    dashboard.perbarui_data_nib_pelanggan_modal = Modal()
+    dashboard.perbarui_data_nib_pelanggan_lanjut_nanti = object()
+    labels: list[str] = []
+    dashboard.click_locator = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        RuntimeError("click failed")
+    )
+    dashboard._debug_interaction_checkpoint = lambda label, **_kwargs: labels.append(
+        label
+    )
+    dashboard._debug_pause = lambda _label: None
+    dashboard._debug_poll_interaction_states = lambda label: labels.append(label)
+
+    with pytest.raises(RuntimeError, match="click failed"):
+        dashboard.continue_perbarui_data_nib_pelanggan()
+
+    assert labels[-2:] == [
+        "nib_continue_later_after_click",
+        "nib_continue_later_post_click_20s",
+    ]
+
+
+def test_customer_type_pause_is_after_confirmed_selection_and_before_continue(
+    monkeypatch,
+):
+    class Expectation:
+        def to_be_visible(self, **_kwargs) -> None:
+            return None
+
+    dashboard = Dashboard.__new__(Dashboard)
+    dashboard.jenis_pelanggan_modal = object()
+    choice = object()
+    events: list[tuple] = []
+    dashboard._find_customer_type_choice = lambda: ("Rumah Tangga", choice)
+    dashboard._select_customer_type_with_confirmation = lambda option, locator: (
+        events.append(("selected", option, locator))
+    )
+    dashboard._debug_interaction_checkpoint = lambda label: events.append(
+        ("checkpoint", label)
+    )
+    dashboard._debug_pause = lambda label: events.append(("pause", label))
+    dashboard._continue_jenis_pelanggan_with_confirmation = lambda option: (
+        events.append(("continue", option))
+    )
+    monkeypatch.setattr(dashboard_module, "expect", lambda _locator: Expectation())
+
+    dashboard.select_jenis_pelanggan()
+
+    assert events == [
+        ("selected", "Rumah Tangga", choice),
+        ("checkpoint", "customer_type_radio_confirmed"),
+        ("pause", "customer_type_radio_confirmed_before_continue"),
+        ("continue", "Rumah Tangga"),
+    ]
+
+
 def test_prechecks_service_interprets_invalid_registered_nik_modal():
     page = FakePage()
     reporter = FakeReporter()

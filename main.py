@@ -57,9 +57,7 @@ def _build_customer_update_rate_limiter() -> CustomerUpdateRateLimiter:
         min_interval_seconds=_nonnegative_env_float(
             "CUSTOMER_UPDATE_MIN_INTERVAL_SECONDS", 1.0
         ),
-        jitter_seconds=_nonnegative_env_float(
-            "CUSTOMER_UPDATE_JITTER_SECONDS", 0.25
-        ),
+        jitter_seconds=_nonnegative_env_float("CUSTOMER_UPDATE_JITTER_SECONDS", 0.25),
     )
 
 
@@ -310,7 +308,7 @@ def _write_run_meta(
             continue
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        except OSError, UnicodeDecodeError, json.JSONDecodeError:
             continue
         operator_summaries[operator_id] = {
             "success": result_by_operator.get(operator_id),
@@ -371,10 +369,15 @@ def _print_run_summary(run_context, account_configs: Sequence[Config]) -> None:
                 counts = json.loads(summary_path.read_text(encoding="utf-8")).get(
                     "counts", {}
                 )
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            except OSError, UnicodeDecodeError, json.JSONDecodeError:
                 counts = {}
+        for key, count in counts.items():
+            if key.startswith("skipped_"):
+                print(f"[DEBUG] {key=} {count=} {type(count)=}")
         skipped = sum(
-            count for key, count in counts.items() if key.startswith("skipped_")
+            int(count or 0)
+            for key, count in counts.items()
+            if key.startswith("skipped_")
         )
         failed = counts.get("error", 0) + counts.get("failed_puzzle_solve", 0)
         log_print(
