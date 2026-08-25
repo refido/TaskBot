@@ -158,15 +158,24 @@ class TransactionPrechecksService:
                 continue
             if state is CustomerState.NIB_REMINDER:
                 self._raise_if_repeated(state, handled_states)
-                self._record_workflow_event(nik, "customer_nib_reminder_detected")
-                self._log_customer_action(nik, state, "continue_nib_reminder")
-                if self._run_customer_step(
-                    self.dashboard.continue_perbarui_data_nib_pelanggan,
-                    nik=nik,
-                    started_at=started_at,
-                ):
+                self._record_workflow_event(
+                    nik,
+                    "customer_nib_reminder_detected",
+                )
+                self._log_customer_action(
+                    nik,
+                    state,
+                    "resolve_nib_reminder",
+                )
+
+                if self._handle_nib_reminder(nik, started_at):
                     return PrecheckAction.SKIP
-                self._record_workflow_event(nik, "customer_nib_reminder_continued")
+
+                self._record_workflow_event(
+                    nik,
+                    "customer_nib_reminder_continued",
+                )
+
                 handled_states.add(state)
                 state = self._resolve_after_action(nik, state)
                 continue
@@ -705,6 +714,101 @@ class TransactionPrechecksService:
             ),
         )
         return True
+
+    def _handle_nib_reminder(
+        self,
+        nik: str,
+        started_at: str,
+    ) -> bool:
+        """
+        Resolve the asynchronous Segera Lengkapi NIB modal.
+
+        Returns:
+            False:
+                transaction may continue.
+
+            True:
+                transaction must be skipped.
+        """
+
+        try:
+            action = self.dashboard.attempt_continue_perbarui_data_nib_pelanggan()
+
+        except SessionExpiredError:
+            raise
+
+        except Exception as exc:
+            if self._handle_registration_request_limit_if_present(
+                nik,
+                started_at,
+            ):
+                return True
+
+            if self._is_login_page_visible():
+                raise SessionExpiredError(
+                    "Session expired while resolving NIB reminder"
+                ) from exc
+
+            raise
+
+        self.log_func(
+            "NIB reminder result:",
+            action,
+            event="customer.precheck.nib_result",
+            nik=nik,
+            action=action,
+            url=self.page.url,
+        )
+
+        if action in {"not_present", "continued"}:
+            return False
+
+        if action == "close":
+            reason = (
+                "Segera Lengkapi NIB blocked the transaction; "
+                "Tutup was clicked and the transaction was skipped."
+            )
+
+            self._record_workflow_event(
+                nik,
+                "customer_nib_reminder_closed",
+                reason=reason,
+            )
+
+            # IMPORTANT:
+            # attempt_continue_perbarui_data_nib_pelanggan()
+            # already clicked the NIB-specific Tutup button.
+            #
+            # Do NOT call dismiss_perbarui_data_pelanggan_modal()
+            # here because that is a different modal.
+            self.dashboard.reset_nik_input_or_return_to_dashboard(
+                reset_action_name=("resetting NIK input after NIB blocker"),
+                reset_log=("Closed NIB blocker; NIK input reset."),
+                dashboard_log=("Closed NIB blocker; returned to dashboard."),
+            )
+
+            self._record_skip_and_cooldown(
+                nik=nik,
+                started_at=started_at,
+                skip_callback=lambda: self.reporter.skip_needs_update(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                    reason=reason,
+                ),
+                message=f"Skipping NIK {nik} ({reason})",
+            )
+
+            return True
+
+        if action == "cannot_continue":
+            raise UnexpectedCustomerStateError(
+                "Segera Lengkapi NIB could not be resolved safely."
+            )
+
+        raise UnexpectedCustomerStateError(
+            f"Unexpected NIB reminder result: {action!r}"
+        )
 
     def _handle_perbarui_data_pelanggan(self, nik: str, started_at: str) -> bool:
         perbarui_action = self.dashboard.attempt_continue_perbarui_data_pelanggan()

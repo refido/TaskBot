@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Literal
 
 from playwright.sync_api import (
@@ -15,6 +16,7 @@ from src.infrastructure.browser.page_objects.base_page import BasePage
 from src.infrastructure.browser.page_objects.penjualan_page import (
     TRANSACTION_BLOCKER_ALERT_RE,
 )
+from src.infrastructure.interaction_diagnostics import get_page_diagnostics
 from src.logging_utils import log_print
 
 _PERBARUI_DATA_PELANGGAN_CLOSED_REASON = (
@@ -28,6 +30,18 @@ _PERBARUI_DATA_NIB_PELANGGAN_MESSAGE = re.compile(
     r"Nomor\s+Induk\s+Berusaha\s*\(NIB\).*?"
     r'Tekan\s+["\u201c]LENGKAPI\s+NIB["\u201d]\s+untuk\s+dapat\s+melakukan\s+transaksi',
     re.IGNORECASE | re.DOTALL,
+)
+_NIB_REMINDER_TITLE = re.compile(
+    r"^\s*Segera\s+Lengkapi\s+NIB\s*$",
+    re.IGNORECASE,
+)
+_NIB_CONTINUE_LATER_BUTTON = re.compile(
+    r"^\s*nanti\s+saja,\s*lanjut\s+(?:penjualan|transaksi)\s*$",
+    re.IGNORECASE,
+)
+_NIB_TUTUP_BUTTON = re.compile(
+    r"^\s*tutup\s*$",
+    re.IGNORECASE,
 )
 _NIK_UNDER_17_VALIDATION_TEXT = "NIK belum 17 tahun"
 _INVALID_REGISTERED_NIK_MODAL_TITLE = "Tidak Dapat Melakukan Transaksi"
@@ -60,6 +74,30 @@ _REGISTRATION_REQUEST_LIMITED_TUTUP = re.compile(
 
 _ZERO_STOCK_CONFIRM_ATTEMPTS = 3
 _ZERO_STOCK_RETRY_DELAY_MS = 2500
+
+_CUSTOMER_TYPE_CONSENT_MARKER = re.compile(
+    r"Pernyataan\s+Persetujuan",
+    re.IGNORECASE,
+)
+
+_CUSTOMER_TYPE_UPDATE_REQUIRED_MARKER = re.compile(
+    r"Data\s+Pelanggan\s+belum\s+lengkap",
+    re.IGNORECASE,
+)
+
+_CUSTOMER_TYPE_SELECTION_ATTEMPTS = 3
+_CUSTOMER_TYPE_SELECTION_VERIFY_MS = 5000
+
+# The target application can take several seconds to react after a click.
+# These waits are post-condition waits, not blind sleeps.
+_CUSTOMER_TYPE_CONTINUE_ATTEMPTS = 3
+_CUSTOMER_TYPE_CONTINUE_RESULT_TIMEOUT_MS = 20000
+_CUSTOMER_TYPE_CONTINUE_POLL_MS = 250
+
+_NIB_CONTINUE_ATTEMPTS = 2
+_NIB_POST_CLICK_TIMEOUT_MS = 20000
+_NIB_POST_CLICK_POLL_MS = 250
+_NIB_TUTUP_CLICK_ATTEMPTS = 3
 
 PerbaruiDataPelangganAction = Literal[
     "not_present", "continued", "close", "cannot_continue"
@@ -152,27 +190,32 @@ class Dashboard(BasePage):
             .first
         )
 
+        jenis_pelanggan_marker = re.compile(
+            r"Jenis\s+Pelanggan|"
+            r"Pelanggan\s+Terdaftar|"
+            r"pilihan\s+jenis\s+pelanggan",
+            re.IGNORECASE,
+        )
+
+        # Mantine portals may leave stale/aria-hidden dialog copies in the DOM.
+        # Scope all interactions to the currently visible modal section.
         self.jenis_pelanggan_modal = (
-            page.get_by_role("dialog")
-            .filter(
-                has_text=re.compile(
-                    r"Jenis\s+Pelanggan|"
-                    r"Pelanggan\s+Terdaftar|"
-                    r"pilihan\s+jenis\s+pelanggan",
-                    re.IGNORECASE,
-                )
-            )
+            page.locator("section")
+            .filter(has_text=jenis_pelanggan_marker)
+            .filter(visible=True)
             .first
         )
 
         self.jenis_pelanggan_lanjutkan_penjualan_button = (
-            self.jenis_pelanggan_modal.get_by_role(
-                "button",
-                name=re.compile(
+            self.jenis_pelanggan_modal.locator("button")
+            .filter(
+                has_text=re.compile(
                     r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
                     re.IGNORECASE,
-                ),
-            ).first
+                )
+            )
+            .filter(visible=True)
+            .first
         )
 
         self.pelanggan_tidak_terdaftar_title = (
@@ -200,10 +243,10 @@ class Dashboard(BasePage):
             .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE)
             .filter(visible=True)
         )
-        registration_request_limited_message = page.locator(
-            "div.mantine-Text-root"
-        ).filter(has_text=_REGISTRATION_REQUEST_LIMITED_MESSAGE_EXACT).filter(
-            visible=True
+        registration_request_limited_message = (
+            page.locator("div.mantine-Text-root")
+            .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MESSAGE_EXACT)
+            .filter(visible=True)
         )
 
         # The deployed Mantine portal can be visually displayed beneath an
@@ -219,9 +262,7 @@ class Dashboard(BasePage):
         )
 
         self.registration_request_limited_title = (
-            self.registration_request_limited_modal.locator(
-                "h1, h2, h3, h4, h5, h6"
-            )
+            self.registration_request_limited_modal.locator("h1, h2, h3, h4, h5, h6")
             .filter(has_text=_REGISTRATION_REQUEST_LIMITED_MODAL_TITLE)
             .filter(visible=True)
             .first
@@ -251,20 +292,38 @@ class Dashboard(BasePage):
             )
         )
 
+        nib_reminder_title = (
+            page.locator("div.mantine-Text-root")
+            .filter(has_text=_NIB_REMINDER_TITLE)
+            .filter(visible=True)
+        )
+
         self.perbarui_data_nib_pelanggan_modal = (
-            page.locator('section[role="dialog"]')
-            .filter(has_text=_PERBARUI_DATA_NIB_PELANGGAN_MESSAGE)
+            page.locator("section")
+            .filter(has=nib_reminder_title)
+            .filter(visible=True)
+            .first
+        )
+
+        self.perbarui_data_nib_pelanggan_title = (
+            self.perbarui_data_nib_pelanggan_modal.locator("div.mantine-Text-root")
+            .filter(has_text=_NIB_REMINDER_TITLE)
+            .filter(visible=True)
             .first
         )
 
         self.perbarui_data_nib_pelanggan_lanjut_nanti = (
-            self.perbarui_data_nib_pelanggan_modal.get_by_role(
-                "button",
-                name=re.compile(
-                    r"^\s*nanti saja,\s*lanjut (?:penjualan|transaksi)\s*$",
-                    re.IGNORECASE,
-                ),
-            ).first
+            self.perbarui_data_nib_pelanggan_modal.locator("button")
+            .filter(has_text=_NIB_CONTINUE_LATER_BUTTON)
+            .filter(visible=True)
+            .first
+        )
+
+        self.perbarui_data_nib_pelanggan_tutup = (
+            self.perbarui_data_nib_pelanggan_modal.locator("button")
+            .filter(has_text=_NIB_TUTUP_BUTTON)
+            .filter(visible=True)
+            .first
         )
 
         self.nik_under_17_validation = (
@@ -406,6 +465,152 @@ class Dashboard(BasePage):
                 )
             )
             .first
+        )
+
+    def debug_interaction_state(self, label: str) -> None:
+        """Capture a best-effort DOM snapshot when interaction debugging is enabled."""
+        diagnostics = get_page_diagnostics(getattr(self, "page", object()))
+        if diagnostics is not None:
+            diagnostics.debug_interaction_state(label)
+
+    def _debug_interaction_checkpoint(
+        self,
+        label: str,
+        *,
+        target_name: str | None = None,
+        target_locator: Locator | None = None,
+        target_locator_factory: Callable[[], Locator] | None = None,
+    ) -> None:
+        diagnostics = get_page_diagnostics(getattr(self, "page", object()))
+        if diagnostics is None:
+            return
+        self.debug_interaction_state(label)
+        if target_locator is None and target_locator_factory is not None:
+            try:
+                target_locator = target_locator_factory()
+            except Exception:  # noqa: BLE001 - diagnostic lookup must not alter workflow.
+                target_locator = None
+        if target_name is not None and target_locator is not None:
+            diagnostics.debug_target_locator(label, target_name, target_locator)
+        diagnostics.screenshot(label)
+
+    def _debug_pause(self, label: str) -> None:
+        diagnostics = get_page_diagnostics(getattr(self, "page", object()))
+        if diagnostics is not None:
+            diagnostics.pause(label)
+
+    def _debug_poll_interaction_states(self, label: str) -> None:
+        diagnostics = get_page_diagnostics(getattr(self, "page", object()))
+        if diagnostics is None:
+            return
+        diagnostics.poll_state_changes(
+            label,
+            self._debug_interaction_state_probes(),
+            duration_ms=20_000,
+            interval_ms=250,
+            on_change=self._debug_state_changed,
+        )
+
+    def _debug_state_changed(
+        self,
+        state_name: str,
+        previous: bool | None,
+        current: bool,
+        elapsed_ms: int,
+    ) -> None:
+        del elapsed_ms
+        if state_name != "nib_tutup_visible" or not current or previous is True:
+            return
+        self._debug_interaction_checkpoint(
+            "nib_tutup_detected",
+            target_name="NIB Tutup",
+            target_locator_factory=lambda: self._debug_nib_button_collection(
+                _NIB_TUTUP_BUTTON
+            ),
+        )
+        self._debug_pause("nib_tutup_detected")
+
+    def _debug_interaction_state_probes(self):
+        return {
+            "customer_type_modal_visible": lambda: self._debug_any_visible(
+                self._debug_customer_type_modal_collection()
+            ),
+            "continue_button_visible": lambda: self._debug_any_visible(
+                self._debug_customer_type_continue_collection()
+            ),
+            "nib_modal_visible": lambda: self._debug_any_visible(
+                self._debug_nib_modal_collection()
+            ),
+            "nib_continue_visible": lambda: self._debug_any_visible(
+                self._debug_nib_button_collection(_NIB_CONTINUE_LATER_BUTTON)
+            ),
+            "nib_tutup_visible": lambda: self._debug_any_visible(
+                self._debug_nib_button_collection(_NIB_TUTUP_BUTTON)
+            ),
+            "transaction_form_visible": lambda: self._is_visible(
+                self.cek_pesanan_button
+            ),
+            "other_precheck_modal_visible": self._debug_other_precheck_visible,
+        }
+
+    def _debug_customer_type_modal_collection(self) -> Locator:
+        marker = re.compile(
+            r"Jenis\s+Pelanggan|"
+            r"Pelanggan\s+Terdaftar|"
+            r"pilihan\s+jenis\s+pelanggan",
+            re.IGNORECASE,
+        )
+        return self.page.locator("section").filter(has_text=marker)
+
+    def _debug_customer_type_continue_collection(self) -> Locator:
+        button_pattern = re.compile(
+            r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
+            re.IGNORECASE,
+        )
+        return (
+            self._debug_customer_type_modal_collection()
+            .locator("button")
+            .filter(has_text=button_pattern)
+        )
+
+    def _debug_nib_modal_collection(self) -> Locator:
+        titles = self.page.locator("div.mantine-Text-root").filter(
+            has_text=_NIB_REMINDER_TITLE
+        )
+        return self.page.locator("section").filter(has=titles)
+
+    def _debug_nib_button_collection(self, pattern: re.Pattern[str]) -> Locator:
+        return (
+            self._debug_nib_modal_collection()
+            .locator("button")
+            .filter(has_text=pattern)
+        )
+
+    @staticmethod
+    def _debug_any_visible(collection: Locator) -> bool:
+        try:
+            count = collection.count()
+        except PlaywrightError:
+            return False
+        for index in range(count):
+            try:
+                if collection.nth(index).is_visible():
+                    return True
+            except PlaywrightError:
+                continue
+        return False
+
+    def _debug_other_precheck_visible(self) -> bool:
+        return any(
+            self._is_visible(locator)
+            for locator in (
+                self.pelanggan_tidak_terdaftar_modal,
+                self.registration_request_limited_modal,
+                self.perbarui_data_pelanggan_modal,
+                self.invalid_registered_nik_modal,
+                self.cannot_transact_at_base_modal,
+                self.unusual_transaction_modal,
+            )
         )
 
     def get_profile_name(self) -> str:
@@ -570,7 +775,7 @@ class Dashboard(BasePage):
                 str(nik),
                 action_name=f"filling NIK {nik}",
             )
-        except (PlaywrightError, AssertionError):
+        except PlaywrightError, AssertionError:
             if self._is_visible(self.registration_request_limited_modal):
                 log_print(
                     "Customer registration request-limit modal interrupted NIK fill; "
@@ -614,7 +819,7 @@ class Dashboard(BasePage):
                 timeout_ms=5000,
                 load_state=None,
             )
-        except (PlaywrightError, AssertionError):
+        except PlaywrightError, AssertionError:
             if self._is_visible(self.registration_request_limited_modal):
                 log_print(
                     "Customer registration request-limit modal interrupted sale "
@@ -748,16 +953,15 @@ class Dashboard(BasePage):
         """
         Select a usable customer type and continue.
 
-        Selection policy:
-        1. Rumah Tangga
-        2. Usaha Mikro
-        3. First visible/enabled generic radio as fallback
+        The target application is asynchronous. A successful Playwright click
+        is therefore not treated as proof that the application accepted the
+        action. Both the radio selection and the continue action are verified
+        from the resulting UI state.
         """
 
         expect(self.jenis_pelanggan_modal).to_be_visible(timeout=15000)
 
         selection = self._find_customer_type_choice()
-
         if selection is None:
             raise RuntimeError(
                 "Jenis Pelanggan modal is visible, but no usable "
@@ -765,68 +969,15 @@ class Dashboard(BasePage):
             )
 
         option_name, choice = selection
-
         log_print(f"Jenis Pelanggan option selected for interaction: {option_name}")
 
-        # Important:
-        # Once we attempt this click, DO NOT try another customer type.
-        # The click might succeed even if the UI is slow afterward.
-        try:
-            choice.click(timeout=15000)
-        except PlaywrightError as exc:
-            raise RuntimeError(
-                f"Failed to click Jenis Pelanggan option '{option_name}'."
-            ) from exc
+        self._select_customer_type_with_confirmation(option_name, choice)
+        self._debug_interaction_checkpoint("customer_type_radio_confirmed")
+        self._debug_pause("customer_type_radio_confirmed_before_continue")
 
-        log_print(f"Jenis Pelanggan option clicked: {option_name}")
-
-        # Wait for selection to propagate to the UI.
-        continue_button = self._find_jenis_pelanggan_continue_button()
-
-        if continue_button is None:
-            raise RuntimeError(
-                "Jenis Pelanggan option was clicked, but "
-                "LANJUTKAN PENJUALAN button could not be found."
-            )
-
-        try:
-            expect(continue_button).to_be_visible(timeout=15000)
-
-            expect(continue_button).to_be_enabled(timeout=15000)
-
-        except AssertionError as exc:
-            raise RuntimeError(
-                "LANJUTKAN PENJUALAN button did not become "
-                "visible and enabled after selecting customer type."
-            ) from exc
-
-        log_print("Jenis Pelanggan selection accepted; LANJUTKAN PENJUALAN is enabled.")
-
-        # Click only once.
-        try:
-            continue_button.click(timeout=15000)
-        except PlaywrightError as exc:
-            raise RuntimeError(
-                "Failed to click LANJUTKAN PENJUALAN from Jenis Pelanggan modal."
-            ) from exc
-
-        log_print("Lanjutkan Penjualan button clicked from Jenis Pelanggan modal")
-
-        # The customer-type modal should disappear after successful continue.
-        try:
-            self.jenis_pelanggan_modal.wait_for(
-                state="hidden",
-                timeout=7000,
-            )
-        except TimeoutError:
-            # Don't immediately click again.
-            #
-            # The action may already have succeeded and the application
-            # may simply be slow transitioning to the next state.
-            log_print(
-                "Jenis Pelanggan modal did not disappear immediately "
-                "after LANJUTKAN PENJUALAN; continuing state detection."
-            )
+        # The button can be rendered before the backend/UI state is fully ready.
+        # Wait and retry only when the SAME customer-type modal remains visible.
+        self._continue_jenis_pelanggan_with_confirmation(option_name)
 
     def _find_customer_type_choice(
         self,
@@ -869,44 +1020,241 @@ class Dashboard(BasePage):
 
         return None
 
+    def _customer_type_is_selected(
+        self,
+        option_name: str,
+    ) -> bool:
+        if option_name in {"Rumah Tangga", "Usaha Mikro"}:
+            return self._is_named_customer_type_selected(option_name)
+
+        return self._is_any_customer_type_selected()
+
+    def _is_named_customer_type_selected(
+        self,
+        option_name: str,
+    ) -> bool:
+        """
+        Verify a known customer type using both:
+
+        1. native radio checked state
+        2. application's visible "Terpilih" state
+
+        The second check is important because this site uses a custom styled
+        radio component and its rendered selected state is authoritative UI
+        evidence that the application accepted the selection.
+        """
+
+        radio = self.jenis_pelanggan_modal.locator(
+            f'input[type="radio"][value="{option_name}"]'
+        ).first
+
+        # First preference: actual native checked property.
+        try:
+            if radio.count() > 0 and radio.is_checked():
+                log_print(f"Customer type native radio is checked: {option_name}")
+                return True
+        except PlaywrightError:
+            pass
+
+        # Second signal: the website itself visually reports "Terpilih"
+        # inside the label belonging to this exact radio.
+        label = self.jenis_pelanggan_modal.locator(
+            f'label:has(input[type="radio"][value="{option_name}"])'
+        ).first
+
+        try:
+            if label.count() == 0 or not label.is_visible():
+                return False
+
+            selected_status = label.get_by_text(
+                "Terpilih",
+                exact=True,
+            )
+
+            if selected_status.count() > 0 and selected_status.is_visible():
+                log_print(f"Customer type visual selection confirmed: {option_name}")
+                return True
+
+        except PlaywrightError:
+            pass
+
+        return False
+
+    def _is_any_customer_type_selected(self) -> bool:
+        """Check whether any customer-type radio is actually selected."""
+
+        scope = self.jenis_pelanggan_modal
+
+        native_radios = scope.locator("input[type='radio']")
+
+        try:
+            count = native_radios.count()
+        except PlaywrightError:
+            count = 0
+
+        for index in range(count):
+            radio = native_radios.nth(index)
+
+            try:
+                if radio.is_checked():
+                    return True
+            except PlaywrightError:
+                continue
+
+        aria_radios = scope.locator('[role="radio"]')
+
+        try:
+            count = aria_radios.count()
+        except PlaywrightError:
+            count = 0
+
+        for index in range(count):
+            radio = aria_radios.nth(index)
+
+            try:
+                if radio.get_attribute("aria-checked") == "true":
+                    return True
+            except PlaywrightError:
+                continue
+
+        return False
+
+    def _wait_for_customer_type_selection(
+        self,
+        option_name: str,
+        timeout_ms: int = _CUSTOMER_TYPE_SELECTION_VERIFY_MS,
+    ) -> bool:
+        """Wait for the selected radio state to propagate through the UI."""
+
+        interval_ms = 100
+        attempts = max(1, timeout_ms // interval_ms)
+
+        for _ in range(attempts):
+            if self._customer_type_is_selected(option_name):
+                return True
+
+            self.page.wait_for_timeout(interval_ms)
+
+        return self._customer_type_is_selected(option_name)
+
+    def _select_customer_type_with_confirmation(
+        self,
+        option_name: str,
+        initial_choice: Locator,
+    ) -> None:
+        """
+        Select the requested customer type and verify that the UI actually
+        entered the checked state.
+
+        Retrying selection is safe because the same radio option is used
+        every time. We do not switch customer types merely because the
+        frontend was slow to acknowledge the first click.
+        """
+
+        choice = initial_choice
+
+        for attempt in range(
+            1,
+            _CUSTOMER_TYPE_SELECTION_ATTEMPTS + 1,
+        ):
+            # It may already have become selected while React was rerendering.
+            if self._customer_type_is_selected(option_name):
+                log_print(f"Jenis Pelanggan '{option_name}' is already selected.")
+                return
+
+            log_print(
+                f"Selecting Jenis Pelanggan '{option_name}' "
+                f"(attempt {attempt}/"
+                f"{_CUSTOMER_TYPE_SELECTION_ATTEMPTS})"
+            )
+
+            self._debug_interaction_checkpoint("customer_type_radio_before_click")
+            try:
+                choice.scroll_into_view_if_needed(timeout=3000)
+
+                choice.click(timeout=5000)
+
+            except PlaywrightError as exc:
+                log_print(
+                    f"Click on Jenis Pelanggan '{option_name}' "
+                    "did not complete cleanly.",
+                    exc,
+                )
+            finally:
+                self._debug_interaction_checkpoint("customer_type_radio_after_click")
+
+            if self._wait_for_customer_type_selection(option_name):
+                log_print(f"Jenis Pelanggan selection confirmed: {option_name}")
+                return
+
+            log_print(
+                f"Jenis Pelanggan '{option_name}' was clicked but "
+                "the radio is still not selected."
+            )
+
+            if attempt >= _CUSTOMER_TYPE_SELECTION_ATTEMPTS:
+                break
+
+            # React may have replaced the original node. Re-resolve the
+            # locator instead of relying on the previous DOM element.
+            if option_name in {"Rumah Tangga", "Usaha Mikro"}:
+                refreshed_choice = self._find_named_customer_type_choice(option_name)
+            else:
+                refreshed_choice = self._find_first_available_customer_type_choice()
+
+            if refreshed_choice is not None:
+                choice = refreshed_choice
+
+            self.page.wait_for_timeout(300)
+
+        raise RuntimeError(
+            f"Jenis Pelanggan '{option_name}' could not be confirmed "
+            f"as selected after "
+            f"{_CUSTOMER_TYPE_SELECTION_ATTEMPTS} attempts."
+        )
+
     def _find_named_customer_type_choice(
         self,
         option_name: str,
     ) -> Locator | None:
         """
-        Locate a known customer type through semantic selectors.
+        Locate a customer-type option using the radio's stable value attribute.
 
-        Try:
-        1. accessible radio
-        2. visible label
-        3. visible text
-
-        No generated CSS-module classes are used.
+        The wrapping label is the preferred click target because this application
+        implements a custom styled radio component.
         """
 
-        scope = self.jenis_pelanggan_modal
+        radio = self.jenis_pelanggan_modal.locator(
+            f'input[type="radio"][value="{option_name}"]'
+        ).first
 
-        option_pattern = re.compile(
-            rf"^\s*{re.escape(option_name)}\s*$",
-            re.IGNORECASE,
-        )
+        try:
+            if radio.count() == 0:
+                log_print(f"Customer type radio not found by value: {option_name}")
+                return None
+        except PlaywrightError:
+            return None
 
-        candidates = (
-            scope.get_by_role(
-                "radio",
-                name=option_pattern,
-            ),
-            scope.locator("label").filter(has_text=option_pattern),
-            scope.get_by_text(
-                option_pattern,
-            ),
-        )
+        # Prefer clicking the visible wrapping label rather than the possibly
+        # visually-hidden/custom-styled native radio input.
+        label = self.jenis_pelanggan_modal.locator(
+            f'label:has(input[type="radio"][value="{option_name}"])'
+        ).first
 
-        for collection in candidates:
-            choice = self._first_usable_locator(collection)
+        try:
+            if label.count() > 0 and label.is_visible():
+                log_print(f"Customer type label found by radio value: {option_name}")
+                return label
+        except PlaywrightError:
+            pass
 
-            if choice is not None:
-                return choice
+        # Fallback to native radio if it is itself usable.
+        try:
+            if radio.is_visible() and radio.is_enabled():
+                log_print(f"Using native customer type radio: {option_name}")
+                return radio
+        except PlaywrightError:
+            pass
 
         return None
 
@@ -944,12 +1292,12 @@ class Dashboard(BasePage):
         self,
     ) -> Locator | None:
         """
-        Locate LANJUTKAN PENJUALAN inside the customer-type modal.
+        Locate the visible LANJUTKAN PENJUALAN button.
 
-        Semantic role is primary. Plain button text is a fallback.
+        Plain DOM button lookup is preferred here because Mantine portals can be
+        visually active while an ancestor is aria-hidden, which can make role
+        selectors ignore the live button.
         """
-
-        scope = self.jenis_pelanggan_modal
 
         button_pattern = re.compile(
             r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
@@ -957,11 +1305,19 @@ class Dashboard(BasePage):
         )
 
         candidates = (
-            scope.get_by_role(
+            self.jenis_pelanggan_modal.locator("button")
+            .filter(has_text=button_pattern)
+            .filter(visible=True),
+            self.jenis_pelanggan_modal.get_by_role(
                 "button",
                 name=button_pattern,
             ),
-            scope.locator("button").filter(has_text=button_pattern),
+            # Last fallback: visible exact-text button anywhere in the current
+            # portal. The modal visibility checks around the click prevent this
+            # fallback from being used after the flow has already transitioned.
+            self.page.locator("button")
+            .filter(has_text=button_pattern)
+            .filter(visible=True),
         )
 
         for collection in candidates:
@@ -969,11 +1325,271 @@ class Dashboard(BasePage):
                 collection,
                 require_enabled=False,
             )
-
             if button is not None:
                 return button
 
         return None
+
+    def _continue_jenis_pelanggan_with_confirmation(
+        self,
+        option_name: str,
+    ) -> None:
+        """
+        Click LANJUTKAN PENJUALAN and confirm an actual state transition.
+
+        A retry happens only when:
+        - the same Jenis Pelanggan modal is still visible,
+        - no known next modal/state has appeared, and
+        - the previous click had a full post-click observation window.
+
+        This avoids racing a slow target application while still recovering
+        when a click was visually performed but not accepted by the app.
+        """
+
+        for attempt in range(1, _CUSTOMER_TYPE_CONTINUE_ATTEMPTS + 1):
+            if not self._is_visible(self.jenis_pelanggan_modal):
+                log_print(
+                    "Jenis Pelanggan modal already disappeared; "
+                    "continue action was accepted."
+                )
+                return
+
+            # React may re-render and lose the selected state before the action.
+            if not self._customer_type_is_selected(option_name):
+                log_print(
+                    "Jenis Pelanggan selection is no longer active; "
+                    "re-selecting before continuing."
+                )
+
+                refreshed_choice = (
+                    self._find_named_customer_type_choice(option_name)
+                    if option_name in {"Rumah Tangga", "Usaha Mikro"}
+                    else self._find_first_available_customer_type_choice()
+                )
+                if refreshed_choice is None:
+                    raise RuntimeError(
+                        "Customer-type selection disappeared and could not "
+                        "be located again."
+                    )
+
+                self._select_customer_type_with_confirmation(
+                    option_name,
+                    refreshed_choice,
+                )
+
+            continue_button = self._wait_for_jenis_pelanggan_continue_button()
+            if continue_button is None:
+                raise RuntimeError(
+                    "Jenis Pelanggan is selected, but LANJUTKAN PENJUALAN "
+                    "did not become visible."
+                )
+
+            try:
+                expect(continue_button).to_be_enabled(timeout=15000)
+            except AssertionError as exc:
+                # If the modal vanished while waiting, the previous action won.
+                if not self._is_visible(self.jenis_pelanggan_modal):
+                    return
+                raise RuntimeError(
+                    "LANJUTKAN PENJUALAN remained disabled after selecting "
+                    "Jenis Pelanggan."
+                ) from exc
+
+            # Small stabilization check: ensure the selected state still exists
+            # after the button becomes enabled.
+            if not self._customer_type_is_selected(option_name):
+                log_print(
+                    "Customer type changed while waiting for the continue "
+                    "button; retrying selection."
+                )
+                continue
+
+            log_print(
+                "Clicking LANJUTKAN PENJUALAN from Jenis Pelanggan "
+                f"(attempt {attempt}/{_CUSTOMER_TYPE_CONTINUE_ATTEMPTS})."
+            )
+
+            self._debug_interaction_checkpoint(
+                "customer_type_continue_before_click",
+                target_name="Jenis Pelanggan LANJUTKAN PENJUALAN",
+                target_locator_factory=self._debug_customer_type_continue_collection,
+            )
+            try:
+                continue_button.scroll_into_view_if_needed(timeout=5000)
+
+                expect(continue_button).to_be_visible(timeout=5000)
+
+                expect(continue_button).to_be_enabled(timeout=5000)
+
+                log_print(
+                    "Clicking LANJUTKAN PENJUALAN using direct "
+                    "Playwright locator.click()"
+                )
+
+                continue_button.click(timeout=15000)
+            except (PlaywrightError, AssertionError, TimeoutError) as exc:
+                # A Playwright-side click error does not necessarily mean the
+                # target ignored the action. Check post-state before failing.
+                if self._wait_for_jenis_pelanggan_transition(timeout_ms=3000):
+                    log_print(
+                        "Jenis Pelanggan transitioned despite a click-side "
+                        "exception; treating the action as successful."
+                    )
+                    return
+
+                log_print(
+                    "LANJUTKAN PENJUALAN click did not produce an immediate "
+                    "transition.",
+                    exc,
+                )
+            finally:
+                self._debug_interaction_checkpoint(
+                    "customer_type_continue_after_click",
+                    target_name="Jenis Pelanggan LANJUTKAN PENJUALAN",
+                    target_locator_factory=self._debug_customer_type_continue_collection,
+                )
+                self._debug_poll_interaction_states(
+                    "customer_type_continue_post_click_20s"
+                )
+
+            if self._wait_for_jenis_pelanggan_transition(
+                timeout_ms=_CUSTOMER_TYPE_CONTINUE_RESULT_TIMEOUT_MS
+            ):
+                log_print("Jenis Pelanggan continue action confirmed by UI transition.")
+                return
+
+            followup_state = self._get_customer_type_followup_state()
+
+            if followup_state is not None:
+                log_print(
+                    "Next workflow state detected after Jenis Pelanggan: "
+                    f"{followup_state}"
+                )
+                return
+
+            if not self._is_visible(self.jenis_pelanggan_modal):
+                return
+
+            if attempt < _CUSTOMER_TYPE_CONTINUE_ATTEMPTS:
+                log_print(
+                    "Jenis Pelanggan modal remains the active workflow state "
+                    "after the full post-click wait; reacquiring the button "
+                    "and retrying."
+                )
+
+                self.page.wait_for_timeout(500)
+
+        raise RuntimeError(
+            "LANJUTKAN PENJUALAN from Jenis Pelanggan did not produce "
+            "a state transition after "
+            f"{_CUSTOMER_TYPE_CONTINUE_ATTEMPTS} verified attempts."
+        )
+
+    def _wait_for_jenis_pelanggan_continue_button(
+        self,
+        timeout_ms: int = 15000,
+    ) -> Locator | None:
+        """Wait for the live continue button to be rendered in the active modal."""
+
+        elapsed = 0
+        poll_ms = 200
+
+        while elapsed < timeout_ms:
+            if not self._is_visible(self.jenis_pelanggan_modal):
+                return None
+
+            button = self._find_jenis_pelanggan_continue_button()
+            if button is not None and self._is_visible(button):
+                return button
+
+            self.page.wait_for_timeout(poll_ms)
+            elapsed += poll_ms
+
+        return self._find_jenis_pelanggan_continue_button()
+
+    def _get_customer_type_followup_state(self) -> str | None:
+        """
+        Detect a valid state that may appear after Jenis Pelanggan.
+
+        Important:
+        Mantine may keep the previous customer-type dialog visible briefly
+        while the next modal/page is already active on top of it.
+        """
+
+        # Transaction form became available directly.
+        if self.is_transaction_form_ready(detect_timeout=100):
+            return "transaction_ready"
+
+        # Optional consent page.
+        consent_marker = self.page.get_by_text(
+            _CUSTOMER_TYPE_CONSENT_MARKER,
+        ).first
+
+        if self._is_visible(consent_marker):
+            return "consent"
+
+        # Customer data update-required modal.
+        update_required_marker = self.page.get_by_text(
+            _CUSTOMER_TYPE_UPDATE_REQUIRED_MARKER,
+        ).first
+
+        if self._is_visible(update_required_marker):
+            return "update_required"
+
+        # Existing Dashboard-managed precheck modals:
+        # NIB, not registered, unusual transaction, etc.
+        next_modal = self.get_visible_precheck_modal()
+
+        if next_modal is not None:
+            return next_modal
+
+        return None
+
+    def _wait_for_jenis_pelanggan_transition(
+        self,
+        *,
+        timeout_ms: int,
+    ) -> bool:
+        """
+        Observe whether the customer-type action moved to another workflow state.
+
+        Do not require the old Mantine modal to disappear first. The application
+        can render the next modal while the previous one is still present during
+        its closing transition.
+        """
+
+        elapsed = 0
+
+        while elapsed < timeout_ms:
+            followup_state = self._get_customer_type_followup_state()
+
+            if followup_state is not None:
+                log_print(
+                    "Jenis Pelanggan transitioned to next workflow state: "
+                    f"{followup_state}"
+                )
+                return True
+
+            # Normal case: old modal simply disappeared.
+            if not self._is_visible(self.jenis_pelanggan_modal):
+                log_print(
+                    "Jenis Pelanggan modal disappeared; continue action accepted."
+                )
+                return True
+
+            self.page.wait_for_timeout(_CUSTOMER_TYPE_CONTINUE_POLL_MS)
+            elapsed += _CUSTOMER_TYPE_CONTINUE_POLL_MS
+
+        # One final observation at timeout boundary.
+        followup_state = self._get_customer_type_followup_state()
+
+        if followup_state is not None:
+            log_print(
+                f"Jenis Pelanggan transitioned to next workflow state: {followup_state}"
+            )
+            return True
+
+        return not self._is_visible(self.jenis_pelanggan_modal)
 
     def _first_usable_locator(
         self,
@@ -1208,12 +1824,37 @@ class Dashboard(BasePage):
     def continue_perbarui_data_nib_pelanggan(self) -> None:
         """Continue past the distinct Usaha Mikro NIB reminder exactly once."""
         self.perbarui_data_nib_pelanggan_modal.wait_for(state="visible", timeout=5000)
-        self.click_locator(
-            self.perbarui_data_nib_pelanggan_lanjut_nanti,
-            action_name="continuing past Perbarui Data NIB Pelanggan modal",
-            timeout_ms=5000,
-            load_state=None,
+        self._debug_interaction_checkpoint(
+            "nib_modal_detected",
+            target_name="NIB NANTI SAJA",
+            target_locator_factory=lambda: self._debug_nib_button_collection(
+                _NIB_CONTINUE_LATER_BUTTON
+            ),
         )
+        self._debug_pause("nib_modal_detected")
+        self._debug_interaction_checkpoint(
+            "nib_continue_later_before_click",
+            target_name="NIB NANTI SAJA",
+            target_locator_factory=lambda: self._debug_nib_button_collection(
+                _NIB_CONTINUE_LATER_BUTTON
+            ),
+        )
+        try:
+            self.click_locator(
+                self.perbarui_data_nib_pelanggan_lanjut_nanti,
+                action_name="continuing past Perbarui Data NIB Pelanggan modal",
+                timeout_ms=5000,
+                load_state=None,
+            )
+        finally:
+            self._debug_interaction_checkpoint(
+                "nib_continue_later_after_click",
+                target_name="NIB NANTI SAJA",
+                target_locator_factory=lambda: self._debug_nib_button_collection(
+                    _NIB_CONTINUE_LATER_BUTTON
+                ),
+            )
+            self._debug_poll_interaction_states("nib_continue_later_post_click_20s")
         log_print(
             "Clicked 'NANTI SAJA, LANJUT PENJUALAN' on the NIB reminder; "
             "continuing state detection."
@@ -1222,18 +1863,248 @@ class Dashboard(BasePage):
     def attempt_continue_perbarui_data_nib_pelanggan(
         self,
     ) -> PerbaruiDataPelangganAction:
+        """
+        Resolve the visible 'Segera Lengkapi NIB' modal.
+
+        The important server-side behavior is asynchronous:
+        after NANTI SAJA is clicked, the modal may disappear (success) OR the
+        action may later be replaced with Tutup (transaction cannot continue).
+
+        Never return "continued" merely because click() returned successfully.
+        """
+
         if not self.detect_perbarui_data_nib_pelanggan_if_needed():
             return "not_present"
 
-        try:
-            self.continue_perbarui_data_nib_pelanggan()
-            return "continued"
-        except TimeoutError, AssertionError:
-            log_print("Continue-transaction button on the NIB reminder was not usable.")
+        log_print("Detected 'Segera Lengkapi NIB' modal.")
+        self._debug_interaction_checkpoint(
+            "nib_modal_detected",
+            target_name="NIB NANTI SAJA",
+            target_locator_factory=lambda: self._debug_nib_button_collection(
+                _NIB_CONTINUE_LATER_BUTTON
+            ),
+        )
+        self._debug_pause("nib_modal_detected")
+
+        for attempt in range(1, _NIB_CONTINUE_ATTEMPTS + 1):
+            # If the server has already changed the modal to the blocker state,
+            # close it immediately.
+            if self._is_visible(self.perbarui_data_nib_pelanggan_tutup):
+                if self._dismiss_nib_tutup_with_confirmation():
+                    return "close"
+                return "cannot_continue"
+
+            # The modal may have disappeared while we were checking.
+            if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
+                return "continued"
+
+            if not self._is_visible(self.perbarui_data_nib_pelanggan_lanjut_nanti):
+                log_print(
+                    "NIB modal is visible but its action is still rendering; "
+                    "waiting for NANTI SAJA or Tutup."
+                )
+
+                result = self._wait_for_nib_post_click_result(
+                    timeout_ms=5000,
+                    allow_modal_close=True,
+                )
+                if result == "close":
+                    return "close"
+                if result == "continued":
+                    return "continued"
+
+                if attempt < _NIB_CONTINUE_ATTEMPTS:
+                    continue
+                return "cannot_continue"
+
+            log_print(
+                "Clicking NIB continue-later action "
+                f"(attempt {attempt}/{_NIB_CONTINUE_ATTEMPTS})."
+            )
+
+            self._debug_interaction_checkpoint(
+                "nib_continue_later_before_click",
+                target_name="NIB NANTI SAJA",
+                target_locator_factory=lambda: self._debug_nib_button_collection(
+                    _NIB_CONTINUE_LATER_BUTTON
+                ),
+            )
+            try:
+                self.click_locator(
+                    self.perbarui_data_nib_pelanggan_lanjut_nanti,
+                    action_name=(
+                        "continuing transaction past 'Segera Lengkapi NIB' modal"
+                    ),
+                    timeout_ms=10000,
+                    load_state=None,
+                )
+            except (PlaywrightError, AssertionError, TimeoutError) as exc:
+                log_print(
+                    "NIB continue-later click raised; observing the server "
+                    "result before deciding whether to retry.",
+                    exc,
+                )
+            finally:
+                self._debug_interaction_checkpoint(
+                    "nib_continue_later_after_click",
+                    target_name="NIB NANTI SAJA",
+                    target_locator_factory=lambda: self._debug_nib_button_collection(
+                        _NIB_CONTINUE_LATER_BUTTON
+                    ),
+                )
+                self._debug_poll_interaction_states("nib_continue_later_post_click_20s")
+
+            # CRITICAL: do not return here. The target can respond slowly and
+            # replace NANTI SAJA with Tutup several seconds after the click.
+            result = self._wait_for_nib_post_click_result(
+                timeout_ms=_NIB_POST_CLICK_TIMEOUT_MS,
+                allow_modal_close=True,
+            )
+
+            if result == "continued":
+                log_print("NIB continue-later action confirmed: modal disappeared.")
+                return "continued"
+
+            if result == "close":
+                log_print(
+                    "NIB continue-later was rejected by the target application; "
+                    "Tutup was detected and closed."
+                )
+                return "close"
+
+            # No transition after a full observation window. Re-clicking is
+            # allowed only because the same modal and same continue action are
+            # still visibly active.
+            if attempt < _NIB_CONTINUE_ATTEMPTS:
+                log_print(
+                    "NIB modal remained unchanged after the full post-click "
+                    "wait; retrying the continue-later action once."
+                )
+                self.page.wait_for_timeout(500)
+
+        # Final defensive check before giving up.
+        if (
+            self._is_visible(self.perbarui_data_nib_pelanggan_tutup)
+            and self._dismiss_nib_tutup_with_confirmation()
+        ):
             return "close"
-        except Exception as exc:  # noqa: BLE001 - compatibility result distinguishes failure.
-            log_print("Failed to continue past the NIB reminder.", exc)
-            return "cannot_continue"
+
+        if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
+            return "continued"
+
+        log_print("'Segera Lengkapi NIB' remained unresolved after verified attempts.")
+        return "cannot_continue"
+
+    def _wait_for_nib_post_click_result(
+        self,
+        *,
+        timeout_ms: int,
+        allow_modal_close: bool,
+    ) -> Literal["continued", "close", "pending"]:
+        """
+        Poll the live NIB modal until the server exposes its real result.
+        """
+
+        elapsed = 0
+
+        while elapsed < timeout_ms:
+            if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
+                return "continued"
+
+            if self._is_visible(self.perbarui_data_nib_pelanggan_tutup):
+                self._debug_interaction_checkpoint(
+                    "nib_tutup_detected",
+                    target_name="NIB Tutup",
+                    target_locator_factory=lambda: self._debug_nib_button_collection(
+                        _NIB_TUTUP_BUTTON
+                    ),
+                )
+                self._debug_pause("nib_tutup_detected")
+                if allow_modal_close and self._dismiss_nib_tutup_with_confirmation():
+                    return "close"
+                return "pending"
+
+            self.page.wait_for_timeout(_NIB_POST_CLICK_POLL_MS)
+            elapsed += _NIB_POST_CLICK_POLL_MS
+
+        return "pending"
+
+    def _dismiss_nib_tutup_with_confirmation(self) -> bool:
+        """
+        Click the NIB-specific Tutup button and verify that this exact modal
+        actually disappears. Closing is safe to retry because it is not a
+        transaction mutation.
+        """
+
+        for attempt in range(1, _NIB_TUTUP_CLICK_ATTEMPTS + 1):
+            if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
+                return True
+
+            if not self._is_visible(self.perbarui_data_nib_pelanggan_tutup):
+                return False
+
+            log_print(
+                "Clicking Tutup on 'Segera Lengkapi NIB' "
+                f"(attempt {attempt}/{_NIB_TUTUP_CLICK_ATTEMPTS})."
+            )
+
+            self._debug_interaction_checkpoint(
+                "nib_tutup_before_click",
+                target_name="NIB Tutup",
+                target_locator_factory=lambda: self._debug_nib_button_collection(
+                    _NIB_TUTUP_BUTTON
+                ),
+            )
+            try:
+                # Re-resolve from the live visible modal each attempt.
+                close_button = (
+                    self.perbarui_data_nib_pelanggan_modal.locator("button")
+                    .filter(has_text=_NIB_TUTUP_BUTTON)
+                    .filter(visible=True)
+                    .first
+                )
+
+                expect(close_button).to_be_visible(timeout=5000)
+                expect(close_button).to_be_enabled(timeout=5000)
+
+                self.click_locator(
+                    close_button,
+                    action_name="closing 'Segera Lengkapi NIB' blocker",
+                    expected_text="Tutup",
+                    timeout_ms=10000,
+                    load_state=None,
+                )
+            except (PlaywrightError, AssertionError, TimeoutError) as exc:
+                log_print(
+                    "Tutup click on 'Segera Lengkapi NIB' did not complete "
+                    "cleanly; verifying whether the modal closed anyway.",
+                    exc,
+                )
+            finally:
+                self._debug_interaction_checkpoint(
+                    "nib_tutup_after_click",
+                    target_name="NIB Tutup",
+                    target_locator_factory=lambda: self._debug_nib_button_collection(
+                        _NIB_TUTUP_BUTTON
+                    ),
+                )
+
+            try:
+                self.perbarui_data_nib_pelanggan_modal.wait_for(
+                    state="hidden",
+                    timeout=7000,
+                )
+                log_print("'Segera Lengkapi NIB' modal closed.")
+                return True
+            except TimeoutError:
+                if attempt < _NIB_TUTUP_CLICK_ATTEMPTS:
+                    log_print(
+                        "'Segera Lengkapi NIB' is still visible after Tutup; "
+                        "reacquiring the live button and retrying."
+                    )
+                    self.page.wait_for_timeout(500)
+
+        return not self._is_visible(self.perbarui_data_nib_pelanggan_modal)
 
     def attempt_continue_perbarui_data_pelanggan(self) -> PerbaruiDataPelangganAction:
         """Compatibility alias for the NIB-only continue-later behavior."""
@@ -1271,7 +2142,7 @@ class Dashboard(BasePage):
         try:
             if self.catat_penjualan_tile.is_visible(timeout=800):
                 return
-        except (PlaywrightError, TypeError):
+        except PlaywrightError, TypeError:
             log_print("Dashboard tile visibility probe failed", level="DEBUG")
 
         for candidate in [
@@ -1284,8 +2155,10 @@ class Dashboard(BasePage):
             try:
                 candidate.click(timeout=700)
                 break
-            except (PlaywrightError, TypeError):
-                log_print("Dashboard navigation candidate was not usable", level="DEBUG")
+            except PlaywrightError, TypeError:
+                log_print(
+                    "Dashboard navigation candidate was not usable", level="DEBUG"
+                )
                 continue
 
         expect(self.catat_penjualan_tile).to_be_visible(timeout=8000)
@@ -1374,7 +2247,7 @@ class Dashboard(BasePage):
                 return locator.is_visible(timeout=100)
             except TypeError:
                 return locator.is_visible()
-        except (AttributeError, PlaywrightError):
+        except AttributeError, PlaywrightError:
             return False
 
     def _has_visible_dialog(self) -> bool:
@@ -1382,6 +2255,15 @@ class Dashboard(BasePage):
             return self.page.locator("[role='dialog']:visible").count() > 0
         except PlaywrightError:
             return False
+
+    def _has_visible_blocking_transaction_dialog(self) -> bool:
+        """
+        Compatibility guard used by is_transaction_form_ready().
+
+        At this stage any visible dialog blocks interaction with the transaction
+        form until the central modal handler resolves it.
+        """
+        return self._has_visible_dialog()
 
     # Temporary compatibility wrappers for older callers.
     def close_pelanggan_tidak_terdaftar_if_needed(
