@@ -15,7 +15,14 @@ _NIK_PATTERN = re.compile(r"\d{16}")
 
 
 class NIKValidationError(ValueError):
-    pass
+    def __init__(self, message: str, *, field: str = "NIK") -> None:
+        super().__init__(message)
+        self.field = field
+
+    @property
+    def reason(self) -> str:
+        """Use the same field-specific description in reports and logs."""
+        return f"Gagal parsing {self.field}: {self}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,23 +44,32 @@ class NIKResult:
 
 def normalise_nik(value: str) -> str:
     if not isinstance(value, str):
-        raise NIKValidationError("NIK must be text")
+        raise NIKValidationError("NIK must be text", field="format NIK")
     normalized = re.sub(r"[\s.-]", "", value.strip())
     if _NIK_PATTERN.fullmatch(normalized) is None:
-        raise NIKValidationError("NIK must contain exactly 16 ASCII digits")
+        raise NIKValidationError(
+            "NIK must contain exactly 16 ASCII digits", field="format NIK"
+        )
     return normalized
 
 
 def _index(records: object, section: str) -> dict[str, str]:
+    field = f"mapping wilayah ({section})"
     if not isinstance(records, list):
-        raise NIKValidationError(f"Mapping section {section!r} must be a list")
+        raise NIKValidationError(
+            f"Mapping section {section!r} must be a list", field=field
+        )
     result: dict[str, str] = {}
     for record in records:
         if not isinstance(record, dict):
-            raise NIKValidationError(f"Invalid record in mapping section {section!r}")
+            raise NIKValidationError(
+                f"Invalid record in mapping section {section!r}", field=field
+            )
         code, name = record.get("code"), record.get("name")
         if not isinstance(code, str) or not isinstance(name, str):
-            raise NIKValidationError(f"Mapping section {section!r} requires code/name")
+            raise NIKValidationError(
+                f"Mapping section {section!r} requires code/name", field=field
+            )
         result[code] = name
     return result
 
@@ -64,9 +80,13 @@ def load_region_mapping(path: str | Path = DEFAULT_MAPPING_PATH) -> RegionMappin
     try:
         payload = json.loads(mapping_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise NIKValidationError(f"Cannot load region mapping: {mapping_path}") from exc
+        raise NIKValidationError(
+            f"Cannot load region mapping: {mapping_path}", field="mapping wilayah"
+        ) from exc
     if not isinstance(payload, dict):
-        raise NIKValidationError("Region mapping must contain a JSON object")
+        raise NIKValidationError(
+            "Region mapping must contain a JSON object", field="mapping wilayah"
+        )
     return RegionMapping(
         provinces=_index(payload.get("provinces"), "provinces"),
         regencies=_index(payload.get("regencies"), "regencies"),
@@ -85,12 +105,17 @@ def parse_nik(
     province_code = nik[:2]
     regency_code = f"{nik[:2]}.{nik[2:4]}"
     district_code = f"{nik[:2]}.{nik[2:4]}.{nik[4:6]}"
+    field = "provinsi"
     try:
         province = regions.provinces[province_code]
+        field = "kabupaten/kota"
         regency = regions.regencies[regency_code]
+        field = "kecamatan"
         district = regions.districts[district_code]
     except KeyError as exc:
-        raise NIKValidationError(f"Unknown NIK region code: {exc.args[0]}") from exc
+        raise NIKValidationError(
+            f"Unknown NIK region code: {exc.args[0]}", field=field
+        ) from exc
 
     encoded_day = int(nik[6:8])
     if 1 <= encoded_day <= 31:
@@ -98,7 +123,9 @@ def parse_nik(
     elif 41 <= encoded_day <= 71:
         day, gender = encoded_day - 40, "Perempuan"
     else:
-        raise NIKValidationError("Invalid NIK birth-day code")
+        raise NIKValidationError(
+            "Invalid NIK birth-day code", field="tanggal lahir (hari)"
+        )
     month, suffix = int(nik[8:10]), int(nik[10:12])
     today = reference_date or datetime.now(UTC).astimezone().date()
     year = 2000 + suffix
@@ -107,6 +134,8 @@ def parse_nik(
         if birth_date > today:
             birth_date = date(year - 100, month, day)
     except ValueError as exc:
-        raise NIKValidationError("Invalid birth date encoded in NIK") from exc
+        raise NIKValidationError(
+            "Invalid birth date encoded in NIK", field="tanggal lahir"
+        ) from exc
 
     return NIKResult(nik, province, regency, district, birth_date, gender)

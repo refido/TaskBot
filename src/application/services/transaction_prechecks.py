@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
 
-from nik_parser import parse_nik
+from nik_parser import NIKValidationError, parse_nik
 from src.application.models.customer_workflow import (
     CustomerState,
     CustomerUpdateFailedError,
@@ -223,6 +223,8 @@ class TransactionPrechecksService:
                 self._log_customer_action(nik, state, "submit_update_form")
                 try:
                     customer = customer_update_data_from_nik(self.parse_nik(nik))
+                except NIKValidationError as exc:
+                    return self._skip_nik_parsing_failure(nik, started_at, exc)
                 except Exception as exc:
                     raise CustomerUpdateFailedError(
                         "Customer update data could not be prepared from the current NIK"
@@ -616,6 +618,28 @@ class TransactionPrechecksService:
         if modal_name == "unusual_transaction":
             return self._handle_unusual_transaction(nik, started_at)
         return False
+
+    def _skip_nik_parsing_failure(
+        self, nik: str, started_at: str, exc: NIKValidationError
+    ) -> PrecheckAction:
+        reason = exc.reason
+        self._record_workflow_event(nik, "nik_parsing_failed", reason=reason)
+        failure_url = self.page.url
+        # Persist the terminal outcome before any browser cleanup can fail.
+        self.limiter.record_skip()
+        self.reporter.skip_nik_parsing_failed(nik, started_at, exc=exc, url=failure_url)
+        self.log_func(f"Skipping NIK {nik} ({reason}).")
+        try:
+            self.dashboard.ensure_on_dashboard()
+            self.page.wait_for_timeout(self.post_skip_cooldown_ms)
+        except Exception as cleanup_exc:  # noqa: BLE001 - cleanup cannot undo a recorded skip.
+            self._record_workflow_event(
+                nik,
+                "nik_parsing_skip_cleanup_failed",
+                reason=f"Pemulihan halaman setelah skip gagal: {cleanup_exc}",
+            )
+            return PrecheckAction.SKIP_REQUIRES_RECOVERY
+        return PrecheckAction.SKIP
 
     def _handle_under_17(self, nik: str, started_at: str) -> bool:
         under_17_reason = self.dashboard.read_under_17_validation_if_present(

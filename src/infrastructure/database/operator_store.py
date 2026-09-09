@@ -79,6 +79,7 @@ _STATUS_MAPPINGS = {
         429, "Consumer registration request limit reached"
     ),
     "failed_puzzle_solve": ReportStatusMapping(422, "Puzzle solving failed"),
+    "skipped_nik_parsing_failed": ReportStatusMapping(422, "NIK parsing failed"),
     "skipped_need updated customer data": ReportStatusMapping(
         422, "Consumer data needs update"
     ),

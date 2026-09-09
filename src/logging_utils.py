@@ -1,4 +1,5 @@
 import inspect
+import json
 import os
 import sys
 import traceback
@@ -30,6 +31,7 @@ _DB_LOG_EVENT_PREFIXES = (
     "db_management.",
 )
 _DB_LOG_EVENTS = {"account.report_db_sync_error"}
+_TRACE_FIELDS = ("nik", "status", "stage", "parsing_field", "reason", "url")
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _active_run_id = ""
 _operator_id_context: ContextVar[str] = ContextVar("operator_id", default="")
@@ -80,6 +82,12 @@ def _inject_default_event(record: dict[str, Any]) -> None:
     record["extra"].setdefault("operator_id", _operator_id_context.get())
     record["extra"].setdefault(
         "timestamp_iso", record["time"].isoformat(timespec="seconds")
+    )
+    # Render only selected, already-sanitized fields in the human-readable log.
+    record["extra"]["trace_context"] = "".join(
+        f" | {key}={json.dumps(record['extra'][key], ensure_ascii=False, default=str)}"
+        for key in _TRACE_FIELDS
+        if record["extra"].get(key) not in (None, "")
     )
 
 
@@ -151,7 +159,8 @@ def configure_logging(
     compression = os.getenv("LOG_COMPRESSION", "gz")
     log_line_format = (
         "{extra[timestamp_iso]} | {level:<8} | {extra[event]} | "
-        "run_id={extra[run_id]} | operator_id={extra[operator_id]} | {message}"
+        "run_id={extra[run_id]} | operator_id={extra[operator_id]} | "
+        "{message}{extra[trace_context]}"
     )
 
     global _active_run_id

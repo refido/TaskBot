@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from nik_parser import parse_nik
+from nik_parser import load_region_mapping, parse_nik
 from src.application.models.customer_workflow import (
     CustomerState,
     CustomerUpdateFailedError,
@@ -58,6 +58,9 @@ class Reporter:
 
     def skip(self, nik: str, started_at: str, skip_type: str, **payload) -> None:
         self.skips.append((nik, started_at, skip_type, payload))
+
+    def skip_nik_parsing_failed(self, nik: str, started_at: str, *, exc, url=""):
+        self.skip(nik, started_at, "nik_parsing_failed", reason=exc.reason, url=url)
 
 
 class Dashboard:
@@ -310,7 +313,78 @@ def test_update_uses_parsed_region_and_birth_date_then_restarts_same_nik():
     assert service.limiter.skip_calls == 0
 
 
-def test_update_form_is_not_rate_limited_until_nik_parsing_succeeds():
+@pytest.mark.parametrize(
+    ("nik", "reason"),
+    [
+        (None, "Gagal parsing format NIK: NIK must be text"),
+        ("123", "Gagal parsing format NIK: NIK must contain exactly 16 ASCII digits"),
+        ("9901011412869999", "Gagal parsing provinsi: Unknown NIK region code: 99"),
+        (
+            "6507231412869999",
+            "Gagal parsing kabupaten/kota: Unknown NIK region code: 65.07",
+        ),
+        (
+            "3573991412869999",
+            "Gagal parsing kecamatan: Unknown NIK region code: 35.73.99",
+        ),
+        (
+            "3573050012869999",
+            "Gagal parsing tanggal lahir (hari): Invalid NIK birth-day code",
+        ),
+        (
+            "3573051413869999",
+            "Gagal parsing tanggal lahir: Invalid birth date encoded in NIK",
+        ),
+        (
+            "3573053102869999",
+            "Gagal parsing tanggal lahir: Invalid birth date encoded in NIK",
+        ),
+    ],
+)
+def test_nik_parsing_failure_skips_before_update_and_reports_failed_field(nik, reason):
+    service, components = build_service([CustomerState.UPDATE_FORM])
+    logs = []
+    service.log_func = lambda *args, **kwargs: logs.append(args)
+    service.post_skip_cooldown_ms = 250
+
+    action = service.handle_pre_checks(nik, "start")
+
+    assert action is PrecheckAction.SKIP
+    assert all(component.calls == 0 for component in components)
+    assert service.limiter.update_actions == []
+    assert service.limiter.skip_calls == 1
+    assert service.dashboard.home_calls == 1
+    assert service.page.timeouts[-1] == 250
+    assert service.reporter.skips == [
+        (
+            nik,
+            "start",
+            "nik_parsing_failed",
+            {"url": "https://app.test/customer", "reason": reason},
+        )
+    ]
+    assert service.reporter.events[-1][1]["event"] == "nik_parsing_failed"
+    assert service.reporter.events[-1][1]["reason"] == reason
+    assert reason in logs[-1][0]
+
+
+@pytest.mark.parametrize("mapping_text", [None, "not json", '{"provinces": null}'])
+def test_mapping_load_failure_is_reported_as_a_parsing_skip(tmp_path, mapping_text):
+    service, components = build_service([CustomerState.UPDATE_FORM])
+    mapping_path = tmp_path / "mapping.json"
+    if mapping_text is not None:
+        mapping_path.write_text(mapping_text, encoding="utf-8")
+    service.parse_nik = lambda nik: parse_nik(nik, load_region_mapping(mapping_path))
+
+    assert service.handle_pre_checks("3573051412869999", "start") is PrecheckAction.SKIP
+
+    reason = service.reporter.skips[0][3]["reason"]
+    assert reason.startswith("Gagal parsing mapping wilayah")
+    assert service.reporter.events[-1][1]["reason"] == reason
+    assert components[1].calls == 0
+
+
+def test_unexpected_data_preparation_failure_remains_an_error_without_update():
     service, components = build_service([CustomerState.UPDATE_FORM])
 
     def fail_parse(_nik: str):

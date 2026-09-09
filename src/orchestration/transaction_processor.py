@@ -164,6 +164,8 @@ class TransactionProcessor:
                 )
                 if precheck_action is PrecheckAction.SKIP:
                     return
+                if precheck_action is PrecheckAction.SKIP_REQUIRES_RECOVERY:
+                    break
                 if precheck_action is PrecheckAction.RESTART_AFTER_UPDATE:
                     if update_rechecks_used >= self._MAX_UPDATE_RECHECKS_PER_NIK:
                         raise CustomerUpdateLoopError(
@@ -402,6 +404,20 @@ class TransactionProcessor:
                 )
                 self._handle_session_recovery()
                 return
+
+        # This NIK already has a terminal skip row. Recovery must stay outside
+        # the transaction retry loop, even when hard navigation also fails.
+        self._record_workflow_event(nik, "skipped_nik_recovery_started")
+        try:
+            self._handle_session_recovery()
+        except Exception as exc:  # noqa: BLE001 - preserve the recorded skip on recovery failure.
+            self._record_workflow_event(
+                nik,
+                "skipped_nik_recovery_failed",
+                reason=f"Pemulihan sesi setelah skip gagal: {exc}",
+            )
+        else:
+            self._record_workflow_event(nik, "skipped_nik_recovery_succeeded")
 
     def _record_retry(
         self,

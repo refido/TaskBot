@@ -1,15 +1,21 @@
+import csv
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from src.application.models.customer_workflow import (
+    CustomerState,
     CustomerUpdateLoopError,
     PrecheckAction,
 )
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
 from src.application.services.transaction_prechecks import TransactionPrechecksService
+from src.logging_utils import configure_logging, logger
 from src.orchestration import transaction_processor
+from src.privacy import display_nik, set_nik_masking
+from src.web.reporter import TransactionReporter
 from src.web.session_state import SessionExpiredError
 
 
@@ -209,6 +215,211 @@ def _build_processor(
         session_recovery_service or FakeSessionRecoveryService()
     )
     return processor
+
+
+@pytest.mark.parametrize("mask_nik", [True, False])
+@pytest.mark.parametrize("cleanup_failure", [None, "dashboard", "cooldown"])
+def test_nik_parsing_failure_persists_skip_and_continues_without_retry(
+    tmp_path, request, mask_nik, cleanup_failure
+):
+    set_nik_masking(mask_nik)
+    request.addfinalizer(lambda: set_nik_masking(True))
+    request.addfinalizer(logger.remove)
+    metadata = configure_logging(log_dir=str(tmp_path), run_id="parsing-run")
+
+    class CleanupPage(FakePage):
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            if cleanup_failure == "cooldown" and timeout_ms == 250:
+                raise RuntimeError("Page closed during skip cooldown")
+            super().wait_for_timeout(timeout_ms)
+
+    page = CleanupPage()
+
+    class UpdateDashboard(FakeDashboard):
+        def catat_penjualan(self, nik: str) -> None:
+            assert page.url == "https://app.test/dashboard"
+            super().catat_penjualan(nik)
+            page.url = "https://app.test/update-data-customer"
+
+        def ensure_on_dashboard(self) -> None:
+            # A real cleanup failure must not prevent the skip being persisted.
+            persisted = [
+                json.loads(line)
+                for line in reporter.jsonl_path.read_text().splitlines()
+            ]
+            assert len(persisted) == len(self.catat_penjualan_calls)
+            assert persisted[-1]["status"] == "skipped_nik_parsing_failed"
+            if cleanup_failure == "dashboard":
+                raise AssertionError("Locator expected to be visible: Catat Penjualan")
+            page.url = "https://app.test/dashboard"
+
+    reporter = TransactionReporter(
+        operator_id="operator_01",
+        run_context=SimpleNamespace(run_id="parsing-run", run_dir=metadata["run_dir"]),
+    )
+    limiter = FakeLimiter()
+    dashboard = UpdateDashboard()
+    puzzle = FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1))
+
+    class SkipRecovery(FakeSessionRecoveryService):
+        def handle_session_recovery(self) -> None:
+            super().handle_session_recovery()
+            page.goto("https://app.test/dashboard")
+
+    recovery = SkipRecovery()
+    component = SimpleNamespace(is_visible=lambda: False)
+    prechecks = TransactionPrechecksService(
+        page=page,
+        dashboard=dashboard,
+        reporter=reporter,
+        limiter=limiter,
+        post_skip_cooldown_ms=250,
+        max_kuota_timeout_ms=0,
+        zero_stock_timeout_ms=0,
+        log_func=lambda *_args, **_kwargs: None,
+        consent_page=component,
+        customer_update_page=component,
+        update_required_modal=component,
+        update_confirmation_modal=component,
+        update_success_modal=component,
+    )
+    prechecks.resolve_customer_state = lambda **_kwargs: CustomerState.UPDATE_FORM
+    processor = _build_processor(
+        reporter=reporter,
+        limiter=limiter,
+        dashboard=dashboard,
+        page=page,
+        precheck_service=prechecks,
+        puzzle_service=puzzle,
+        session_recovery_service=recovery,
+    )
+    processor.config.nik = ["6507231412869999", "9901011412869999"]
+
+    processor.process_all_niks()
+
+    assert dashboard.catat_penjualan_calls == processor.config.nik
+    assert len(reporter.rows) == 2
+    assert {row.status for row in reporter.rows} == {"skipped_nik_parsing_failed"}
+    reasons = [
+        "Gagal parsing kabupaten/kota: Unknown NIK region code: 65.07",
+        "Gagal parsing provinsi: Unknown NIK region code: 99",
+    ]
+    assert [row.reason for row in reporter.rows] == reasons
+    assert all(not row.error and not row.error_label for row in reporter.rows)
+    assert reporter.retry_events == []
+    assert reporter.get_failed_niks() == []
+    assert len(reporter.get_skipped_niks_by_type()["nik_parsing_failed"]) == 2
+    assert puzzle.calls == []
+    assert recovery.recovery_calls == (2 if cleanup_failure else 0)
+    assert limiter.skip_calls == 2
+    assert limiter.update_actions == []
+
+    items = [json.loads(line) for line in reporter.jsonl_path.read_text().splitlines()]
+    with reporter.csv_path.open(encoding="utf-8", newline="") as handle:
+        csv_items = list(csv.DictReader(handle))
+    events = [
+        json.loads(line)
+        for line in reporter.workflow_events_path.read_text().splitlines()
+    ]
+    if cleanup_failure:
+        assert [event["event"] for event in events].count(
+            "nik_parsing_skip_cleanup_failed"
+        ) == 2
+        assert [event["event"] for event in events].count(
+            "skipped_nik_recovery_succeeded"
+        ) == 2
+    events = [event for event in events if event["event"] == "nik_parsing_failed"]
+    for rows in (items, csv_items, events):
+        assert [row["reason"] for row in rows] == reasons
+        assert {row["url"] for row in rows} == {"https://app.test/update-data-customer"}
+    assert {event["event"] for event in events} == {"nik_parsing_failed"}
+
+    expected_report = {
+        "total": 2,
+        "by_reason": {
+            reason: [display_nik(nik)]
+            for reason, nik in zip(reasons, processor.config.nik, strict=True)
+        },
+    }
+    # The operator summary is available immediately, before final snapshots.
+    summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
+    assert summary["nik_parsing_failures"] == expected_report
+    assert summary["skipped"] == 2
+    assert summary["failed"] == 0
+    reporter.write_files()
+    reporter.print_summary()
+    snapshot = json.loads(reporter.final_json_path.read_text(encoding="utf-8"))
+    assert snapshot["nik_parsing_failures"] == expected_report
+
+    logger.complete()
+    log_text = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
+    failure_lines = [
+        line for line in log_text.splitlines() if "| nik.parsing.failed |" in line
+    ]
+    assert len(failure_lines) == 2
+    for line, nik, reason in zip(
+        failure_lines, processor.config.nik, reasons, strict=True
+    ):
+        assert "WARNING" in line
+        assert "run_id=parsing-run | operator_id=operator_01" in line
+        assert f'nik="{display_nik(nik)}"' in line
+        assert f'reason="{reason}"' in line
+        assert 'status="skipped_nik_parsing_failed"' in line
+    assert 'parsing_field="kabupaten/kota"' in failure_lines[0]
+    assert "Gagal parsing NIK (dilewati): 2" in log_text
+    records = [
+        json.loads(line)["record"]
+        for line in Path(metadata["json_log_path"])
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    parsing_records = [
+        r["extra"] for r in records if r["extra"]["event"] == "nik.parsing.failed"
+    ]
+    assert [r["reason"] for r in parsing_records] == reasons
+    assert [r["parsing_field"] for r in parsing_records] == [
+        "kabupaten/kota",
+        "provinsi",
+    ]
+    if mask_nik:
+        for nik in processor.config.nik:
+            assert nik not in log_text
+            assert nik not in reporter.meta_path.read_text(encoding="utf-8")
+
+
+def test_failed_recovery_does_not_retry_or_replace_a_recorded_parsing_skip():
+    reporter = FakeReporter()
+    reason = "Gagal parsing kabupaten/kota: Unknown NIK region code: 65.07"
+
+    class RecordedSkipPrechecks(FakePrecheckService):
+        def handle_pre_checks(self, nik, started_at, **kwargs):
+            self.precheck_calls.append((nik, started_at))
+            reporter.skip(nik, started_at, "nik_parsing_failed", reason=reason)
+            return PrecheckAction.SKIP_REQUIRES_RECOVERY
+
+    class FailedRecovery(FakeSessionRecoveryService):
+        def handle_session_recovery(self):
+            super().handle_session_recovery()
+            raise RuntimeError("Hard navigation failed after skip")
+
+    prechecks = RecordedSkipPrechecks()
+    recovery = FailedRecovery()
+    processor = _build_processor(
+        reporter=reporter,
+        precheck_service=prechecks,
+        session_recovery_service=recovery,
+    )
+
+    processor.process_single_nik("6507231412869999")
+
+    assert len(prechecks.precheck_calls) == 1
+    assert len(reporter.skip_calls) == 1
+    assert reporter.skip_calls[0][3]["reason"] == reason
+    assert reporter.error_calls == []
+    assert reporter.retry_calls == []
+    assert recovery.recovery_calls == 1
+    assert reporter.workflow_calls[-1][1]["event"] == "skipped_nik_recovery_failed"
+    assert "Hard navigation failed" in reporter.workflow_calls[-1][1]["reason"]
 
 
 def test_dashboard_zero_stock_records_one_terminal_row_before_stopping():

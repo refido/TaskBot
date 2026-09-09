@@ -5,6 +5,48 @@ from types import SimpleNamespace
 from src.application.services.session_recovery import SessionRecoveryService
 
 
+def test_dashboard_locator_failure_falls_back_to_hard_navigation():
+    events = []
+
+    class Page:
+        url = "https://app.test/update-data-customer"
+
+        def goto(self, url):
+            events.append(("goto", url))
+            self.url = url
+
+        def wait_for_load_state(self, state):
+            events.append(("load", state))
+
+    page = Page()
+
+    class Dashboard:
+        def ensure_on_dashboard(self):
+            events.append("dashboard")
+            if page.url.endswith("update-data-customer"):
+                raise AssertionError("Locator expected to be visible: Catat Penjualan")
+
+    service = SessionRecoveryService(
+        page=page,
+        config=SimpleNamespace(url_application="https://app.test/dashboard"),
+        dashboard=Dashboard(),
+        login=SimpleNamespace(),
+        load_state="load",
+        logged_out_check_timeout_ms=500,
+        session_probe_interval_ms=1000,
+        login_page_detector=lambda *_args, **_kwargs: False,
+    )
+
+    service.handle_session_recovery()
+
+    assert events == [
+        "dashboard",
+        ("goto", "https://app.test/dashboard"),
+        ("load", "load"),
+        "dashboard",
+    ]
+
+
 def test_login_page_fallback_waits_via_retry_limiter_before_reauthentication():
     events: list[object] = []
 
