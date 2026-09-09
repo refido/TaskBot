@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from nik_parser import NIKValidationError
 from src.infrastructure.reporting.analytics import MetricsCalculator
 from src.infrastructure.reporting.classification import (
     _APPLICATION_ERROR_LABEL,
@@ -25,6 +26,8 @@ from src.infrastructure.reporting.classification import (
     _NEEDS_UPDATE_SKIP_TYPE,
     _NEEDS_UPDATE_STATUS,
     _NETWORK_ERROR_LABEL,
+    _NIK_PARSING_FAILED_SKIP_TYPE,
+    _NIK_PARSING_FAILED_STATUS,
     _UNDER_17_REASON,
     _UNDER_17_SKIP_TYPE,
     _UNDER_17_STATUS,
@@ -46,6 +49,7 @@ from src.infrastructure.reporting.classification import (
 )
 from src.infrastructure.reporting.console_summary import (
     print_error_analysis,
+    print_nik_parsing_failures,
     print_nik_statistics,
     print_performance,
     print_puzzle_metrics,
@@ -208,6 +212,34 @@ class TransactionReporter:
             nama_pengguna=nama_pengguna,
             jenis_pengguna=jenis_pengguna,
         )
+
+    def skip_nik_parsing_failed(
+        self,
+        nik: str,
+        started_at: str,
+        *,
+        exc: NIKValidationError,
+        url: str = "",
+    ) -> None:
+        self.skip(
+            nik,
+            started_at,
+            _NIK_PARSING_FAILED_SKIP_TYPE,
+            url=url,
+            reason=exc.reason,
+        )
+        logger.bind(
+            event="nik.parsing.failed",
+            run_id=self.run_id,
+            operator_id=self.operator_id,
+            nik=nik,
+            status=_NIK_PARSING_FAILED_STATUS,
+            stage="precheck",
+            parsing_field=exc.field,
+            exception_type=type(exc).__name__,
+            reason=exc.reason,
+            url=url,
+        ).warning("NIK skipped after parsing failure")
 
     def skip_max_kuota(
         self,
@@ -549,6 +581,7 @@ class TransactionReporter:
         self._append_jsonl(self.workflow_events_path, asdict(workflow_event))
         logger.bind(
             event=f"customer.workflow.{event}",
+            run_id=self.run_id,
             operator_id=self.operator_id,
             nik=nik,
             stage=stage,
@@ -596,6 +629,7 @@ class TransactionReporter:
             "analytics": calculator.get_analytics(self.run_started_at),
             "retry_report": retry_report,
             "workflow_summary": workflow_summary,
+            "nik_parsing_failures": self.get_nik_parsing_failure_report(),
             "items": [self.file_writer.public_row_payload(r) for r in self.rows],
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
@@ -678,6 +712,18 @@ class TransactionReporter:
                     continue
                 skipped_by_type[skip_type].append(display_nik(row.nik))
         return dict(skipped_by_type)
+
+    def get_nik_parsing_failure_report(self) -> dict[str, Any]:
+        """Group parsing skips by their full explanation within this operator run."""
+        by_reason: defaultdict[str, list[str]] = defaultdict(list)
+        total = 0
+        for row in self.rows:
+            if row.status != _NIK_PARSING_FAILED_STATUS:
+                continue
+            total += 1
+            reason = sanitize_text(row.reason) or "Gagal parsing NIK"
+            self._append_unique(by_reason[reason], display_nik(row.nik))
+        return {"total": total, "by_reason": dict(by_reason)}
 
     def get_unregistered_niks(self) -> list[str]:
         """Get NIKs flagged as 'Pelanggan Tidak Terdaftar'."""
@@ -853,6 +899,7 @@ class TransactionReporter:
         self._print_status_breakdown(analytics["breakdown_by_status"])
         self._print_skip_reasons(analytics["skip_reasons"])
         self._print_skipped_niks()
+        print_nik_parsing_failures(self, log_print)
         self._print_unregistered_niks()
         self._print_error_analysis(analytics["error_analysis"])
         self._print_retry_report()
@@ -1148,6 +1195,7 @@ class TransactionReporter:
             "analytics": calculator.get_analytics(self.run_started_at),
             "retry_report": retry_report,
             "workflow_summary": workflow_summary,
+            "nik_parsing_failures": self.get_nik_parsing_failure_report(),
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
             "mapping_failed_puzzle_report": mapping_failed_puzzle_report,

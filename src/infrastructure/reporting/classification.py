@@ -10,6 +10,8 @@ _FAILED_PUZZLE_SOLVE_REASON = "CAPTCHA solving failed"
 _FAILED_PUZZLE_SOLVE_REASON_MARKERS = ("captcha solving failed",)
 _APPLICATION_ERROR_LABEL = "application_level_error"
 _NETWORK_ERROR_LABEL = "network_level_error"
+_NIK_PARSING_FAILED_SKIP_TYPE = "nik_parsing_failed"
+_NIK_PARSING_FAILED_STATUS = f"skipped_{_NIK_PARSING_FAILED_SKIP_TYPE}"
 _NETWORK_ERROR_MARKERS = (
     "net::",
     "networkerror",

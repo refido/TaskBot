@@ -253,6 +253,27 @@ def test_operator_record_from_failed_report_updates_problem_and_conflict():
     assert format_db_datetime(record.event_time) == "20260525 101112"
 
 
+def test_nik_parsing_skip_preserves_reason_in_operator_record_without_kuota_delta():
+    targets = OperatorTargets.from_env(
+        {"NAME_OPERATORS_1": "First Operator"}, load_env_file=False
+    )
+    reason = "Gagal parsing kabupaten/kota: Unknown NIK region code: 65.07"
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator": "OPERATOR_1",
+            "nik": "6507231412869999",
+            "status": "skipped_nik_parsing_failed",
+            "reason": reason,
+            "finished_at": "2026-09-09T07:12:10+07:00",
+        },
+        targets.resolve("OPERATOR_1"),
+    )
+    assert record.status_code == 422
+    assert record.status_code_description == "NIK parsing failed"
+    assert record.problem == f"skipped_nik_parsing_failed: {reason}"
+    assert record.kuota_delta == 0
+
+
 def test_registration_request_limit_maps_to_http_429_without_kuota_delta():
     targets = OperatorTargets.from_env(
         {"NAME_OPERATORS_1": "First Operator"},

@@ -10,6 +10,7 @@ from nik_parser import NIKResult, normalise_nik
 class PrecheckAction(StrEnum):
     CONTINUE = "continue"
     SKIP = "skip"
+    SKIP_REQUIRES_RECOVERY = "skip_requires_recovery"
     RESTART_AFTER_UPDATE = "restart_after_update"
 
 

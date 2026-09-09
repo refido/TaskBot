@@ -21,6 +21,27 @@ def print_skipped_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None
             log_print_fn(f"    ... and {len(niks) - 5} more")
 
 
+def print_nik_parsing_failures(
+    reporter: Any, log_print_fn: Callable[..., None]
+) -> None:
+    report = reporter.get_nik_parsing_failure_report()
+    if not report["total"]:
+        return
+    log_print_fn(
+        f"\nGagal parsing NIK (dilewati): {report['total']}",
+        event="report.nik_parsing.summary",
+        run_id=reporter.run_id,
+        operator_id=reporter.operator_id,
+    )
+    for reason, niks in report["by_reason"].items():
+        log_print_fn(
+            f"  {reason} | NIK: {', '.join(niks)}",
+            event="report.nik_parsing.summary",
+            run_id=reporter.run_id,
+            operator_id=reporter.operator_id,
+        )
+
+
 def print_unregistered_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None:
     unregistered_niks = reporter.get_unregistered_niks()
 

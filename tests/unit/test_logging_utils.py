@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from src import logging_utils
 from src.logging_utils import configure_logging, logger, operator_logging_context
 from src.privacy import register_private_values, set_nik_masking
@@ -92,6 +94,45 @@ def test_logs_obey_mask_and_always_redact_credentials(tmp_path):
         assert "tester@example.com" not in payload["message"]
         assert "3573051108720003" in payload["message"]
     finally:
+        set_nik_masking(True)
+
+
+@pytest.mark.parametrize("mask_nik", [True, False])
+def test_application_text_log_renders_sanitized_trace_fields(tmp_path, mask_nik):
+    nik = "6507231412869999"
+    secret = "trace-private-credential"
+    register_private_values(secret)
+    set_nik_masking(mask_nik)
+    try:
+        metadata = configure_logging(log_dir=str(tmp_path), run_id="trace-run")
+        with operator_logging_context("operator_02"):
+            logger.bind(
+                event="trace.test",
+                nik=nik,
+                status="skipped_nik_parsing_failed",
+                parsing_field="kabupaten/kota",
+                reason=f"Gagal parsing kabupaten/kota: {{65.07}}\nPIN={secret}",
+                pin=secret,
+            ).warning("Parsing failed")
+        logger.complete()
+
+        text = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
+        lines = [line for line in text.splitlines() if "trace.test" in line]
+        assert len(lines) == 1
+        assert "run_id=trace-run | operator_id=operator_02" in lines[0]
+        assert 'status="skipped_nik_parsing_failed"' in lines[0]
+        assert 'parsing_field="kabupaten/kota"' in lines[0]
+        assert (
+            'reason="Gagal parsing kabupaten/kota: {65.07}\\nPIN=<redacted>"'
+            in lines[0]
+        )
+        expected_nik = "650723****869999" if mask_nik else nik
+        assert f'nik="{expected_nik}"' in lines[0]
+        assert secret not in text
+        if mask_nik:
+            assert nik not in text
+    finally:
+        logger.remove()
         set_nik_masking(True)
 
 
