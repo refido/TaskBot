@@ -1,12 +1,276 @@
 import csv
 import json
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 import main as taskbot_main
 import src.web.reporter as reporter_module
 from src.privacy import register_private_values, set_nik_masking
+
+
+@pytest.mark.parametrize("summary_failure", ["write", "analytics"])
+def test_summary_failure_preserves_terminal_row_and_db_queue(
+    monkeypatch, tmp_path, request, summary_failure
+):
+    reporter = reporter_module.TransactionReporter(
+        out_dir=str(tmp_path), operator_id="operator_01"
+    )
+    synced_batches = []
+    reporter.configure_batch_sync(synced_batches.append, batch_size=10)
+    failure = RuntimeError(f"summary {summary_failure} failed")
+    failing_summary = Mock(side_effect=failure)
+    if summary_failure == "write":
+        monkeypatch.setattr(reporter.file_writer, "write_json", failing_summary)
+    else:
+        monkeypatch.setattr(
+            reporter_module.MetricsCalculator, "get_analytics", failing_summary
+        )
+
+    records = []
+    sink_id = reporter_module.logger.add(lambda message: records.append(message.record))
+    request.addfinalizer(lambda: reporter_module.logger.remove(sink_id))
+    reporter.complete("3174", reporter.start_item("3174"), puzzle_solved=True)
+
+    failing_summary.assert_called_once()
+    assert len(reporter.rows) == 1
+    assert reporter.rows[0].status == "completed"
+    expected = reporter.file_writer.public_row_payload(reporter.rows[0])
+    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8")) == expected
+    with reporter.csv_path.open(newline="", encoding="utf-8") as stream:
+        csv_rows = list(csv.DictReader(stream))
+    assert len(csv_rows) == 1
+    assert csv_rows[0]["nik"] == expected["nik"]
+    assert csv_rows[0]["status"] == "completed"
+    # Originally both failures left this queue empty despite persisted files.
+    assert reporter._pending_batch_rows == [reporter.rows[0]]
+    assert any(
+        record["extra"].get("event") == "report.summary_failed"
+        for record in records
+    )
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+    assert synced_batches == [(reporter.rows[0],)]
+    assert reporter._pending_batch_rows == []
+
+
+@pytest.fixture
+def durable_reporter(tmp_path):
+    return reporter_module.TransactionReporter(
+        out_dir=str(tmp_path), operator_id="operator_01"
+    )
+
+
+def test_terminal_row_persists_then_syncs_before_summary(
+    monkeypatch, request, durable_reporter
+):
+    reporter = durable_reporter
+    events = []
+    batches = []
+
+    def sync(batch):
+        events.append("db_sync")
+        batches.append(batch)
+
+    reporter.configure_batch_sync(sync, batch_size=1)
+
+    def trace(target, attribute, event):
+        original = getattr(target, attribute)
+
+        def call(*args, **kwargs):
+            if event == "csv":
+                assert reporter.rows == [args[0]]
+            events.append(event)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(target, attribute, call)
+
+    trace(reporter.file_writer, "_append_to_csv", "csv")
+    trace(reporter.file_writer, "_append_to_jsonl", "jsonl")
+    trace(reporter, "_queue_row_for_batch_sync", "enqueue")
+    trace(reporter, "_write_meta", "summary")
+    sink_id = reporter_module.logger.add(
+        lambda message: events.append("row_recorded"),
+        filter=lambda record: record["extra"].get("event") == "report.row_recorded",
+    )
+    request.addfinalizer(lambda: reporter_module.logger.remove(sink_id))
+
+    reporter.complete("3174", reporter.start_item("3174"), puzzle_solved=True)
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+
+    assert events == ["csv", "jsonl", "enqueue", "db_sync", "summary", "row_recorded"]
+    assert batches == [(reporter.rows[0],)]
+    assert reporter._pending_batch_rows == []
+    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8")) == (
+        reporter.file_writer.public_row_payload(batches[0][0])
+    )
+    summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
+    assert summary["counts"] == {"completed": 1, "total": 1}
+
+
+@pytest.mark.parametrize("summary_fails", [False, True])
+def test_terminal_reporting_without_db_sync(monkeypatch, durable_reporter, summary_fails):
+    reporter = durable_reporter
+    summary = Mock(
+        wraps=reporter._write_meta,
+        side_effect=RuntimeError("summary unavailable") if summary_fails else None,
+    )
+    monkeypatch.setattr(reporter, "_write_meta", summary)
+    sync = Mock(side_effect=AssertionError("disabled DB sync must not run"))
+    monkeypatch.setattr(reporter, "_sync_complete_batches", sync)
+
+    reporter.complete("3174", reporter.start_item("3174"))
+    reporter.flush_pending_batches()
+
+    summary.assert_called_once()
+    sync.assert_not_called()
+    assert reporter._batch_sync_callback is None
+    assert reporter._pending_batch_rows == []
+    assert len(reporter.rows) == 1
+    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"] == "completed"
+
+
+@pytest.mark.parametrize("summary_fails", [False, True])
+@pytest.mark.parametrize("enqueue_before_failure", [False, True])
+def test_enqueue_failure_propagates_without_reenqueue_and_still_attempts_summary(
+    monkeypatch, durable_reporter, summary_fails, enqueue_before_failure
+):
+    reporter = durable_reporter
+    batches = []
+    reporter.configure_batch_sync(batches.append, batch_size=10)
+    failure = RuntimeError("DB enqueue failed")
+
+    def fail_enqueue(row):
+        if enqueue_before_failure:
+            reporter._pending_batch_rows.append(row)
+        raise failure
+
+    enqueue = Mock(side_effect=fail_enqueue)
+    summary = Mock(
+        wraps=reporter._write_meta,
+        side_effect=RuntimeError("summary also failed") if summary_fails else None,
+    )
+    monkeypatch.setattr(reporter, "_queue_row_for_batch_sync", enqueue)
+    monkeypatch.setattr(reporter, "_write_meta", summary)
+
+    with pytest.raises(RuntimeError) as caught:
+        reporter.complete("3174", reporter.start_item("3174"))
+
+    assert caught.value is failure
+    enqueue.assert_called_once_with(reporter.rows[0])
+    summary.assert_called_once()
+    assert len(reporter.rows) == 1
+    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"] == "completed"
+    assert reporter._pending_batch_rows == (reporter.rows if enqueue_before_failure else [])
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+    assert batches == ([(reporter.rows[0],)] if enqueue_before_failure else [])
+
+
+def test_db_callback_failure_retains_queue_even_when_summary_also_fails(
+    monkeypatch, durable_reporter
+):
+    reporter = durable_reporter
+    sync = Mock(side_effect=[RuntimeError("DB offline"), None, None])
+    reporter.configure_batch_sync(sync, batch_size=1)
+    summary = Mock(side_effect=RuntimeError("summary unavailable"))
+    monkeypatch.setattr(reporter.file_writer, "write_json", summary)
+
+    for nik in ("3174", "3275"):
+        reporter.complete(nik, reporter.start_item(nik))
+
+    assert summary.call_count == 2
+    assert reporter._batch_sync_failed is True
+    assert reporter._pending_batch_rows == reporter.rows
+    sync.assert_called_once_with((reporter.rows[0],))
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+    assert [call.args[0] for call in sync.call_args_list] == [
+        (reporter.rows[0],), (reporter.rows[0],), (reporter.rows[1],),
+    ]
+    assert reporter._pending_batch_rows == []
+    assert reporter._batch_sync_failed is False
+
+
+@pytest.mark.parametrize("file_format", ["csv", "jsonl"])
+def test_terminal_file_failure_propagates_and_does_not_enqueue(
+    monkeypatch, durable_reporter, file_format
+):
+    reporter = durable_reporter
+    sync = Mock()
+    reporter.configure_batch_sync(sync, batch_size=1)
+    previous_summary = reporter.meta_path.read_bytes()
+    failure = OSError(f"{file_format} persistence failed")
+    monkeypatch.setattr(
+        reporter.file_writer, f"_append_to_{file_format}", Mock(side_effect=failure)
+    )
+    summary = Mock(wraps=reporter._write_meta)
+    enqueue = Mock(wraps=reporter._queue_row_for_batch_sync)
+    monkeypatch.setattr(reporter, "_write_meta", summary)
+    monkeypatch.setattr(reporter, "_queue_row_for_batch_sync", enqueue)
+
+    with pytest.raises(OSError) as caught:
+        reporter.complete("3174", reporter.start_item("3174"))
+
+    assert caught.value is failure
+    assert len(reporter.rows) == 1  # Existing memory-first behavior is preserved.
+    assert reporter._pending_batch_rows == []
+    enqueue.assert_not_called()
+    summary.assert_not_called()
+    reporter.flush_pending_batches()
+    sync.assert_not_called()
+    assert reporter.meta_path.read_bytes() == previous_summary
+    assert reporter.jsonl_path.read_text(encoding="utf-8") == ""
+    with reporter.csv_path.open(newline="", encoding="utf-8") as stream:
+        csv_rows = list(csv.DictReader(stream))
+    # CSV and JSONL are sequential writes, not an atomic pair.
+    assert len(csv_rows) == (1 if file_format == "jsonl" else 0)
+
+
+def test_sequential_terminal_rows_rebuild_summary_without_duplicate_enqueue(
+    monkeypatch, durable_reporter
+):
+    reporter = durable_reporter
+    batches = []
+    reporter.configure_batch_sync(batches.append, batch_size=2)
+    original_write = reporter.file_writer.write_json
+    writes = 0
+
+    def write_summary(path, payload):
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            raise OSError("first summary write failed")
+        return original_write(path, payload)
+
+    monkeypatch.setattr(reporter.file_writer, "write_json", write_summary)
+    enqueue = Mock(wraps=reporter._queue_row_for_batch_sync)
+    monkeypatch.setattr(reporter, "_queue_row_for_batch_sync", enqueue)
+
+    reporter.complete("3174", reporter.start_item("3174"))
+    reporter.skip("3275", reporter.start_item("3275"), skip_type="quota")
+    reporter.error("3376", reporter.start_item("3376"), exc=RuntimeError("failed sale"))
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+
+    assert writes == 3
+    assert enqueue.call_count == 3
+    assert [call.args[0] for call in enqueue.call_args_list] == reporter.rows
+    assert [len(batch) for batch in batches] == [2, 1]
+    assert [row for batch in batches for row in batch] == reporter.rows
+    assert reporter._pending_batch_rows == []
+    persisted = [
+        json.loads(line)
+        for line in reporter.jsonl_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert persisted == [reporter.file_writer.public_row_payload(row) for row in reporter.rows]
+    with reporter.csv_path.open(newline="", encoding="utf-8") as stream:
+        assert len(list(csv.DictReader(stream))) == 3
+    summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
+    assert summary["counts"] == {"completed": 1, "skipped_quota": 1, "error": 1, "total": 3}
+    assert summary["analytics"]["summary"]["total_transactions"] == 3
 
 
 def test_reporter_labels_network_and_application_errors(monkeypatch, tmp_path):

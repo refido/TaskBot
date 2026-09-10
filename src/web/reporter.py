@@ -1111,7 +1111,19 @@ class TransactionReporter:
     def _record_row(self, row: TransactionRow) -> None:
         self.rows.append(row)
         self.file_writer.append_row(row)
-        self._write_meta()
+        try:
+            self._queue_row_for_batch_sync(row)
+        finally:
+            # Summary is rebuildable; it must not gate terminal persistence or DB sync.
+            try:
+                self._write_meta()
+            except Exception:  # noqa: BLE001 - isolate derived output failures.
+                logger.bind(
+                    event="report.summary_failed",
+                    operator_id=self.operator_id,
+                    run_id=self.run_id,
+                    meta_path=str(self.meta_path),
+                ).exception("Summary update failed; terminal row files are preserved")
         logger.bind(
             event="report.row_recorded",
             operator_id=self.operator_id,
@@ -1126,7 +1138,6 @@ class TransactionReporter:
             error_label=row.error_label,
             reason=row.reason,
         ).info("Transaction row recorded")
-        self._queue_row_for_batch_sync(row)
 
     def _queue_row_for_batch_sync(self, row: TransactionRow) -> None:
         if self._batch_sync_callback is None:

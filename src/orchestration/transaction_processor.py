@@ -82,6 +82,8 @@ class TransactionProcessor:
         self._precheck_service: TransactionPrechecksService | None = None
         self._puzzle_service: PuzzleService | None = None
         self._session_recovery_service: SessionRecoveryService | None = None
+        # Execution-local invariant: a confirmed NIK must never be submitted again.
+        self._confirmed_success_niks: set[str] = set()
 
     def process_all_niks(self) -> None:
         """Process all NIKs from configuration."""
@@ -106,6 +108,8 @@ class TransactionProcessor:
 
     def process_single_nik(self, nik: str) -> None:
         """Process a single NIK transaction."""
+        if str(nik) in self._confirmed_success_niks:
+            return
         started_at = self.reporter.start_item(nik)
         session_retries_used = 0
         general_error_retries_used = 0
@@ -229,6 +233,10 @@ class TransactionProcessor:
 
                 puzzle_outcome = self._solve_puzzle(nik)
                 puzzle_solved = puzzle_outcome.solved
+                if puzzle_solved:
+                    # Leave the retry boundary before logging, navigation or reporting.
+                    self._confirmed_success_niks.add(str(nik))
+                    break
                 puzzle_attempts = puzzle_outcome.attempts
                 puzzle_retry_count = puzzle_outcome.retry_count
                 puzzle_retry_process = puzzle_outcome.retry_process
@@ -244,25 +252,6 @@ class TransactionProcessor:
                     raise PuzzleSolveFailedError(
                         self._build_puzzle_failure_reason(puzzle_attempts)
                     )
-
-                self._return_to_dashboard(cek_penjualan)
-
-                self.reporter.complete(
-                    nik,
-                    started_at,
-                    url=self.page.url,
-                    puzzle_solved=puzzle_solved,
-                    puzzle_attempts=puzzle_attempts,
-                    puzzle_retry_count=puzzle_retry_count,
-                    puzzle_retry_process=puzzle_retry_process,
-                    nama_pengguna=customer_information.nama_pengguna,
-                    jenis_pengguna=customer_information.jenis_pengguna,
-                )
-                self.limiter.record_success()
-                self._log_transaction_stage(
-                    nik, "completed", attempt_number=attempt_number
-                )
-                return
 
             except OutOfSellableStockError as exc:
                 if not exc.reported:
@@ -405,6 +394,41 @@ class TransactionProcessor:
                 self._handle_session_recovery()
                 return
 
+        if puzzle_solved:
+            # Success is terminal even when any post-transaction operation fails.
+            try:
+                self._log_transaction_stage(
+                    nik,
+                    "puzzle_finished",
+                    attempt_number=attempt_number,
+                    puzzle_solved=True,
+                    puzzle_attempts=puzzle_outcome.attempts,
+                    puzzle_retry_count=puzzle_outcome.retry_count,
+                )
+                try:
+                    self._return_to_dashboard(cek_penjualan)
+                except Exception as exc:  # noqa: BLE001 - still report the confirmed sale.
+                    self._handle_post_processing_failure(nik, exc)
+
+                self.reporter.complete(
+                    nik,
+                    started_at,
+                    url=self.page.url,
+                    puzzle_solved=True,
+                    puzzle_attempts=puzzle_outcome.attempts,
+                    puzzle_retry_count=puzzle_outcome.retry_count,
+                    puzzle_retry_process=puzzle_outcome.retry_process,
+                    nama_pengguna=customer_information.nama_pengguna,
+                    jenis_pengguna=customer_information.jenis_pengguna,
+                )
+                self.limiter.record_success()
+                self._log_transaction_stage(
+                    nik, "completed", attempt_number=attempt_number
+                )
+            except Exception as exc:  # noqa: BLE001 - never retry a confirmed sale.
+                self._handle_post_processing_failure(nik, exc)
+            return
+
         # This NIK already has a terminal skip row. Recovery must stay outside
         # the transaction retry loop, even when hard navigation also fails.
         self._record_workflow_event(nik, "skipped_nik_recovery_started")
@@ -418,6 +442,33 @@ class TransactionProcessor:
             )
         else:
             self._record_workflow_event(nik, "skipped_nik_recovery_succeeded")
+
+    def _handle_post_processing_failure(self, nik: str, exc: Exception) -> None:
+        logger.bind(
+            event="transaction.post_processing_failed",
+            operator_id=self.operator_id,
+            nik=str(nik),
+            transaction_confirmed=True,
+        ).exception(f"Post-processing failed after confirmed transaction: {exc}")
+        # Diagnostics and recovery are best effort and cannot reopen the transaction.
+        for action in (
+            partial(
+                self._record_workflow_event,
+                nik,
+                "post_processing_failed",
+                reason=f"Transaction confirmed; post-processing failed: {exc}",
+            ),
+            partial(self._capture_failure_artifact, nik, "post_processing_failed"),
+            self._handle_session_recovery,
+        ):
+            try:
+                action()
+            except Exception:  # noqa: BLE001 - preserve confirmed success on cleanup failure.
+                logger.bind(
+                    event="transaction.post_processing_cleanup_failed",
+                    operator_id=self.operator_id,
+                    nik=str(nik),
+                ).exception("Post-processing diagnostics or recovery failed")
 
     def _record_retry(
         self,

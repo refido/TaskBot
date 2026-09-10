@@ -2,6 +2,7 @@ import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -211,6 +212,7 @@ def _build_processor(
     processor.login = login or FakeLogin()
     processor._precheck_service = precheck_service
     processor._puzzle_service = puzzle_service
+    processor._confirmed_success_niks = set()
     processor._session_recovery_service = (
         session_recovery_service or FakeSessionRecoveryService()
     )
@@ -694,6 +696,203 @@ def test_puzzle_service_reuses_single_solver_result_with_in_memory_images():
     assert kwargs["puzzle_result_path"] == Path("data_puzzle/3174_result.png")
     assert kwargs["solver_timing_ms"] == {"total": 12.5}
     assert kwargs["write_debug_artifacts"] is False
+
+
+def test_confirmed_sale_dashboard_failure_does_not_repeat_submission(monkeypatch):
+    events = []
+
+    class FakePenjualan:
+        def __init__(self, page):
+            pass
+
+        def cek_pesanan(self):
+            pass
+
+    class FakeCekPenjualan:
+        def __init__(self, page):
+            pass
+
+        def proses_penjualan(self):
+            events.append("sale_submitted")
+
+        def kembali_ke_dashboard(self):
+            events.append("return_to_dashboard")
+            if events.count("return_to_dashboard") == 1:
+                raise RuntimeError("dashboard navigation failed after success")
+
+    class SuccessfulPuzzle(FakePuzzleService):
+        def solve(self, nik):
+            events.append("puzzle_succeeded")
+            return super().solve(nik)
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", FakePenjualan)
+    monkeypatch.setattr(transaction_processor, "CekPenjualan", FakeCekPenjualan)
+    processor = _build_processor(
+        precheck_service=FakePrecheckService(),
+        puzzle_service=SuccessfulPuzzle(PuzzleSolveOutcome(solved=True, attempts=1)),
+    )
+
+    processor.process_single_nik("3174")
+
+    # The original implementation repeated all three events via general retry.
+    assert events == [
+        "sale_submitted", "puzzle_succeeded", "return_to_dashboard",
+    ]
+    assert processor.dashboard.catat_penjualan_calls == ["3174"]
+    assert processor.reporter.retry_calls == []
+    assert processor._session_recovery_service.recovery_calls == 1
+    assert len(processor.reporter.complete_calls) == 1
+    assert processor.reporter.error_calls == []
+    assert processor.reporter.workflow_calls[0][1]["event"] == "post_processing_failed"
+
+
+@pytest.fixture
+def confirmed_sale_processor(monkeypatch):
+    sale_page = SimpleNamespace(
+        proses_penjualan=Mock(), kembali_ke_dashboard=Mock()
+    )
+    monkeypatch.setattr(
+        transaction_processor, "Penjualan",
+        lambda page: SimpleNamespace(cek_pesanan=Mock()),
+    )
+    monkeypatch.setattr(transaction_processor, "CekPenjualan", lambda page: sale_page)
+    processor = _build_processor(
+        precheck_service=FakePrecheckService(),
+        puzzle_service=FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1)),
+    )
+    return processor, sale_page
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, SessionExpiredError])
+@pytest.mark.parametrize(
+    "failure_stage",
+    [
+        "puzzle_finished", "dashboard", "load_state", "stock_read",
+        "report_before_write", "report_after_write", "limiter", "completed",
+    ],
+)
+def test_post_success_failures_never_retry_transaction(
+    monkeypatch, request, confirmed_sale_processor, failure_stage, error_type
+):
+    processor, sale_page = confirmed_sale_processor
+    failure = error_type(f"{failure_stage} failed after confirmed success")
+    failing_action = Mock(side_effect=failure)
+    log_records = []
+    sink_id = logger.add(lambda message: log_records.append(message.record))
+    request.addfinalizer(lambda: logger.remove(sink_id))
+
+    if failure_stage in ("puzzle_finished", "completed"):
+        original_log_stage = processor._log_transaction_stage
+
+        def log_stage(nik, stage, **kwargs):
+            if stage == failure_stage:
+                failing_action()
+            original_log_stage(nik, stage, **kwargs)
+
+        monkeypatch.setattr(processor, "_log_transaction_stage", log_stage)
+    elif failure_stage == "report_after_write":
+        original_complete = processor.reporter.complete
+
+        def complete(*args, **kwargs):
+            original_complete(*args, **kwargs)
+            failing_action()
+
+        monkeypatch.setattr(processor.reporter, "complete", complete)
+    else:
+        target, attribute = {
+            "dashboard": (sale_page, "kembali_ke_dashboard"),
+            "load_state": (processor.page, "wait_for_load_state"),
+            "stock_read": (processor.dashboard, "get_current_stock"),
+            "report_before_write": (processor.reporter, "complete"),
+            "limiter": (processor.limiter, "record_success"),
+        }[failure_stage]
+        monkeypatch.setattr(target, attribute, failing_action)
+
+    processor.process_single_nik("3174")
+    # A caller repeating the same NIK in this execution cannot reopen the sale.
+    processor.process_single_nik("3174")
+
+    failing_action.assert_called_once()
+    sale_page.proses_penjualan.assert_called_once()
+    assert processor.dashboard.catat_penjualan_calls == ["3174"]
+    assert processor._puzzle_service.calls == ["3174"]
+    assert processor.reporter.started == ["3174"]
+    assert processor.reporter.retry_calls == []
+    assert processor.reporter.error_calls == []
+    assert processor.reporter.failed_puzzle_calls == []
+    assert processor.reporter.out_of_stock_calls == []
+    assert processor.reporter.workflow_calls[0][1]["event"] == "post_processing_failed"
+    assert processor._session_recovery_service.recovery_calls == 1
+    assert any(
+        record["extra"].get("event") == "transaction.post_processing_failed"
+        and record["extra"].get("transaction_confirmed") is True
+        for record in log_records
+    )
+    if failure_stage in (
+        "dashboard", "load_state", "stock_read", "report_after_write", "limiter", "completed"
+    ):
+        assert len(processor.reporter.complete_calls) == 1
+        assert processor.reporter.complete_calls[0][2]["puzzle_solved"] is True
+
+
+@pytest.mark.parametrize("cleanup_failure", ["workflow", "screenshot", "recovery", "all"])
+def test_post_success_cleanup_failures_preserve_invariant_and_continue_next_nik(
+    monkeypatch, tmp_path, confirmed_sale_processor, cleanup_failure
+):
+    processor, sale_page = confirmed_sale_processor
+    processor.config.nik = ["3174", "3174", "3275"]
+    processor.config.run_context = SimpleNamespace(run_dir=tmp_path)
+    sale_page.kembali_ke_dashboard.side_effect = RuntimeError("dashboard unavailable")
+    screenshot = Mock(side_effect=RuntimeError("screenshot unavailable"))
+    monkeypatch.setattr(processor.page, "screenshot", screenshot, raising=False)
+    if cleanup_failure not in ("screenshot", "all"):
+        screenshot.side_effect = None
+    for stage, target, attribute in (
+        ("workflow", processor.reporter, "record_workflow_event"),
+        ("recovery", processor._session_recovery_service, "handle_session_recovery"),
+    ):
+        if cleanup_failure in (stage, "all"):
+            monkeypatch.setattr(
+                target, attribute, Mock(side_effect=RuntimeError(f"{stage} unavailable"))
+            )
+
+    processor.process_all_niks()
+
+    assert sale_page.proses_penjualan.call_count == 2
+    assert processor.dashboard.catat_penjualan_calls == ["3174", "3275"]
+    assert processor._puzzle_service.calls == ["3174", "3275"]
+    assert processor.reporter.retry_calls == []
+    assert processor.reporter.error_calls == []
+    assert [call[0] for call in processor.reporter.complete_calls] == ["3174", "3275"]
+    assert screenshot.call_count == 2
+
+
+def test_confirmed_nik_guard_is_scoped_to_processor_execution(
+    monkeypatch, confirmed_sale_processor
+):
+    processor, sale_page = confirmed_sale_processor
+    processor.config.nik = ["3174", "3174", "3275"]
+
+    processor.process_all_niks()
+
+    assert sale_page.proses_penjualan.call_count == 2
+    assert processor.dashboard.catat_penjualan_calls == ["3174", "3275"]
+    assert processor.reporter.started == ["3174", "3275"]
+    assert [call[0] for call in processor.reporter.complete_calls] == ["3174", "3275"]
+
+    monkeypatch.setattr(transaction_processor, "Dashboard", lambda page: FakeDashboard())
+    monkeypatch.setattr(transaction_processor, "Login", lambda page: FakeLogin())
+    next_execution = transaction_processor.TransactionProcessor(
+        processor.config, processor.page, FakeReporter(), FakeLimiter()
+    )
+    next_execution.dashboard = FakeDashboard()
+    next_execution._precheck_service = FakePrecheckService()
+    next_execution._puzzle_service = processor._puzzle_service
+    next_execution._session_recovery_service = FakeSessionRecoveryService()
+    next_execution.process_single_nik("3174")
+
+    assert sale_page.proses_penjualan.call_count == 3
+    assert next_execution.dashboard.catat_penjualan_calls == ["3174"]
 
 
 def test_process_single_nik_completes_and_records_success(monkeypatch):
