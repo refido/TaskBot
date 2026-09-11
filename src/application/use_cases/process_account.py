@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -13,6 +13,7 @@ def process_accounts(
     *,
     run_account: Callable[[Any], tuple[str, bool]],
     log: Any,
+    outcomes: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[tuple[str, bool]]:
     """Run one or more accounts while preserving the existing thread-per-account behavior."""
     configs = list(account_configs)
@@ -44,7 +45,8 @@ def process_accounts(
             try:
                 result = future.result()
                 _, is_successful = result
-                status = "completed" if is_successful else "completed with errors"
+                detail = (outcomes or {}).get(operator_id, {})
+                status = detail.get("status") or ("completed" if is_successful else "failed")
                 log.bind(
                     event="account.thread.finished",
                     operator_id=operator_id,

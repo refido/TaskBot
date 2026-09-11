@@ -536,10 +536,12 @@ def test_main_delegates_account_fanout_to_process_accounts(monkeypatch, tmp_path
         calls["order"].append("dotenv")
         calls["dotenv_path"] = dotenv_path
 
-    def fake_process_accounts(account_configs, *, run_account, log):
+    def fake_process_accounts(account_configs, *, run_account, log, outcomes=None):
         calls["account_configs"] = account_configs
         calls["run_account"] = run_account
         calls["log"] = log
+        assert outcomes == {"operator_01": {}}
+        assert run_account.keywords["outcomes"] is outcomes
         return [("operator_01", True)]
 
     monkeypatch.setattr(taskbot_main, "configure_logging", fake_configure_logging)

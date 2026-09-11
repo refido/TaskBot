@@ -371,6 +371,55 @@ reports/<yyyy>/<mm>/<dd>/<run_id>/
 - `summary.json`: compact current-run operator totals and file paths; detailed retry history stays in JSONL.
 - Top-level `run_meta.json`: credential-free execution status and operator aggregation.
 
+### Account and run status
+
+`AccountRunner.run()`, `process_account()`, and `main.run_account()` still return
+`(operator_id, bool)`; `process_accounts()` still returns a list of those tuples.
+The boolean now means **clean success**, including terminal transaction outcomes.
+A `False` value alone cannot distinguish business outcomes from operational failures.
+`AccountRunner.outcome` provides that distinction; main passes an optional, isolated
+outcome dict to each account and records the details in `run_meta.json.account_outcomes`.
+There is no change to the thread pool or its exception handling.
+
+- `execution_status`: `completed` when account processing and browser lifecycle return
+  normally, otherwise `failed`.
+- `transaction_status`: `completed` only when every requested NIK has a completed
+  terminal result; otherwise `completed_with_errors`. It is derived once from
+  `reporter.rows`, never from summary/analytics or by rereading terminal files.
+- `persistence_status`: `successful` when finalization returns normally, otherwise
+  `failed`. This covers final report writing, required DB sync, syncer close, and
+  summary printing under the existing AccountRunner finalization contract. It is an
+  operational result, not a stronger durability guarantee. Disabled DB sync is OK.
+- Account/run `status`: `failed` takes precedence over `completed_with_errors`, which
+  takes precedence over `completed` (the existing name for clean success). A missing
+  worker result is `failed`. Secondary finalization errors keep the stage 3A exception
+  precedence and logging behavior.
+
+Terminal row vocabulary is unchanged: `completed`, `error`, `failed_puzzle_solve`, and
+`skipped_*` (including quota, out-of-stock, registration, NIK validation, and customer
+restrictions). Skips make the aggregate non-clean, but are **not** counted as transaction
+errors: `transaction_error_count` includes only `error` and `failed_puzzle_solve`.
+Out-of-stock records `skipped_out_of_stock` and stops the existing processor loop;
+later NIKs have no terminal row. `requested_nik_count`, `processed_nik_count`, and
+`remaining_nik_count` expose this partial processing without creating synthetic rows.
+These coverage counts use distinct NIKs, consistent with the confirmed-NIK guard.
+Workflow/retry events do not count as terminal outcomes.
+
+Zero rows with zero requested NIKs is a completed no-work account. Zero rows with
+requested NIKs is `completed_with_errors`. Legacy injected reporters that expose no
+typed terminal rows retain operational-only evaluation with `transaction_status: null`.
+CSV, JSONL, operator summary, and database row formats are unchanged. Run metadata gains
+the `account_outcomes` field; its terminal counts also populate the existing operator
+summary display independently of missing/stale summary files.
+
+CLI exit behavior is deliberately unchanged: a normally returning `main()` exits 0,
+including `completed_with_errors` and handled failures now labelled `failed`; uncaught
+exceptions remain non-zero. In particular, a single-account escaping exception is
+still propagated, while crashed workers in a multi-account run remain omitted from
+the returned list. Schedulers should inspect `run_meta.json.status` today. A future,
+explicitly coordinated CLI change could use 0 for `completed`, 1 for `failed`, and 2
+for `completed_with_errors`; that exit-code mapping is **not implemented** here.
+
 The full workflow chronology is not duplicated into summaries. Its compact summary includes event count, consent/update NIK counts, successes, restarts, failures, and repeated requests. `RetryEvent` remains technical retry telemetry; `WorkflowEvent` is business progression. A successful consent/update/restart/transaction path still produces exactly one terminal `completed` row.
 
 Puzzle images and customer-update failure screenshots are stored under the shared run and stable operator ID. NIKs follow `MASK`; masked Windows filenames use `xxxx` as the filesystem-safe replacement for the four hidden digits. Slider `meta.json` includes the run ID, operator ID, and rendered NIK.

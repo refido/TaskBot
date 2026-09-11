@@ -18,6 +18,7 @@ class AccountRunner:
         transaction_processor_factory: Callable[[Any, Any, Any, Any], Any],
         logger: Any,
         report_syncer: Callable[..., Any] | None = None,
+        outcome: dict[str, Any] | None = None,
     ) -> None:
         self.reporter_factory = reporter_factory
         self.limiter_factory = limiter_factory
@@ -25,8 +26,14 @@ class AccountRunner:
         self.transaction_processor_factory = transaction_processor_factory
         self.report_syncer = report_syncer
         self.logger = logger
+        self.outcome = outcome if outcome is not None else {}
 
     def run(self, config: Any) -> tuple[str, bool]:
+        """Return the legacy tuple, with True reserved for a clean account outcome."""
+        self.outcome.clear()
+        self.outcome.update(
+            status="failed", execution_status="failed", persistence_status="failed"
+        )
         operator_id = getattr(config, "operator_id", "") or "operator_01"
         with operator_logging_context(operator_id):
             return self._run_with_context(config, operator_id)
@@ -36,6 +43,9 @@ class AccountRunner:
         limiter = self.limiter_factory()
         is_successful = True
         batch_sync_configured = False
+        finalization_error: Exception | None = None
+        execution_status = "completed"
+        persistence_status = "successful"
 
         self.logger.bind(
             event="account.run.started",
@@ -60,6 +70,7 @@ class AccountRunner:
 
         except Exception:  # noqa: BLE001 - account boundary records all infrastructure failures.
             is_successful = False
+            execution_status = "failed"
 
             self.logger.bind(
                 event="account.run.fatal_error",
@@ -67,7 +78,20 @@ class AccountRunner:
             ).exception("Fatal account-level error")
 
         finally:
-            reporter.write_files()
+            # Processing and DB sync errors keep the existing unsuccessful-result
+            # contract. Otherwise, re-raise the first finalization error after
+            # cleanup; later failures are logged without replacing the primary one.
+            try:
+                reporter.write_files()
+            except Exception as exc:  # noqa: BLE001 - still attempt final sync and close.
+                persistence_status = "failed"
+                if is_successful:
+                    finalization_error = exc
+                is_successful = False
+                self.logger.bind(
+                    event="account.report_write_error",
+                    operator_id=operator_id,
+                ).exception("Final report file writing failed")
 
             if self.report_syncer is not None:
                 try:
@@ -78,6 +102,7 @@ class AccountRunner:
 
                 except Exception:  # noqa: BLE001 - database errors must mark the account unsuccessful.
                     is_successful = False
+                    persistence_status = "failed"
 
                     self.logger.bind(
                         event="account.report_db_sync_error",
@@ -85,20 +110,88 @@ class AccountRunner:
                     ).exception("Report database sync failed")
 
                 finally:
-                    close_syncer = getattr(self.report_syncer, "close", None)
+                    try:
+                        close_syncer = getattr(self.report_syncer, "close", None)
+                        if callable(close_syncer):
+                            close_syncer()
+                    except Exception as exc:  # noqa: BLE001 - preserve the primary failure.
+                        persistence_status = "failed"
+                        if is_successful:
+                            finalization_error = exc
+                        is_successful = False
+                        self.logger.bind(
+                            event="account.report_db_close_error",
+                            operator_id=operator_id,
+                        ).exception("Report database syncer close failed")
 
-                    if callable(close_syncer):
-                        close_syncer()
+            try:
+                reporter.print_summary()
+            except Exception as exc:  # noqa: BLE001 - summary cannot replace a primary failure.
+                persistence_status = "failed"
+                if is_successful:
+                    finalization_error = exc
+                is_successful = False
+                self.logger.bind(
+                    event="account.report_summary_error",
+                    operator_id=operator_id,
+                ).exception("Final report summary printing failed")
 
-            reporter.print_summary()
-
+        transactions = self._transaction_outcome(reporter, config)
+        status = (
+            (transactions["transaction_status"] or "completed")
+            if is_successful else "failed"
+        )
+        self.outcome.update(
+            **transactions,
+            execution_status=execution_status,
+            persistence_status=persistence_status,
+            status=status,
+        )
         self.logger.bind(
             event="account.run.finished",
             operator_id=operator_id,
-            success=is_successful,
+            success=status == "completed",
+            status=status,
+            execution_status=execution_status,
+            persistence_status=persistence_status,
+            transaction_status=transactions["transaction_status"],
         ).info("Account run finished")
 
-        return operator_id, is_successful
+        if finalization_error is not None:
+            raise finalization_error
+
+        return operator_id, status == "completed"
+
+    @staticmethod
+    def _transaction_outcome(reporter: Any, config: Any) -> dict[str, Any]:
+        """Count terminal rows once; workflow/retry events and summaries are not outcomes."""
+        rows = getattr(reporter, "rows", None)
+        counts: dict[str, int] = {}
+        observed_niks: set[str] = set()
+        if rows is None:
+            return {"transaction_status": None}  # Legacy reporters may expose no rows.
+        for row in rows:
+            if not hasattr(row, "status") or not hasattr(row, "nik"):
+                return {"transaction_status": None}
+            counts[row.status] = counts.get(row.status, 0) + 1
+            observed_niks.add(str(row.nik))
+        requested_niks = {str(nik) for nik in config.nik}
+        remaining = len(requested_niks - observed_niks)
+        counts["total"] = sum(counts.values())
+        return {
+            "transaction_status": (
+                "completed"
+                if not remaining and counts.get("completed", 0) == counts["total"]
+                else "completed_with_errors"
+            ),
+            "counts": counts,
+            "transaction_error_count": (
+                counts.get("error", 0) + counts.get("failed_puzzle_solve", 0)
+            ),
+            "requested_nik_count": len(requested_niks),
+            "processed_nik_count": len(requested_niks & observed_niks),
+            "remaining_nik_count": remaining,
+        }
 
     def _configure_batch_sync(self, reporter: Any) -> bool:
         if self.report_syncer is None:

@@ -253,7 +253,9 @@ def _database_report_payload(row: Any) -> dict[str, Any]:
     return payload
 
 
-def _build_account_runner(*, run_context=None, update_limiter=None) -> AccountRunner:
+def _build_account_runner(
+    *, run_context=None, update_limiter=None, outcome=None
+) -> AccountRunner:
     reporter_factory = (
         partial(TransactionReporter, run_context=run_context)
         if run_context is not None
@@ -269,6 +271,7 @@ def _build_account_runner(*, run_context=None, update_limiter=None) -> AccountRu
         transaction_processor_factory=TransactionProcessor,
         report_syncer=DatabaseReportSyncer(),
         logger=logger,
+        outcome=outcome,
     )
 
 
@@ -277,6 +280,7 @@ def run_account(
     *,
     run_context=None,
     update_limiter=None,
+    outcomes: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, bool]:
     """Run one account through the extracted account runner."""
     resolved_run_context = run_context or getattr(config, "run_context", None)
@@ -285,6 +289,7 @@ def run_account(
         account_runner=_build_account_runner(
             run_context=resolved_run_context,
             update_limiter=update_limiter,
+            outcome=(outcomes.get(config.operator_id) if outcomes is not None else None),
         ),
     )
 
@@ -295,6 +300,7 @@ def _write_run_meta(
     *,
     status: str,
     results: Sequence[tuple[str, bool]] = (),
+    outcomes: dict[str, dict[str, Any]] | None = None,
 ) -> Path:
     """Persist credential-free metadata for the whole application execution."""
     run_dir = Path(run_context.run_dir)
@@ -303,16 +309,20 @@ def _write_run_meta(
     operator_summaries: dict[str, Any] = {}
     for account_config in account_configs:
         operator_id = account_config.operator_id
+        detail = (outcomes or {}).get(operator_id, {})
         summary_path = run_dir / "operators" / operator_id / "summary.json"
-        if not summary_path.exists():
+        if not summary_path.exists() and not detail:
             continue
         try:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
         except OSError, UnicodeDecodeError, json.JSONDecodeError:
-            continue
+            summary = {}
         operator_summaries[operator_id] = {
-            "success": result_by_operator.get(operator_id),
-            "counts": summary.get("counts", {}),
+            "success": (
+                detail["status"] == "completed" if "status" in detail
+                else result_by_operator.get(operator_id)
+            ),
+            "counts": detail.get("counts", summary.get("counts", {})),
             "workflow_summary": summary.get("workflow_summary", {}),
             "retry_report": {
                 key: summary.get("retry_report", {}).get(key, 0)
@@ -333,6 +343,7 @@ def _write_run_meta(
         "operator_count": len(account_configs),
         "operators": [config.operator_id for config in account_configs],
         "operator_summaries": operator_summaries,
+        "account_outcomes": outcomes or {},
     }
     meta_path = run_dir / "run_meta.json"
     temporary_path = meta_path.with_suffix(".json.tmp")
@@ -354,7 +365,9 @@ def _fallback_run_context(logging_meta: dict[str, str]):
     )
 
 
-def _print_run_summary(run_context, account_configs: Sequence[Config]) -> None:
+def _print_run_summary(
+    run_context, account_configs: Sequence[Config], *, outcomes=None
+) -> None:
     log_print("\nRUN SUMMARY", event="run.summary")
     for config in account_configs:
         summary_path = (
@@ -364,7 +377,10 @@ def _print_run_summary(run_context, account_configs: Sequence[Config]) -> None:
             / "summary.json"
         )
         counts: dict[str, int] = {}
-        if summary_path.exists():
+        detail = (outcomes or {}).get(config.operator_id, {})
+        if "counts" in detail:
+            counts = detail["counts"]
+        elif summary_path.exists():
             try:
                 counts = json.loads(summary_path.read_text(encoding="utf-8")).get(
                     "counts", {}
@@ -384,10 +400,35 @@ def _print_run_summary(run_context, account_configs: Sequence[Config]) -> None:
             (
                 f"{config.operator_id}: completed={counts.get('completed', 0)} "
                 f"skipped={skipped} failed={failed}"
+                f" status={detail.get('status', 'unknown')}"
+                f" remaining={detail.get('remaining_nik_count', 'unknown')}"
             ),
             event="run.summary.operator",
             operator_id=config.operator_id,
         )
+
+
+def _aggregate_run_status(
+    account_configs: Sequence[Config],
+    results: Sequence[tuple[str, bool]],
+    outcomes: dict[str, dict[str, Any]],
+) -> str:
+    """Operational failure dominates business errors, including missing worker results."""
+    if len(results) != len(account_configs) or (
+        {config.operator_id for config in account_configs}
+        != {operator for operator, _ in results}
+    ):
+        return "failed"
+    statuses = [
+        outcomes.get(operator, {}).get("status")
+        or ("completed" if successful else "failed")
+        for operator, successful in results
+    ]
+    if "failed" in statuses:
+        return "failed"
+    if "completed_with_errors" in statuses:
+        return "completed_with_errors"
+    return "completed"
 
 
 def main() -> None:
@@ -398,6 +439,7 @@ def main() -> None:
     logging_meta: dict[str, str] | None = None
     account_configs: list[Config] = []
     results: list[tuple[str, bool]] = []
+    outcomes: dict[str, dict[str, Any]] = {}
     try:
         config = Config()
         run_context = config.run_context
@@ -417,6 +459,8 @@ def main() -> None:
                 "EMAIL_1/PIN_1/NIK_1."
             )
 
+        # Each worker owns one preallocated detail dict; aggregation happens after fanout.
+        outcomes = {account.operator_id: {} for account in account_configs}
         _write_run_meta(run_context, account_configs, status="running")
 
         update_limiter = _build_customer_update_rate_limiter()
@@ -426,14 +470,13 @@ def main() -> None:
                 run_account,
                 run_context=run_context,
                 update_limiter=update_limiter,
+                outcomes=outcomes,
             ),
             log=logger,
+            outcomes=outcomes,
         )
-        all_successful = len(results) == len(account_configs) and all(
-            successful for _, successful in results
-        )
-        status = "completed" if all_successful else "completed_with_errors"
-        _print_run_summary(run_context, account_configs)
+        status = _aggregate_run_status(account_configs, results, outcomes)
+        _print_run_summary(run_context, account_configs, outcomes=outcomes)
     except BaseException:
         if logging_meta is None:
             logging_meta = configure_logging()
@@ -443,6 +486,7 @@ def main() -> None:
             account_configs,
             status="failed",
             results=results,
+            outcomes=outcomes,
         )
         logger.bind(
             event="run.failed",
@@ -456,6 +500,7 @@ def main() -> None:
             account_configs,
             status=status,
             results=results,
+            outcomes=outcomes,
         )
         logger.bind(
             event="run.completed" if status == "completed" else "run.failed",
