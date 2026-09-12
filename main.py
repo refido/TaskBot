@@ -474,6 +474,7 @@ def main() -> None:
             ),
             log=logger,
             outcomes=outcomes,
+            max_concurrent_accounts=getattr(config, "max_concurrent_accounts", None),
         )
         status = _aggregate_run_status(account_configs, results, outcomes)
         _print_run_summary(run_context, account_configs, outcomes=outcomes)

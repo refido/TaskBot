@@ -255,11 +255,35 @@ OPERATOR_2_ID=operator_02
 
 CUSTOMER_UPDATE_MIN_INTERVAL_SECONDS=1.0
 CUSTOMER_UPDATE_JITTER_SECONDS=0.25
+# Optional: uncomment to cap active accounts (example, not a universal recommendation).
+# MAX_CONCURRENT_ACCOUNTS=2
 ```
 
 `EMAIL`, `PIN`, `NIK`, and `OPERATOR_ID` remain available for one backward-compatible account. Numbered accounts are sorted numerically and run concurrently. If an explicit `OPERATOR_n_ID` is omitted, the intrinsic numeric suffix becomes `operator_01`, `operator_02`, and so on. IDs must be unique and cannot be an email, PIN, NIK, or path-like value.
 
 The update interval and jitter are non-negative seconds. They pace only customer-update mutations and the same-NIK restart. The existing skipped-NIK circuit breaker remains separate.
+
+`MAX_CONCURRENT_ACCOUNTS` optionally caps active account runners per invocation,
+including their browser/session lifecycle. Set a positive decimal integer; zero, negative values,
+fractions, and malformed values are rejected before account processing. Missing
+or blank means no additional cap: the default remains one worker per configured
+account to preserve deployment throughput. This default does **not** provide a
+fixed operational bound independent of the number of accounts.
+
+With an explicit limit, effective workers are `min(account_count, limit)`.
+Every account is submitted once; queued accounts start as workers become available.
+Zero accounts create no executor at the use-case level (the CLI still rejects
+missing account configuration). One account still runs directly on the caller's
+thread. Multiple-account results remain in observed completion order, not input
+order; a worker exception is logged and omitted from the result list as before.
+The shared customer-update rate limiter and run-status aggregation are unchanged.
+
+For production, set an explicit limit and tune it using representative runs:
+measure peak memory, CPU, browser stability, site throttling, and completed-account
+throughput. Start with a low trial limit and raise it only when measurements justify
+it. There is no benchmark-backed universal limit or RAM/CPU requirement here.
+Programmatic callers can pass `process_accounts(..., max_concurrent_accounts=limit)`;
+omitting that keyword preserves the previous concurrency capacity.
 
 ### Browser and privacy modes
 

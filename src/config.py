@@ -50,6 +50,7 @@ class Config:
         self.url_application: str = self._settings.url_application
         self.headless: bool = self._settings.headless
         self.mask_nik: bool = self._settings.mask_nik
+        self.max_concurrent_accounts: int | None = self._settings.max_concurrent_accounts
         self.accounts: list[AccountConfig] = [
             AccountConfig.from_settings(
                 account.email_user,

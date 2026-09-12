@@ -111,6 +111,23 @@ class TransactionReporter:
         self.rows: list[TransactionRow] = []
         self.retry_events: list[RetryEvent] = []
         self.workflow_events: list[WorkflowEvent] = []
+        # Only the frequent metadata path uses these derived caches. Public
+        # queries/final snapshots continue to read history (no resume loader).
+        self._meta_calculator = MetricsCalculator([], incremental=True)
+        self._meta_history = self.rows
+        self._meta_row_count = 0
+        self._meta_cache_valid = True
+        self._meta_niks = {
+            key: [] for key in
+            ("failed", "failed_puzzle_solve", "successful", "unregistered")
+        }
+        self._meta_groups = {
+            key: defaultdict(list) for key in
+            ("skipped", "errors", "puzzle_errors", "labels", "other")
+        }
+        self._meta_parsing: dict[tuple[str, str], None] = {}
+        self._meta_parsing_total = 0
+        self._meta_event_indexes: dict[str, Any] = {}
         self._batch_size: int | None = None
         self._batch_sync_callback: BatchSyncCallback | None = None
         self._pending_batch_rows: list[TransactionRow] = []
@@ -790,9 +807,18 @@ class TransactionReporter:
 
     def _compact_retry_report(self) -> dict[str, Any]:
         """Keep event history in retries.jsonl, not duplicated in summaries."""
-        report = self.get_retry_report()
-        report.pop("events", None)
-        return report
+        index = self._index_meta_events("retry", self._get_retry_events())
+        return {
+            "operator": self.operator,
+            "operator_id": self.operator_id,
+            "run_id": self.run_id,
+            "run_started_at": self.run_started_at,
+            "total_retry_events": index["count"],
+            "total_retried_niks": len(index["niks"]),
+            "retried_niks": list(index["niks"]),
+            "by_process": {key: list(niks) for key, niks in index["process"].items()},
+            "by_trigger": {key: list(niks) for key, niks in index["trigger"].items()},
+        }
 
     def get_error_niks_by_reason(self) -> dict[str, list[str]]:
         """Get failed NIKs grouped by normalized error reason."""
@@ -1110,12 +1136,27 @@ class TransactionReporter:
 
     def _record_row(self, row: TransactionRow) -> None:
         self.rows.append(row)
-        self.file_writer.append_row(row)
+        try:
+            self.file_writer.append_row(row)
+        except BaseException:
+            # Memory-first history/error semantics are unchanged. Do not count
+            # a failed persistence attempt as an accepted cached terminal row.
+            self._meta_cache_valid = False
+            raise
         try:
             self._queue_row_for_batch_sync(row)
         finally:
             # Summary is rebuildable; it must not gate terminal persistence or DB sync.
             try:
+                try:
+                    self._update_meta_cache(row)
+                except Exception:  # noqa: BLE001 - rebuild from history below.
+                    self._meta_cache_valid = False
+                    logger.bind(
+                        event="report.aggregate_failed",
+                        operator_id=self.operator_id,
+                        run_id=self.run_id,
+                    ).exception("Metadata cache update failed; using row history")
                 self._write_meta()
             except Exception:  # noqa: BLE001 - isolate derived output failures.
                 logger.bind(
@@ -1169,11 +1210,129 @@ class TransactionReporter:
             del self._pending_batch_rows[:batch_size]
 
     # Private helpers (meta + operator summary)
+    def _update_meta_cache(self, row: TransactionRow) -> None:
+        if self._meta_history is not self.rows:
+            if self._meta_row_count == 0 and len(self.rows) == 1:
+                self._meta_history = self.rows
+            else:
+                self._meta_cache_valid = False
+        if self._meta_row_count != len(self.rows) - 1:
+            self._meta_cache_valid = False
+        if not self._meta_cache_valid:
+            return
+        try:
+            self._meta_calculator.add_row(row)
+            status, nik = row.status, row.nik
+            unregistered = self._is_unregistered_row(row)
+            if unregistered:
+                self._meta_niks["unregistered"].append(nik)
+            if status == "completed":
+                self._meta_niks["successful"].append(nik)
+            elif status == "error" and not unregistered:
+                self._meta_niks["failed"].append(nik)
+                reason = self._normalize_error_reason(row.reason)
+                self._meta_groups["errors"][reason].append(nik)
+                label = row.error_label or _APPLICATION_ERROR_LABEL
+                self._meta_groups["labels"][label].append(nik)
+            elif status == _FAILED_PUZZLE_SOLVE_STATUS:
+                self._meta_niks["failed_puzzle_solve"].append(nik)
+                reason = row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
+                self._meta_groups["puzzle_errors"][reason].append(nik)
+            elif status.startswith("skipped_"):
+                skip_type = status.replace("skipped_", "")
+                if skip_type != _UNREGISTERED_SKIP_TYPE:
+                    self._meta_groups["skipped"][skip_type].append(nik)
+            elif status != "error":
+                self._meta_groups["other"][status].append(nik)
+            if status == _NIK_PARSING_FAILED_STATUS:
+                self._meta_parsing_total += 1
+                self._meta_parsing[(row.reason, nik)] = None
+            self._meta_row_count += 1
+        except BaseException:
+            # An interrupted/partial cache update must never be reused. The
+            # exceptional path can still rebuild derived output from history.
+            self._meta_cache_valid = False
+            raise
+
+    def _meta_row_reports(self) -> dict[str, Any]:
+        # Project raw indexed values at read time: runtime privacy settings,
+        # duplicate NIKs and first-seen ordering retain their existing behavior.
+        nik_lists = {
+            key: [display_nik(nik) for nik in niks]
+            for key, niks in self._meta_niks.items()
+        }
+        groups = {
+            name: {key: [display_nik(nik) for nik in niks] for key, niks in grouped.items()}
+            for name, grouped in self._meta_groups.items()
+        }
+        parsing: defaultdict[str, dict[str, None]] = defaultdict(dict)
+        for reason, nik in self._meta_parsing:
+            parsing[sanitize_text(reason) or "Gagal parsing NIK"][display_nik(nik)] = None
+        return {
+            "mapping": {
+                "failed": nik_lists["failed"],
+                "failed_puzzle_solve": nik_lists["failed_puzzle_solve"],
+                "successful": nik_lists["successful"],
+                "skipped": groups["skipped"],
+                "unregistered": nik_lists["unregistered"],
+            },
+            **groups,
+            "parsing": {
+                "total": self._meta_parsing_total,
+                "by_reason": {key: list(niks) for key, niks in parsing.items()},
+            },
+        }
+
+    def _index_meta_events(self, kind: str, events: list[Any]) -> dict[str, Any]:
+        index = self._meta_event_indexes.get(kind)
+        if index is None or index["events"] is not events or index["count"] > len(events):
+            index = {
+                "events": events, "count": 0, "niks": {},
+                "process": defaultdict(dict), "trigger": defaultdict(dict),
+                "event": defaultdict(dict),
+            }
+            self._meta_event_indexes[kind] = index
+        while index["count"] < len(events):
+            event = events[index["count"]]
+            if kind == "retry":
+                index["niks"][event.nik] = None
+                index["process"][event.process][event.nik] = None
+                index["trigger"][event.trigger][event.nik] = None
+            else:
+                index["event"][event.event][event.nik] = None
+            index["count"] += 1
+        return index
+
+    def _meta_workflow_report(self) -> dict[str, Any]:
+        index = self._index_meta_events("workflow", self.workflow_events)
+        by_name = index["event"]
+        return {
+            "total_events": index["count"],
+            "consent_niks": len(by_name["consent_detected"]),
+            "update_required_niks": len(by_name["customer_update_required"]),
+            "updated_niks": len(by_name["customer_update_success"]),
+            "same_nik_restarts": len(by_name["same_nik_restart_after_update"]),
+            "update_failures": len(by_name["customer_update_failed"]),
+            "repeated_update_requests": len(by_name["customer_update_required_again"]),
+            "updated_nik_values": list(by_name["customer_update_success"]),
+            "consent_nik_values": list(by_name["consent_detected"]),
+            "update_failed_nik_values": list(by_name["customer_update_failed"]),
+        }
+
     def _write_meta(self) -> None:
-        calculator = MetricsCalculator(self.rows)
-        mapping_report = self.get_mapping_report()
-        mapping_error_report = self.get_mapping_error_report()
-        mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
+        cached = (
+            self._meta_cache_valid and self._meta_history is self.rows
+            and self._meta_row_count == len(self.rows)
+        )
+        reports = self._meta_row_reports() if cached else None
+        calculator = self._meta_calculator if cached else MetricsCalculator(self.rows)
+        mapping_report = reports["mapping"] if cached else self.get_mapping_report()
+        mapping_error_report = (
+            reports["errors"] if cached else self.get_mapping_error_report()
+        )
+        mapping_failed_puzzle_report = (
+            reports["puzzle_errors"] if cached else self.get_mapping_failed_puzzle_report()
+        )
         retry_report = {
             **self._compact_retry_report(),
             "operator": self.operator_id,
@@ -1181,7 +1340,7 @@ class TransactionReporter:
             "run_id": self.run_id,
         }
         counts = calculator.get_summary()
-        workflow_summary = self.get_workflow_event_report()
+        workflow_summary = self._meta_workflow_report()
         ended_at = now_iso()
         skipped = sum(
             count for key, count in counts.items() if key.startswith("skipped_")
@@ -1206,7 +1365,9 @@ class TransactionReporter:
             "analytics": calculator.get_analytics(self.run_started_at),
             "retry_report": retry_report,
             "workflow_summary": workflow_summary,
-            "nik_parsing_failures": self.get_nik_parsing_failure_report(),
+            "nik_parsing_failures": (
+                reports["parsing"] if cached else self.get_nik_parsing_failure_report()
+            ),
             "mapping_report": mapping_report,
             "mapping_error_report": mapping_error_report,
             "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
@@ -1214,9 +1375,13 @@ class TransactionReporter:
                 **mapping_report,
                 "mapping_error_report": mapping_error_report,
                 "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
-                "errors_by_label": self.get_error_niks_by_label(),
-                "errors_by_reason": self.get_error_niks_by_reason(),
-                "other_statuses": self.get_other_status_niks_by_status(),
+                "errors_by_label": (
+                    reports["labels"] if cached else self.get_error_niks_by_label()
+                ),
+                "errors_by_reason": mapping_error_report,
+                "other_statuses": (
+                    reports["other"] if cached else self.get_other_status_niks_by_status()
+                ),
                 "retried": retry_report["retried_niks"],
             },
             "files": {

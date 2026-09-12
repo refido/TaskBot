@@ -16,7 +16,7 @@ from src.web.reporter import TransactionReporter
 @pytest.fixture
 def run_scenarios(monkeypatch, tmp_path):
     """Exercise real Reporter -> AccountRunner -> process_accounts -> main in memory."""
-    def run(specs):
+    def run(specs, *, max_concurrent_accounts=None):
         context = SimpleNamespace(
             run_id="status-contract", started_at="2026-09-10T10:00:00+07:00",
             run_dir=tmp_path, settings=SimpleNamespace(mask_nik=True),
@@ -113,12 +113,14 @@ def run_scenarios(monkeypatch, tmp_path):
         original_process_accounts = taskbot_main.process_accounts
 
         def process_accounts(*args, **kwargs):
+            assert kwargs.get("max_concurrent_accounts") == max_concurrent_accounts
             results = original_process_accounts(*args, **kwargs)
             captured["results"] = results
             return results
 
         monkeypatch.setattr(taskbot_main, "Config", lambda: SimpleNamespace(
             run_context=context, account_configs=lambda: configs,
+            max_concurrent_accounts=max_concurrent_accounts,
         ))
         monkeypatch.setattr(taskbot_main, "load_dotenv", Mock())
         monkeypatch.setattr(taskbot_main, "configure_logging", lambda **kwargs: {
@@ -149,6 +151,34 @@ def run_scenarios(monkeypatch, tmp_path):
         )
 
     return run
+
+
+@pytest.mark.parametrize("limit", [1, 2])
+@pytest.mark.parametrize("spec,expected", [
+    ({"rows": ["completed"]}, "completed"),
+    ({"rows": ["error"]}, "completed_with_errors"),
+    ({"rows": [], "processing_fails": True}, "failed"),
+    ({"rows": ["completed"], "sync_fails": True}, "failed"),
+    ({"rows": ["completed"], "write_fails": True}, "failed"),
+])
+def test_bounded_accounts_preserve_main_status_and_finalize_every_account(
+    run_scenarios, limit, spec, expected
+):
+    run = run_scenarios(
+        [{"rows": ["completed"]}, spec, {"rows": ["completed"]}],
+        max_concurrent_accounts=limit,
+    )
+    assert run.meta["status"] == expected
+    assert set(run.reporters) == {"operator_01", "operator_02", "operator_03"}
+    assert len(run.syncers) == 3
+    for syncer in run.syncers:
+        syncer.close.assert_called_once_with()
+    assert len(run.reporters["operator_01"].rows) == 1
+    assert len(run.reporters["operator_03"].rows) == 1
+    assert len(run.results) == (2 if spec.get("write_fails") else 3)
+    startup = next(call.kwargs for call in run.logger.bind.call_args_list
+                   if call.kwargs.get("event") == "app.concurrent_start")
+    assert startup["max_workers"] == limit
 
 
 @pytest.mark.parametrize(
