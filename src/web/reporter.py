@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from nik_parser import NIKValidationError
+from src.infrastructure.reporting import meta_payload, row_queries
 from src.infrastructure.reporting.analytics import MetricsCalculator
 from src.infrastructure.reporting.classification import (
     _APPLICATION_ERROR_LABEL,
@@ -118,12 +119,12 @@ class TransactionReporter:
         self._meta_row_count = 0
         self._meta_cache_valid = True
         self._meta_niks = {
-            key: [] for key in
-            ("failed", "failed_puzzle_solve", "successful", "unregistered")
+            key: []
+            for key in ("failed", "failed_puzzle_solve", "successful", "unregistered")
         }
         self._meta_groups = {
-            key: defaultdict(list) for key in
-            ("skipped", "errors", "puzzle_errors", "labels", "other")
+            key: defaultdict(list)
+            for key in ("skipped", "errors", "puzzle_errors", "labels", "other")
         }
         self._meta_parsing: dict[tuple[str, str], None] = {}
         self._meta_parsing_total = 0
@@ -732,15 +733,7 @@ class TransactionReporter:
 
     def get_nik_parsing_failure_report(self) -> dict[str, Any]:
         """Group parsing skips by their full explanation within this operator run."""
-        by_reason: defaultdict[str, list[str]] = defaultdict(list)
-        total = 0
-        for row in self.rows:
-            if row.status != _NIK_PARSING_FAILED_STATUS:
-                continue
-            total += 1
-            reason = sanitize_text(row.reason) or "Gagal parsing NIK"
-            self._append_unique(by_reason[reason], display_nik(row.nik))
-        return {"total": total, "by_reason": dict(by_reason)}
+        return row_queries.get_nik_parsing_failure_report(self.rows)
 
     def get_unregistered_niks(self) -> list[str]:
         """Get NIKs flagged as 'Pelanggan Tidak Terdaftar'."""
@@ -758,27 +751,11 @@ class TransactionReporter:
 
     def get_mapping_error_report(self) -> dict[str, list[str]]:
         """Group actual failed NIKs by normalized error reason."""
-        grouped: defaultdict[str, list[str]] = defaultdict(list)
-        for row in self.rows:
-            if row.status != "error" or self._is_unregistered_row(row):
-                continue
-
-            grouped[self._normalize_error_reason(row.reason)].append(
-                display_nik(row.nik)
-            )
-
-        return dict(grouped)
+        return row_queries.get_mapping_error_report(self.rows)
 
     def get_mapping_failed_puzzle_report(self) -> dict[str, list[str]]:
         """Group failed puzzle solves by their reporting reason."""
-        grouped: defaultdict[str, list[str]] = defaultdict(list)
-        for row in self.rows:
-            if row.status != _FAILED_PUZZLE_SOLVE_STATUS:
-                continue
-            key = row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
-            grouped[key].append(display_nik(row.nik))
-
-        return dict(grouped)
+        return row_queries.get_mapping_failed_puzzle_report(self.rows)
 
     def get_retry_report(self) -> dict[str, Any]:
         """Build retry telemetry for the current operator run."""
@@ -822,36 +799,15 @@ class TransactionReporter:
 
     def get_error_niks_by_reason(self) -> dict[str, list[str]]:
         """Get failed NIKs grouped by normalized error reason."""
-        grouped: defaultdict[str, list[str]] = defaultdict(list)
-        for row in self.rows:
-            if row.status != "error" or self._is_unregistered_row(row):
-                continue
-            grouped[self._normalize_error_reason(row.reason)].append(
-                display_nik(row.nik)
-            )
-        return dict(grouped)
+        return row_queries.get_error_niks_by_reason(self.rows)
 
     def get_error_niks_by_label(self) -> dict[str, list[str]]:
         """Get failed NIKs grouped by error label."""
-        grouped: defaultdict[str, list[str]] = defaultdict(list)
-        for row in self.rows:
-            if row.status != "error" or self._is_unregistered_row(row):
-                continue
-            grouped[row.error_label or _APPLICATION_ERROR_LABEL].append(
-                display_nik(row.nik)
-            )
-        return dict(grouped)
+        return row_queries.get_error_niks_by_label(self.rows)
 
     def get_other_status_niks_by_status(self) -> dict[str, list[str]]:
         """Get NIKs grouped by any non-standard status."""
-        grouped: defaultdict[str, list[str]] = defaultdict(list)
-        for row in self.rows:
-            if row.status in {"completed", "error", _FAILED_PUZZLE_SOLVE_STATUS}:
-                continue
-            if row.status.startswith("skipped_"):
-                continue
-            grouped[row.status].append(display_nik(row.nik))
-        return dict(grouped)
+        return row_queries.get_other_status_niks_by_status(self.rows)
 
     def get_puzzle_failed_niks(self) -> list[str]:
         """Get NIKs where puzzle solving failed."""
@@ -1236,7 +1192,9 @@ class TransactionReporter:
                 self._meta_groups["labels"][label].append(nik)
             elif status == _FAILED_PUZZLE_SOLVE_STATUS:
                 self._meta_niks["failed_puzzle_solve"].append(nik)
-                reason = row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
+                reason = (
+                    row.reason.strip() if row.reason else _FAILED_PUZZLE_SOLVE_REASON
+                )
                 self._meta_groups["puzzle_errors"][reason].append(nik)
             elif status.startswith("skipped_"):
                 skip_type = status.replace("skipped_", "")
@@ -1262,12 +1220,16 @@ class TransactionReporter:
             for key, niks in self._meta_niks.items()
         }
         groups = {
-            name: {key: [display_nik(nik) for nik in niks] for key, niks in grouped.items()}
+            name: {
+                key: [display_nik(nik) for nik in niks] for key, niks in grouped.items()
+            }
             for name, grouped in self._meta_groups.items()
         }
         parsing: defaultdict[str, dict[str, None]] = defaultdict(dict)
         for reason, nik in self._meta_parsing:
-            parsing[sanitize_text(reason) or "Gagal parsing NIK"][display_nik(nik)] = None
+            parsing[sanitize_text(reason) or "Gagal parsing NIK"][display_nik(nik)] = (
+                None
+            )
         return {
             "mapping": {
                 "failed": nik_lists["failed"],
@@ -1285,10 +1247,17 @@ class TransactionReporter:
 
     def _index_meta_events(self, kind: str, events: list[Any]) -> dict[str, Any]:
         index = self._meta_event_indexes.get(kind)
-        if index is None or index["events"] is not events or index["count"] > len(events):
+        if (
+            index is None
+            or index["events"] is not events
+            or index["count"] > len(events)
+        ):
             index = {
-                "events": events, "count": 0, "niks": {},
-                "process": defaultdict(dict), "trigger": defaultdict(dict),
+                "events": events,
+                "count": 0,
+                "niks": {},
+                "process": defaultdict(dict),
+                "trigger": defaultdict(dict),
                 "event": defaultdict(dict),
             }
             self._meta_event_indexes[kind] = index
@@ -1321,7 +1290,8 @@ class TransactionReporter:
 
     def _write_meta(self) -> None:
         cached = (
-            self._meta_cache_valid and self._meta_history is self.rows
+            self._meta_cache_valid
+            and self._meta_history is self.rows
             and self._meta_row_count == len(self.rows)
         )
         reports = self._meta_row_reports() if cached else None
@@ -1331,7 +1301,9 @@ class TransactionReporter:
             reports["errors"] if cached else self.get_mapping_error_report()
         )
         mapping_failed_puzzle_report = (
-            reports["puzzle_errors"] if cached else self.get_mapping_failed_puzzle_report()
+            reports["puzzle_errors"]
+            if cached
+            else self.get_mapping_failed_puzzle_report()
         )
         retry_report = {
             **self._compact_retry_report(),
@@ -1346,45 +1318,36 @@ class TransactionReporter:
             count for key, count in counts.items() if key.startswith("skipped_")
         )
         failed = counts.get("error", 0) + counts.get(_FAILED_PUZZLE_SOLVE_STATUS, 0)
-        payload = {
-            "run_id": self.run_id,
-            "operator": self.operator_id,
-            "operator_id": self.operator_id,
-            "started_at": self.run_started_at,
-            "ended_at": ended_at,
-            "total_niks": len(self.rows),
-            "completed": counts.get("completed", 0),
-            "skipped": skipped,
-            "failed": failed,
-            "customer_updates": workflow_summary["updated_niks"],
-            "consent_encounters": workflow_summary["consent_niks"],
-            "retries": retry_report["total_retry_events"],
-            "run_started_at": self.run_started_at,
-            "run_ended_at": ended_at,
-            "counts": counts,
-            "analytics": calculator.get_analytics(self.run_started_at),
-            "retry_report": retry_report,
-            "workflow_summary": workflow_summary,
-            "nik_parsing_failures": (
+        payload = meta_payload.build_metadata_payload(
+            run_id=self.run_id,
+            operator_id=self.operator_id,
+            run_started_at=self.run_started_at,
+            ended_at=ended_at,
+            total_niks=len(self.rows),
+            completed=counts.get("completed", 0),
+            skipped=skipped,
+            failed=failed,
+            customer_updates=workflow_summary["updated_niks"],
+            consent_encounters=workflow_summary["consent_niks"],
+            retries=retry_report["total_retry_events"],
+            counts=counts,
+            analytics=calculator.get_analytics(self.run_started_at),
+            retry_report=retry_report,
+            workflow_summary=workflow_summary,
+            nik_parsing_failures=(
                 reports["parsing"] if cached else self.get_nik_parsing_failure_report()
             ),
-            "mapping_report": mapping_report,
-            "mapping_error_report": mapping_error_report,
-            "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
-            "nik_lists": {
-                **mapping_report,
-                "mapping_error_report": mapping_error_report,
-                "mapping_failed_puzzle_report": mapping_failed_puzzle_report,
-                "errors_by_label": (
-                    reports["labels"] if cached else self.get_error_niks_by_label()
-                ),
-                "errors_by_reason": mapping_error_report,
-                "other_statuses": (
-                    reports["other"] if cached else self.get_other_status_niks_by_status()
-                ),
-                "retried": retry_report["retried_niks"],
-            },
-            "files": {
+            mapping_report=mapping_report,
+            mapping_error_report=mapping_error_report,
+            mapping_failed_puzzle_report=mapping_failed_puzzle_report,
+            errors_by_label=(
+                reports["labels"] if cached else self.get_error_niks_by_label()
+            ),
+            other_statuses=(
+                reports["other"] if cached else self.get_other_status_niks_by_status()
+            ),
+            retried_niks=retry_report["retried_niks"],
+            files={
                 "csv": str(self.csv_path),
                 "jsonl": str(self.jsonl_path),
                 "final_snapshot": str(self.final_json_path),
@@ -1392,11 +1355,11 @@ class TransactionReporter:
                 "workflow_events": str(self.workflow_events_path),
                 "retries": str(self.retries_path),
             },
-            "paths": {
+            paths={
                 "application_run_dir": str(self.application_run_dir),
                 "run_dir": str(self.run_dir),
             },
-        }
+        )
         self.file_writer.write_json(self.meta_path, payload)
         logger.bind(
             event="report.meta_written",
@@ -1420,20 +1383,6 @@ class TransactionReporter:
                 os.fsync(file_handle.fileno())
             except OSError:
                 pass
-
-    def _try_read_json(self, path: Path) -> dict[str, Any] | None:
-        try:
-            with path.open("r", encoding="utf-8") as file_handle:
-                return json.load(file_handle)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            logger.bind(
-                event="report.json_read_error",
-                operator_id=self.operator_id,
-                run_id=self.run_id,
-                path=str(path),
-            ).exception("Error reading report JSON file")
-            log_print(f"Error reading {path}: {exc}")
-            return None
 
     # Private helpers (printing)
     def _print_skipped_niks(self) -> None:

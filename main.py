@@ -241,8 +241,27 @@ def _sync_report_to_database(
     reporter: TransactionReporter,
     rows: Sequence[Any] | None = None,
 ) -> None:
-    """Backward-compatible one-off report synchronizer."""
-    DatabaseReportSyncer()(reporter, rows)
+    """Own and close a syncer for one backward-compatible synchronous invocation.
+
+    No pending batches are owned here. Sync exceptions propagate; ordinary close
+    failures are logged, matching DatabaseReportSyncer's best-effort close contract.
+    """
+    syncer = DatabaseReportSyncer()
+    sync_completed = False
+    try:
+        syncer(reporter, rows)
+        sync_completed = True
+    finally:
+        try:
+            syncer.close()
+        except BaseException as close_error:
+            # Preserve interrupts during close alone, but never replace an
+            # already-propagating sync error (including an interrupt).
+            if sync_completed and not isinstance(close_error, Exception):
+                raise
+            logger.bind(
+                event="report.db_sync.one_off_close_failed",
+            ).exception("Failed to close one-off report syncer")
 
 
 def _database_report_payload(row: Any) -> dict[str, Any]:
@@ -289,7 +308,9 @@ def run_account(
         account_runner=_build_account_runner(
             run_context=resolved_run_context,
             update_limiter=update_limiter,
-            outcome=(outcomes.get(config.operator_id) if outcomes is not None else None),
+            outcome=(
+                outcomes.get(config.operator_id) if outcomes is not None else None
+            ),
         ),
     )
 
@@ -319,7 +340,8 @@ def _write_run_meta(
             summary = {}
         operator_summaries[operator_id] = {
             "success": (
-                detail["status"] == "completed" if "status" in detail
+                detail["status"] == "completed"
+                if "status" in detail
                 else result_by_operator.get(operator_id)
             ),
             "counts": detail.get("counts", summary.get("counts", {})),

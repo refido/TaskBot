@@ -352,8 +352,6 @@ dependencies = [
     { name = "playwright" },
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
-    { name = "python-slugify" },
-    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -372,8 +370,6 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.57.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "python-slugify", specifier = ">=8.0.4" },
-    { name = "requests", specifier = ">=2.32.5" },
 ]
 
 [package.metadata.requires-dev]

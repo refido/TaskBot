@@ -425,30 +425,44 @@ class OperatorDatabaseManager:
             tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Ensuring PostgreSQL operator tables")
-        with (
-            self._connect(self.config.name) as connection,
-            connection.cursor() as cursor,
-        ):
-            for table_name in table_names:
-                operator_id = self._operator_id_for_table(table_name)
+        # The psycopg2 context owns the transaction, not connection teardown.
+        # This temporary connection belongs to setup, never to the report syncer.
+        connection = self._connect(self.config.name)
+        setup_completed = False
+        try:
+            with connection, connection.cursor() as cursor:
+                for table_name in table_names:
+                    operator_id = self._operator_id_for_table(table_name)
+                    logger.bind(
+                        event="database.table.ensure.started",
+                        table_name=table_name,
+                        **self._log_context(
+                            connection_database=self.config.name,
+                            operator_id=operator_id,
+                        ),
+                    ).info("Ensuring PostgreSQL operator table")
+                    cursor.execute(self._create_table_sql(table_name))
+                    self._migrate_table_schema(cursor, table_name)
+                    logger.bind(
+                        event="database.table.ensure.finished",
+                        table_name=table_name,
+                        **self._log_context(
+                            connection_database=self.config.name,
+                            operator_id=operator_id,
+                        ),
+                    ).info("PostgreSQL operator table is ready")
+            setup_completed = True
+        finally:
+            try:
+                connection.close()
+            except BaseException as close_error:
+                # Best-effort ordinary close; preserve any primary setup error.
+                if setup_completed and not isinstance(close_error, Exception):
+                    raise
                 logger.bind(
-                    event="database.table.ensure.started",
-                    table_name=table_name,
-                    **self._log_context(
-                        connection_database=self.config.name,
-                        operator_id=operator_id,
-                    ),
-                ).info("Ensuring PostgreSQL operator table")
-                cursor.execute(self._create_table_sql(table_name))
-                self._migrate_table_schema(cursor, table_name)
-                logger.bind(
-                    event="database.table.ensure.finished",
-                    table_name=table_name,
-                    **self._log_context(
-                        connection_database=self.config.name,
-                        operator_id=operator_id,
-                    ),
-                ).info("PostgreSQL operator table is ready")
+                    event="database.tables.connection.close_failed",
+                    **self._log_context(connection_database=self.config.name),
+                ).exception("Failed to close table setup database connection")
         logger.bind(
             event="database.tables.ensure.finished",
             tables=list(table_names),
@@ -467,37 +481,50 @@ class OperatorDatabaseManager:
             tables=list(table_names),
             **self._log_context(connection_database=self.config.name),
         ).info("Monthly quota reset started")
-        with (
-            self._connect(self.config.name) as connection,
-            connection.cursor() as cursor,
-        ):
-            for table_name in table_names:
-                cursor.execute(
-                    sql.SQL(
-                        """
+        # This call owns its temporary connection; the context owns the transaction.
+        connection = self._connect(self.config.name)
+        reset_completed = False
+        try:
+            with connection, connection.cursor() as cursor:
+                for table_name in table_names:
+                    cursor.execute(
+                        sql.SQL(
+                            """
                         UPDATE {table}
                         SET {kuota} = 0
                         WHERE date_trunc('month', {updated_time})
                               < date_trunc('month', %s::timestamp)
                           AND {kuota} <> 0
                         """
-                    ).format(
-                        table=sql.Identifier(table_name),
-                        kuota=sql.Identifier("KUOTA"),
-                        updated_time=sql.Identifier("UPDATED_TIME"),
-                    ),
-                    (normalized_time,),
-                )
-                row_counts[table_name] = getattr(cursor, "rowcount", None)
+                        ).format(
+                            table=sql.Identifier(table_name),
+                            kuota=sql.Identifier("KUOTA"),
+                            updated_time=sql.Identifier("UPDATED_TIME"),
+                        ),
+                        (normalized_time,),
+                    )
+                    row_counts[table_name] = getattr(cursor, "rowcount", None)
+                    logger.bind(
+                        event="database.monthly_quota_reset.table_finished",
+                        table_name=table_name,
+                        rows_updated=row_counts[table_name],
+                        **self._log_context(
+                            connection_database=self.config.name,
+                            operator_id=self._operator_id_for_table(table_name),
+                        ),
+                    ).info("Monthly quota reset table finished")
+            reset_completed = True
+        finally:
+            try:
+                connection.close()
+            except BaseException as close_error:
+                # Match setup cleanup: ordinary close errors cannot mask reset.
+                if reset_completed and not isinstance(close_error, Exception):
+                    raise
                 logger.bind(
-                    event="database.monthly_quota_reset.table_finished",
-                    table_name=table_name,
-                    rows_updated=row_counts[table_name],
-                    **self._log_context(
-                        connection_database=self.config.name,
-                        operator_id=self._operator_id_for_table(table_name),
-                    ),
-                ).info("Monthly quota reset table finished")
+                    event="database.monthly_quota_reset.connection.close_failed",
+                    **self._log_context(connection_database=self.config.name),
+                ).exception("Failed to close monthly quota reset database connection")
         logger.bind(
             event="database.monthly_quota_reset.finished",
             row_counts=row_counts,
