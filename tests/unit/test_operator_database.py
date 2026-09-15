@@ -836,8 +836,13 @@ def test_manager_uses_configured_dynamic_tables_for_setup_reset_and_logging(
     class FakeConnection:
         def __init__(self):
             self.cursor_instance = FakeCursor()
+            self.closed = False
+
+        def close(self):
+            self.closed = True
 
         def cursor(self):
+            assert not self.closed
             return self.cursor_instance
 
         def __enter__(self):
@@ -878,12 +883,16 @@ def test_manager_uses_configured_dynamic_tables_for_setup_reset_and_logging(
         ),
         targets=targets,
     )
+    setup_connection = FakeConnection()
     connection = FakeConnection()
-    manager._connect = lambda _database_name: connection
+    connections = iter((setup_connection, connection))
+    manager._connect = lambda _database_name: next(connections)
     reference_time = datetime(2026, 6, 1, 0, 0, 0)
 
     manager.ensure_tables_exist()
+    assert setup_connection.closed
     manager.reset_monthly_quotas(reference_time)
+    assert connection.closed
 
     assert created_tables == ["OPERATOR_3", "OPERATOR_10"]
     assert migrated_tables == ["OPERATOR_3", "OPERATOR_10"]
@@ -964,6 +973,10 @@ def test_monthly_reset_only_resets_kuota_without_bumping_updated_time():
     class FakeConnection:
         def __init__(self):
             self.cursor_instance = FakeCursor()
+            self.close_count = 0
+
+        def close(self):
+            self.close_count += 1
 
         def cursor(self):
             return self.cursor_instance
@@ -989,6 +1002,7 @@ def test_monthly_reset_only_resets_kuota_without_bumping_updated_time():
 
     manager.reset_monthly_quotas(reference_time)
 
+    assert connection.close_count == 1
     assert len(connection.cursor_instance.calls) == 2
     assert [params for _statement, params in connection.cursor_instance.calls] == [
         (reference_time,),

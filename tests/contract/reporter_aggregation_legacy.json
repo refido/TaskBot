@@ -1,0 +1,4330 @@
+{
+  "empty_False": {
+    "observables": {
+      "summary": {
+        "total": 0
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 0,
+          "completed": 0,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 0.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 0.0,
+          "total_runtime_minutes": 0.0,
+          "throughput_per_minute": 0.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {},
+        "breakdown_by_status": {},
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "4331e7fac4a9eb8fda9a886bd0a0113433f2fd90d39b4cb64c69aa6d3d734a8d",
+      "jsonl_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "meta_path": "953c8b6e6b24f287b18452d69da4b9c95756051394dbabec33d5e0d853df9e02",
+      "final_json_path": "c0ef048c5b35cd31be2294daf40c1942de58662073f4beb4f98e37ff3e3c77fe",
+      "analytics_path": "1374c39600559c1f5339598f151df67ba0e1618da02a69312de6efcee26ec24d",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": []
+  },
+  "empty_True": {
+    "observables": {
+      "summary": {
+        "total": 0
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 0,
+          "completed": 0,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 0.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 0.0,
+          "total_runtime_minutes": 0.0,
+          "throughput_per_minute": 0.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {},
+        "breakdown_by_status": {},
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "4331e7fac4a9eb8fda9a886bd0a0113433f2fd90d39b4cb64c69aa6d3d734a8d",
+      "jsonl_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "meta_path": "953c8b6e6b24f287b18452d69da4b9c95756051394dbabec33d5e0d853df9e02",
+      "final_json_path": "c0ef048c5b35cd31be2294daf40c1942de58662073f4beb4f98e37ff3e3c77fe",
+      "analytics_path": "1374c39600559c1f5339598f151df67ba0e1618da02a69312de6efcee26ec24d",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": []
+  },
+  "single_False": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "total": 1
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 1,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 100.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 0.5,
+          "avg_duration_seconds": 1.234,
+          "min_duration_seconds": 1.234,
+          "max_duration_seconds": 1.234,
+          "avg_completed_duration_seconds": 1.234
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 100.0,
+            "avg_duration_seconds": 1.234
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "3573050000720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "3573050000720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "786cf7300bcc5b3651f37555cf247a68e202cb92ccd043eb78acb14737de6c0f",
+      "jsonl_path": "ed8d835f2e24559f7254d682482ce0359569c06ceaf3f153ff6ea3e4d26f09e0",
+      "meta_path": "9c965cf256aa927e54576cf9da8d8ec8bbf215ef33e68cc96e0684bc5d616eff",
+      "final_json_path": "7914d9b6d05ee572fdfa4ffd1c492140f87b995b61a1c75a2c4768ce26a69eee",
+      "analytics_path": "ffd497cdb7f1d92c45ddbe3c4f523ed93d0777b9feb8c14a8944ad9b6e1f4748",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "42062c8f93961ab56cd8ae9bb431fc4b6e3f7e8be43edfa67028d62e41e40261"
+    ]
+  },
+  "single_True": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "total": 1
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 1,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 100.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 0.5,
+          "avg_duration_seconds": 1.234,
+          "min_duration_seconds": 1.234,
+          "max_duration_seconds": 1.234,
+          "avg_completed_duration_seconds": 1.234
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 100.0,
+            "avg_duration_seconds": 1.234
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "357305****720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "357305****720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "fbd37a2ac8b6f9d581d7db4117251b803065fba2f4964d89ce11a6a88cc0786c",
+      "jsonl_path": "ef9b999d6e5506e939a0e76c948a68046b7263fdaab30641a63463a40ffa3885",
+      "meta_path": "27ebb657ddf5d34285393ba2441045790bc21f35278e302c86fa448486e20f83",
+      "final_json_path": "95df0f5a50160ff431c0da3ea5dd641ded484b2f689ba6c4538d8ab5797b2cea",
+      "analytics_path": "ffd497cdb7f1d92c45ddbe3c4f523ed93d0777b9feb8c14a8944ad9b6e1f4748",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "8be2b5de64c70dba111e5aa5386dbd8d7c582c8b9c2f48650f8b615619a877e1"
+    ]
+  },
+  "completed_False": {
+    "observables": {
+      "summary": {
+        "completed": 5,
+        "total": 5
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 5,
+          "completed": 5,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 100.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 2.5,
+          "avg_duration_seconds": 0.25,
+          "min_duration_seconds": 0.1,
+          "max_duration_seconds": 0.4,
+          "avg_completed_duration_seconds": 0.25
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 5,
+          "puzzles_solved": 5,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 100.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 3.0,
+          "total_attempts": 15,
+          "retried_puzzles": 4,
+          "total_retries": 10,
+          "avg_solved_duration_seconds": 0.25,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 5,
+            "percentage": 100.0,
+            "avg_duration_seconds": 0.25
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "3573050000720003",
+              "3573050001720003",
+              "3573050002720003",
+              "3573050003720003",
+              "3573050004720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "3573050000720003",
+            "3573050001720003",
+            "3573050002720003",
+            "3573050003720003",
+            "3573050004720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {
+            "3573050000720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050001720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050002720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050003720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 3,
+              "retry_process": ""
+            },
+            "3573050004720003": {
+              "attempts": 5,
+              "solved": true,
+              "retry_count": 4,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "8d8de7a4c97f587c13ff959516d654c5743459b5e8bcb0cc31fd2bc49f5d4038",
+      "jsonl_path": "f8292c1b0545687447634e84502cf070bdb128932fe19bdda9447aa7077fd1c0",
+      "meta_path": "bc704f14e8d5e6df91cd4316dfeb7943fbf730cb96d69dd5fb7cbb06dd30526b",
+      "final_json_path": "da61373ad89b1c7e1f906556edc39b5390d92e39060919d51214533c21620309",
+      "analytics_path": "0c13ca67b2a128b0a90d9aa68f4f6bed1d1a7b85d7db4bed7c45209e74fe8043",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "8054db0e76951daecabd668720078df02abdbd676eb6a0135d043c204dd02683",
+      "65bff0142c84e0a50ddef09818f94d6f16c9e35925047dd2f6b94c4f3ceab356",
+      "15c4181bf22c655fb0b96f555e7fee4b4a9788d6fb7d8df16a80c01a63442ecd",
+      "45886e308b897596d22e1c30c4f4b9f2ccd0163b6bfe3a88498b68ceb9a16a8c",
+      "141310887c3144d0f7c899cfdbf9d939642e260bd182a6c159de8cc3a1aecd34"
+    ]
+  },
+  "completed_True": {
+    "observables": {
+      "summary": {
+        "completed": 5,
+        "total": 5
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 5,
+          "completed": 5,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 100.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 2.5,
+          "avg_duration_seconds": 0.25,
+          "min_duration_seconds": 0.1,
+          "max_duration_seconds": 0.4,
+          "avg_completed_duration_seconds": 0.25
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 5,
+          "puzzles_solved": 5,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 100.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 3.0,
+          "total_attempts": 15,
+          "retried_puzzles": 4,
+          "total_retries": 10,
+          "avg_solved_duration_seconds": 0.25,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 5,
+            "percentage": 100.0,
+            "avg_duration_seconds": 0.25
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {
+            "357305****720003": {
+              "attempts": 5,
+              "solved": true,
+              "retry_count": 4,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "8d413fb938a64ace81b123483a3da278e4524143b78e5f59923baa4e7ea9078c",
+      "jsonl_path": "4ef3e5c66717255c0a399dde9758f6e1f07b2ffe58baa671e2b14a095867524e",
+      "meta_path": "6fd274fcfe1c6bd943d5f364a7b06ecfddbd2212253d24a8c26c0d0f51242dd9",
+      "final_json_path": "59bd1c3acc1f95bf22828db3ac8fecbe3d595500fc331c23d750da319d810607",
+      "analytics_path": "0c13ca67b2a128b0a90d9aa68f4f6bed1d1a7b85d7db4bed7c45209e74fe8043",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "a92d3da0050da85583272c0ac8f8356d6e9b66b7f6738ca387931184864dea2d",
+      "f9a0ce98f2abf57fa05ab334ca71a3912bbe5eb5cf98b095b790b98522dbe69a",
+      "df58a496de64bc737be4189eccd0e1c3d42e5a7496824f8b775e2cdff4596f69",
+      "5060512054c20b6d668435b26f18deab9045edd16de92719961ba36f1aabc058",
+      "a022c2606eb88afdbfc48e9b5d16a794128c5cce3a55fc8d5b149ef9fe46f650"
+    ]
+  },
+  "mixed_False": {
+    "observables": {
+      "summary": {
+        "completed": 2,
+        "error": 3,
+        "total": 5
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 5,
+          "completed": 2,
+          "failed": 3,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 40.0,
+          "failed_rate_percent": 60.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 2.5,
+          "avg_duration_seconds": 2.5,
+          "min_duration_seconds": 2,
+          "max_duration_seconds": 3,
+          "avg_completed_duration_seconds": 2.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 2,
+            "percentage": 40.0,
+            "avg_duration_seconds": 2.0
+          },
+          "error": {
+            "count": 3,
+            "percentage": 60.0,
+            "avg_duration_seconds": 3.0
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 3,
+          "unique_error_types": 2,
+          "error_frequency": {
+            " first": 2,
+            "second": 1
+          },
+          "error_labels": {
+            "Network": 1,
+            "application_level_error": 2
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "3573050001720003",
+              "3573050002720003",
+              "3573050003720003"
+            ],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "3573050000720003",
+              "3573050004720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {
+            "first": [
+              "3573050001720003",
+              "3573050003720003"
+            ],
+            "second": [
+              "3573050002720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "3573050000720003",
+            "3573050004720003"
+          ],
+          "failed_niks": [
+            "3573050001720003",
+            "3573050002720003",
+            "3573050003720003"
+          ],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {
+            "Network": [
+              "3573050001720003"
+            ],
+            "application_level_error": [
+              "3573050002720003",
+              "3573050003720003"
+            ]
+          },
+          "errors_by_reason": {
+            "first": [
+              "3573050001720003",
+              "3573050003720003"
+            ],
+            "second": [
+              "3573050002720003"
+            ]
+          },
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "c98803e4a3a63e5402b19524db6a065674f0e550547df52833459895426c10fc",
+      "jsonl_path": "b12971679f433ca30f37305dc42f22a3e7cc54d70d89db85c7b9d69aa9e571c8",
+      "meta_path": "5488780940961b1623d9d83ac901e1b4be354f1d62298bd1260ecc0875a3d947",
+      "final_json_path": "604ecc6e79ed7c0248f911c4e2b8964c83e2c253c5306431d991b3dad4fea6c1",
+      "analytics_path": "68fa4881d5ea15a21cb734cc3057a9ee8712c965f00a62d4056af2bd6fae14dd",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "425a5d815b41ae42b466bad513d6deee642021eba1b0c794cb22720779897ecc",
+      "c269a707a9725814f7092cc892e72c6cd954cf54c53ead06b4ddc25e7e38421a",
+      "b4538e7153a4c8a7cbf543c3bcfdad861f21d34cf1ce9660b8bc2dfd01ebe9f5",
+      "5ed3365e5f9985f3eeb61e37d47dcba1e928c813165396fd7ae890b1e8b5897a",
+      "ab99e51af4a3a71c3fbca5c2147942c9d329eb940abfafee07218629257f2f8e"
+    ]
+  },
+  "mixed_True": {
+    "observables": {
+      "summary": {
+        "completed": 2,
+        "error": 3,
+        "total": 5
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 5,
+          "completed": 2,
+          "failed": 3,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 40.0,
+          "failed_rate_percent": 60.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 2.5,
+          "avg_duration_seconds": 2.5,
+          "min_duration_seconds": 2,
+          "max_duration_seconds": 3,
+          "avg_completed_duration_seconds": 2.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 2,
+            "percentage": 40.0,
+            "avg_duration_seconds": 2.0
+          },
+          "error": {
+            "count": 3,
+            "percentage": 60.0,
+            "avg_duration_seconds": 3.0
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 3,
+          "unique_error_types": 2,
+          "error_frequency": {
+            " first": 2,
+            "second": 1
+          },
+          "error_labels": {
+            "Network": 1,
+            "application_level_error": 2
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "357305****720003",
+              "357305****720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {
+            "first": [
+              "357305****720003",
+              "357305****720003"
+            ],
+            "second": [
+              "357305****720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_niks": [
+            "357305****720003",
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {
+            "Network": [
+              "357305****720003"
+            ],
+            "application_level_error": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "errors_by_reason": {
+            "first": [
+              "357305****720003",
+              "357305****720003"
+            ],
+            "second": [
+              "357305****720003"
+            ]
+          },
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "ccc336c18e953c84853433c73605bfcf1737503680f604a94b9438e50e178817",
+      "jsonl_path": "d2369fa88763bb8e1147e340cf93911429ee0050294f340514a3138a9fb491f5",
+      "meta_path": "cccd70c382cc20e8691602981ae51aecb4217261d15a31e69a76b524fe82041a",
+      "final_json_path": "5d6aee73c7384bbe811f6e840084ce37cce716e4ca9656da54945bc27c2d1471",
+      "analytics_path": "68fa4881d5ea15a21cb734cc3057a9ee8712c965f00a62d4056af2bd6fae14dd",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "e10e7b20ea594d527c7a7631a21b1ec3f093106a73ed1fae0784936b2df5119a",
+      "512e3bce61fbd40d822458c861d7c3845a313b3569ff75abefd7fd257b8f12d3",
+      "e8854c0fb2a5299b2cab2ac0f707d38cf7fd0a588a41466a49357a972925a52e",
+      "5027e0a7a350d98ae865d31250b6a9057067a57a602e80525fe8c3e1bfc2eb14",
+      "952096451e5d6152edd7bf90f9667757f9e490f2d3abbd44360c4b4572899997"
+    ]
+  },
+  "puzzle_False": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "failed_puzzle_solve": 2,
+        "total": 3
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 3,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 2,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 33.33,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 66.67,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 1.5,
+          "avg_duration_seconds": 2.501,
+          "min_duration_seconds": 1.0,
+          "max_duration_seconds": 4.002,
+          "avg_completed_duration_seconds": 1.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 3,
+          "puzzles_solved": 1,
+          "puzzles_failed": 2,
+          "puzzle_success_rate_percent": 33.33,
+          "puzzle_failure_rate_percent": 66.67,
+          "avg_attempts": 2.33,
+          "total_attempts": 7,
+          "retried_puzzles": 1,
+          "total_retries": 2,
+          "avg_solved_duration_seconds": 1.0,
+          "avg_failed_duration_seconds": 4.002
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 33.33,
+            "avg_duration_seconds": 1.0
+          },
+          "failed_puzzle_solve": {
+            "count": 2,
+            "percentage": 66.67,
+            "avg_duration_seconds": 4.002
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [
+              "3573050001720003",
+              "3573050002720003"
+            ],
+            "successful": [
+              "3573050000720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {
+            "CAPTCHA solving failed": [
+              "3573050001720003"
+            ],
+            "": [
+              "3573050002720003"
+            ]
+          },
+          "successful_niks": [
+            "3573050000720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [
+            "3573050001720003",
+            "3573050002720003"
+          ],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [
+            "3573050001720003",
+            "3573050002720003"
+          ],
+          "puzzle_stats": {
+            "3573050000720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050001720003": {
+              "attempts": 5,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050002720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "cdd13a9ac8e7658832ee7e73e14d53f83a9c0b9f148efa91cdf129bb4f9d07e0",
+      "jsonl_path": "8bd8bed84cd0bcb1bb0811dcd140019799e247c550d57bf921099fe683197c82",
+      "meta_path": "6263c3329078c3157b01c8347b85fc51149444fb0e57570f0bc054d6b4fee934",
+      "final_json_path": "bd97c23eb205a5b13fdac76e01522ad36ec7b27c96b7416d075adcaf22d89eb6",
+      "analytics_path": "e680b4d49908e9c8a286f4e491d43966b1615cb0a045598147591676c93ac6af",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "6984e16387ccfa40258c70056613ab0739085673eb0e03687ea55d77e48579de",
+      "f69b2c90dd5018c72411967ee7baa8f09defdb0074bac0e39018ed02fe93c8ec",
+      "2d6472940038b0effaae0328e965835acc326bc810e9cd7716affa38ba94490c"
+    ]
+  },
+  "puzzle_True": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "failed_puzzle_solve": 2,
+        "total": 3
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 3,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 2,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 33.33,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 66.67,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 1.5,
+          "avg_duration_seconds": 2.501,
+          "min_duration_seconds": 1.0,
+          "max_duration_seconds": 4.002,
+          "avg_completed_duration_seconds": 1.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 3,
+          "puzzles_solved": 1,
+          "puzzles_failed": 2,
+          "puzzle_success_rate_percent": 33.33,
+          "puzzle_failure_rate_percent": 66.67,
+          "avg_attempts": 2.33,
+          "total_attempts": 7,
+          "retried_puzzles": 1,
+          "total_retries": 2,
+          "avg_solved_duration_seconds": 1.0,
+          "avg_failed_duration_seconds": 4.002
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 33.33,
+            "avg_duration_seconds": 1.0
+          },
+          "failed_puzzle_solve": {
+            "count": 2,
+            "percentage": 66.67,
+            "avg_duration_seconds": 4.002
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [
+              "357305****720003",
+              "357305****720003"
+            ],
+            "successful": [
+              "357305****720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {
+            "CAPTCHA solving failed": [
+              "357305****720003"
+            ],
+            "": [
+              "357305****720003"
+            ]
+          },
+          "successful_niks": [
+            "357305****720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [
+            "357305****720003",
+            "357305****720003"
+          ],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [
+            "357305****720003",
+            "357305****720003"
+          ],
+          "puzzle_stats": {
+            "357305****720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "2649e737f1a9097fe6dc3a4020be0b33d7ca0820ac29f34c9221032a8f2a2de2",
+      "jsonl_path": "f618538ebbb2962613b4578d4bd544d660773c142eb7a0716829c8cc1a2273fd",
+      "meta_path": "a8ff41361aba1583686e14085cb97caa6b18f8ee08a371bfc438e2254e0afffb",
+      "final_json_path": "0fd171a23543812f8ecc879b0def157bd1312caf6b294c05942ee4df0b68f140",
+      "analytics_path": "e680b4d49908e9c8a286f4e491d43966b1615cb0a045598147591676c93ac6af",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "1e4eb65448fc753054af607d20d9617e42452af534d45f1d3884e787a5b55ec5",
+      "a4562066b05180da230c58c509c111007a354c5ed4543cd8c608d01029747b92",
+      "deb26c3f6ad680e4490bfe2fbe5411367e2f0610c9895d8f1b36d485bb2d7713"
+    ]
+  },
+  "skipped_False": {
+    "observables": {
+      "summary": {
+        "skipped_quota": 1,
+        "skipped_not_registered": 1,
+        "skipped_nik_parsing_failed": 4,
+        "total": 6
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 6,
+          "completed": 0,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 5,
+          "unregistered": 1,
+          "success_rate_percent": 0.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 83.33,
+          "unregistered_rate_percent": 16.67
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 3.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "skipped_quota": {
+            "count": 1,
+            "percentage": 16.67,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_not_registered": {
+            "count": 1,
+            "percentage": 16.67,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_nik_parsing_failed": {
+            "count": 4,
+            "percentage": 66.67,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {
+          "quota": 1,
+          "bad NIK": 3
+        },
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [],
+            "skipped": {
+              "quota": [
+                "3573050000720003"
+              ],
+              "nik_parsing_failed": [
+                "3573050002720003",
+                "3573050002720003",
+                "3573050003720003",
+                "3573050004720003"
+              ]
+            },
+            "unregistered": [
+              "3573050001720003"
+            ]
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {
+            "quota": [
+              "3573050000720003"
+            ],
+            "nik_parsing_failed": [
+              "3573050002720003",
+              "3573050002720003",
+              "3573050003720003",
+              "3573050004720003"
+            ]
+          },
+          "unregistered_niks": [
+            "3573050001720003"
+          ],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 4,
+        "by_reason": {
+          "bad NIK": [
+            "3573050002720003",
+            "3573050003720003"
+          ],
+          "Gagal parsing NIK": [
+            "3573050004720003"
+          ]
+        }
+      },
+      "skipped_including_unregistered": {
+        "quota": [
+          "3573050000720003"
+        ],
+        "not_registered": [
+          "3573050001720003"
+        ],
+        "nik_parsing_failed": [
+          "3573050002720003",
+          "3573050002720003",
+          "3573050003720003",
+          "3573050004720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "58df7f6ad50b3086f418c62c34fdd8017f3db93bc187e7173d7d420f37f1185b",
+      "jsonl_path": "27516aea2abd7f3121d7baa0e151e4110e1479cc02b92e38cde885479e80c329",
+      "meta_path": "47278939d4d94e2e6f79a3dcd511de9b80680035d4e3bc95962eb803444c3cd1",
+      "final_json_path": "d0eebba14acfd45cca0e17fc27a9ddb70f7666a584a6a994a82e546933c87edb",
+      "analytics_path": "e2fa5cb4d82937e69aabb70e2f5ea0263eb85fc5f5ebea6866c3eff54571e394",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "88ea722b48c9cc975709003d0a53d885eb4298a0e78d50ccb3ef5af550daaf6e",
+      "ded776652317761bcea417895315e8480126e5bccd2d5b69165c7255cf32df8c",
+      "82a838631a6b0efb0baf1350ae13db0757be4f198a38880f2bbcf49c489f8c3d",
+      "8357a951c3df8b9835c51cc85cfa90878ab3a8ac42e2724b38f36b2914235528",
+      "f0a6fcee907c7d1c045b8477c94c3605fcb2ba987b06906584b43fb4ad1e4ac3",
+      "a195c41c6e24a1c1c6675c4ec1bfb016d08716f9c54dab225063ac5947ed990a"
+    ]
+  },
+  "skipped_True": {
+    "observables": {
+      "summary": {
+        "skipped_quota": 1,
+        "skipped_not_registered": 1,
+        "skipped_nik_parsing_failed": 4,
+        "total": 6
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 6,
+          "completed": 0,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 5,
+          "unregistered": 1,
+          "success_rate_percent": 0.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 83.33,
+          "unregistered_rate_percent": 16.67
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 3.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "skipped_quota": {
+            "count": 1,
+            "percentage": 16.67,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_not_registered": {
+            "count": 1,
+            "percentage": 16.67,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_nik_parsing_failed": {
+            "count": 4,
+            "percentage": 66.67,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {
+          "quota": 1,
+          "bad NIK": 3
+        },
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [],
+            "skipped": {
+              "quota": [
+                "357305****720003"
+              ],
+              "nik_parsing_failed": [
+                "357305****720003",
+                "357305****720003",
+                "357305****720003",
+                "357305****720003"
+              ]
+            },
+            "unregistered": [
+              "357305****720003"
+            ]
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {
+            "quota": [
+              "357305****720003"
+            ],
+            "nik_parsing_failed": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "unregistered_niks": [
+            "357305****720003"
+          ],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 4,
+        "by_reason": {
+          "bad NIK": [
+            "357305****720003"
+          ],
+          "Gagal parsing NIK": [
+            "357305****720003"
+          ]
+        }
+      },
+      "skipped_including_unregistered": {
+        "quota": [
+          "357305****720003"
+        ],
+        "not_registered": [
+          "357305****720003"
+        ],
+        "nik_parsing_failed": [
+          "357305****720003",
+          "357305****720003",
+          "357305****720003",
+          "357305****720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "fc764020bead8d30c49f44a737862ded69769e11e71fdfc4dbf2510fea4dbc57",
+      "jsonl_path": "c0624dc2018df8b9e6e3806a1e047f9d33e10d7c01adcae20425687ce9fc91bb",
+      "meta_path": "1c1c9ff41352749d49d7992ef66d8f8f16ecc5f0b195470c3a50f0f6cd13bb47",
+      "final_json_path": "1a895dcdd8d065c364cf9ffb8ab3961b8e2675e731160c100a280985ffac7a76",
+      "analytics_path": "e2fa5cb4d82937e69aabb70e2f5ea0263eb85fc5f5ebea6866c3eff54571e394",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "7edcff457680f4522e6c9f0525a5c4e7c97b4b8546ed439282f504a6c8cfc8a8",
+      "7307ee09c9ebcb8604146295fdd0c1143078cdd26a7cf6be21ca3cdb544f3d62",
+      "c58bc433dbd8dc36770af17b20f90dc8696957279ce54bf138abe1e5305de0a3",
+      "95a66f14d87f242bbd4c4f0cc1cbeab146fb709efea0ad34fdbeec032065de1c",
+      "2303542a162979ecce17d4fb9b35e699d0a85a16afb4096ba8286edb5c6af330",
+      "f3037ab5013131b2882aa96ff5459ea25a3b00c63b2edc300489b355e39d7f8a"
+    ]
+  },
+  "stock_False": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "skipped_out_of_stock": 1,
+        "total": 2
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 2,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 1,
+          "unregistered": 0,
+          "success_rate_percent": 50.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 50.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 1.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 50.0,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_out_of_stock": {
+            "count": 1,
+            "percentage": 50.0,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {
+          "stock exhausted": 1
+        },
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "3573050000720003"
+            ],
+            "skipped": {
+              "out_of_stock": [
+                "3573050001720003"
+              ]
+            },
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "3573050000720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {
+            "out_of_stock": [
+              "3573050001720003"
+            ]
+          },
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {
+        "out_of_stock": [
+          "3573050001720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "8d22394ec80b36c78b183d5aefb8d1f9bc98360853479077f9e52328e78fb427",
+      "jsonl_path": "c57e4782f8cb25f0a49ce1a2c6ad9da5098e3ba109bff9399ce11f559a0a79a9",
+      "meta_path": "7493c2777e0f616b1046155f0a72d45a4e1be2d9eed8b85b13ac2a353f79e15c",
+      "final_json_path": "faeafeaf048925627ccf61e2c3dda13b945fa80b67544130cbc5e1e615f08074",
+      "analytics_path": "a0867470b2b46ca130da5af75659bc0ec5521128de985fcc52f985b9714c3a9c",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "497f8f0292171165a37f55936847da3cfa743558d5f09b76297cc57f3b20a498",
+      "b0c9b3bf093ff2bde4629b89a607c3ad0aa2694ff8b7fceaae3bb22034d9fd59"
+    ]
+  },
+  "stock_True": {
+    "observables": {
+      "summary": {
+        "completed": 1,
+        "skipped_out_of_stock": 1,
+        "total": 2
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 2,
+          "completed": 1,
+          "failed": 0,
+          "failed_puzzle_solve": 0,
+          "skipped": 1,
+          "unregistered": 0,
+          "success_rate_percent": 50.0,
+          "failed_rate_percent": 0.0,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 50.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 1.0,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 0,
+          "puzzles_solved": 0,
+          "puzzles_failed": 0,
+          "puzzle_success_rate_percent": 0.0,
+          "puzzle_failure_rate_percent": 0.0,
+          "avg_attempts": 0.0,
+          "total_attempts": 0,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 1,
+            "percentage": 50.0,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_out_of_stock": {
+            "count": 1,
+            "percentage": 50.0,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {
+          "stock exhausted": 1
+        },
+        "error_analysis": {
+          "total_errors": 0,
+          "unique_error_types": 0,
+          "error_frequency": {},
+          "error_labels": {}
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "357305****720003"
+            ],
+            "skipped": {
+              "out_of_stock": [
+                "357305****720003"
+              ]
+            },
+            "unregistered": []
+          },
+          "mapping_error_report": {},
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "357305****720003"
+          ],
+          "failed_niks": [],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {
+            "out_of_stock": [
+              "357305****720003"
+            ]
+          },
+          "unregistered_niks": [],
+          "errors_by_label": {},
+          "errors_by_reason": {},
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {},
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {
+        "out_of_stock": [
+          "357305****720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "ba5095897580a51f0796f3dc6a06ed0d4aabaf62aaeaa82bf35675f0a1995988",
+      "jsonl_path": "e1fa910e7790451299fd5a4099c1838203eedb8137c714841a29b7988b34511e",
+      "meta_path": "6cdb8327c035d38158526608365cb7e304c23bf2df3630176fc8d8df5a14ebf8",
+      "final_json_path": "7aa7e55b13301ace2c9c83a6859d77fdf076c53b88889bcb7c086986046b24c6",
+      "analytics_path": "a0867470b2b46ca130da5af75659bc0ec5521128de985fcc52f985b9714c3a9c",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "583e972bb2a14df84e4b90caf10a25cc2339235ed1497a515bc3f8c461f8a2a2",
+      "1d6ce6c8d80b5272bfc1bde6d6d954a5b5ba07bd8ba95a456dbbbc2ef8da707e"
+    ]
+  },
+  "edges_False": {
+    "observables": {
+      "summary": {
+        "completed": 3,
+        "error": 3,
+        "pending": 1,
+        "skipped_skipped_quota": 1,
+        "failed_puzzle_solve": 1,
+        "total": 9
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 9,
+          "completed": 3,
+          "failed": 3,
+          "failed_puzzle_solve": 1,
+          "skipped": 1,
+          "unregistered": 0,
+          "success_rate_percent": 33.33,
+          "failed_rate_percent": 33.33,
+          "failed_puzzle_solve_rate_percent": 11.11,
+          "skip_rate_percent": 11.11,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 4.5,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 2,
+          "puzzles_solved": 1,
+          "puzzles_failed": 1,
+          "puzzle_success_rate_percent": 50.0,
+          "puzzle_failure_rate_percent": 50.0,
+          "avg_attempts": 2.5,
+          "total_attempts": 5,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 3,
+            "percentage": 33.33,
+            "avg_duration_seconds": 0.0
+          },
+          "error": {
+            "count": 3,
+            "percentage": 33.33,
+            "avg_duration_seconds": 0.0
+          },
+          "pending": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_skipped_quota": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          },
+          "failed_puzzle_solve": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 3,
+          "unique_error_types": 3,
+          "error_frequency": {
+            "Pelanggan Tidak Terdaftar": 1,
+            "unknown_error": 1,
+            "": 1
+          },
+          "error_labels": {
+            "application_level_error": 3
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "3573050003720003",
+              "3573050004720003"
+            ],
+            "failed_puzzle_solve": [
+              "3573050000720003"
+            ],
+            "successful": [
+              "3573050000720003",
+              "3573050000720003",
+              "3573050000720003"
+            ],
+            "skipped": {
+              "quota": [
+                "3573050002720003"
+              ]
+            },
+            "unregistered": [
+              "3573050000720003"
+            ]
+          },
+          "mapping_error_report": {
+            "unknown_error": [
+              "3573050003720003",
+              "3573050004720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {
+            "CAPTCHA solving failed": [
+              "3573050000720003"
+            ]
+          },
+          "successful_niks": [
+            "3573050000720003",
+            "3573050000720003",
+            "3573050000720003"
+          ],
+          "failed_niks": [
+            "3573050003720003",
+            "3573050004720003"
+          ],
+          "failed_puzzle_solve_niks": [
+            "3573050000720003"
+          ],
+          "skipped_by_type": {
+            "quota": [
+              "3573050002720003"
+            ]
+          },
+          "unregistered_niks": [
+            "3573050000720003"
+          ],
+          "errors_by_label": {
+            "application_level_error": [
+              "3573050003720003",
+              "3573050004720003"
+            ]
+          },
+          "errors_by_reason": {
+            "unknown_error": [
+              "3573050003720003",
+              "3573050004720003"
+            ]
+          },
+          "other_statuses": {
+            "pending": [
+              "3573050001720003"
+            ]
+          },
+          "puzzle_failed_niks": [
+            "3573050000720003"
+          ],
+          "puzzle_stats": {
+            "3573050000720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {
+        "quota": [
+          "3573050002720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "d8de7c962508c4a3df2701d5ac706bea0f9176f1c37fd66007328d2fcbf73122",
+      "jsonl_path": "db2f28aa08fde67edae8253c5ee1f40a2ec09b2525216301a8be0bded95fef05",
+      "meta_path": "4ec6b14cded6af276616ba201be313be2c79fe7964b3f331d13dc7f2c8cc091c",
+      "final_json_path": "5c414ea7a3a31d513d9f9f3a4f87d0530053c52ea756b733c3deaee1aad759f7",
+      "analytics_path": "b9e36a3189a887874e214274d57d590be9e187b8d26ccaea7ad3b04200d137b4",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "497f8f0292171165a37f55936847da3cfa743558d5f09b76297cc57f3b20a498",
+      "b081ef8bf366e2d641956ca718268fb03d25b65457decb23c2f70dd5de2c7a93",
+      "487b62e161c0978c6d3666ee2338d8a6dd78e5750666bf0909476bc99a46a333",
+      "006de339d034bb681628d2bcee200a377ffc2cc6a95e551d853d8097f8c0f79f",
+      "014be66929b1f3eb2097cbda88814073c67a1382785e2defb80e7fe4ddec45ae",
+      "52112c585d93713394f1c30bada3ae2d09bcc3c698f31679779685cb57cd38d8",
+      "e7675ce93e144495a73496b21077f19ba350ec8be17af07dc978ae3b7d3b8a21",
+      "38a76c5702721b16e73e0eb47c563cd57ad183d6ae1db4e5108555076eb55c14",
+      "e9e8be6b711713b29b1f4e6a07e9069e5ce67204d95d5296ac3168a9ea9aa812"
+    ]
+  },
+  "edges_True": {
+    "observables": {
+      "summary": {
+        "completed": 3,
+        "error": 3,
+        "pending": 1,
+        "skipped_skipped_quota": 1,
+        "failed_puzzle_solve": 1,
+        "total": 9
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 9,
+          "completed": 3,
+          "failed": 3,
+          "failed_puzzle_solve": 1,
+          "skipped": 1,
+          "unregistered": 0,
+          "success_rate_percent": 33.33,
+          "failed_rate_percent": 33.33,
+          "failed_puzzle_solve_rate_percent": 11.11,
+          "skip_rate_percent": 11.11,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 4.5,
+          "avg_duration_seconds": 0.0,
+          "min_duration_seconds": 0.0,
+          "max_duration_seconds": 0.0,
+          "avg_completed_duration_seconds": 0.0
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 2,
+          "puzzles_solved": 1,
+          "puzzles_failed": 1,
+          "puzzle_success_rate_percent": 50.0,
+          "puzzle_failure_rate_percent": 50.0,
+          "avg_attempts": 2.5,
+          "total_attempts": 5,
+          "retried_puzzles": 0,
+          "total_retries": 0,
+          "avg_solved_duration_seconds": 0.0,
+          "avg_failed_duration_seconds": 0.0
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 3,
+            "percentage": 33.33,
+            "avg_duration_seconds": 0.0
+          },
+          "error": {
+            "count": 3,
+            "percentage": 33.33,
+            "avg_duration_seconds": 0.0
+          },
+          "pending": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          },
+          "skipped_skipped_quota": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          },
+          "failed_puzzle_solve": {
+            "count": 1,
+            "percentage": 11.11,
+            "avg_duration_seconds": 0.0
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 3,
+          "unique_error_types": 3,
+          "error_frequency": {
+            "Pelanggan Tidak Terdaftar": 1,
+            "unknown_error": 1,
+            "": 1
+          },
+          "error_labels": {
+            "application_level_error": 3
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "357305****720003",
+              "357305****720003"
+            ],
+            "failed_puzzle_solve": [
+              "357305****720003"
+            ],
+            "successful": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "skipped": {
+              "quota": [
+                "357305****720003"
+              ]
+            },
+            "unregistered": [
+              "357305****720003"
+            ]
+          },
+          "mapping_error_report": {
+            "unknown_error": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {
+            "CAPTCHA solving failed": [
+              "357305****720003"
+            ]
+          },
+          "successful_niks": [
+            "357305****720003",
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_niks": [
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_puzzle_solve_niks": [
+            "357305****720003"
+          ],
+          "skipped_by_type": {
+            "quota": [
+              "357305****720003"
+            ]
+          },
+          "unregistered_niks": [
+            "357305****720003"
+          ],
+          "errors_by_label": {
+            "application_level_error": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "errors_by_reason": {
+            "unknown_error": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "other_statuses": {
+            "pending": [
+              "357305****720003"
+            ]
+          },
+          "puzzle_failed_niks": [
+            "357305****720003"
+          ],
+          "puzzle_stats": {
+            "357305****720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {
+        "quota": [
+          "357305****720003"
+        ]
+      },
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "6c7c247191a5633fad413a7d1b86bcb423b759c991c1de3493d36b04c084dbea",
+      "jsonl_path": "74d77891c81ddb5a87526549884e6d3c776eb41fd30eab395484e9a5e2457ea1",
+      "meta_path": "a48a3a870dba43c44697666a7db3046ba95051bc27d0eb2401488acfa4c4d473",
+      "final_json_path": "9bf623c622551ba3b04883dc4ae0db71186ce0f6bc66f55e19450b0c69f83320",
+      "analytics_path": "b9e36a3189a887874e214274d57d590be9e187b8d26ccaea7ad3b04200d137b4",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "583e972bb2a14df84e4b90caf10a25cc2339235ed1497a515bc3f8c461f8a2a2",
+      "ecec41c9b748fdcc4add1af1001977a1befa698cdaabd6132ee6b2c114045ee0",
+      "af1a65e83aa3b6f472c2dba1c56d051c77bb5cd6bbb96b5369f85a61b47f975f",
+      "4a35e6bd6bf6bef531c094c840ce5c9f271f38a1cd493adcc377d4c16cf5d628",
+      "e5b234f7de097dbd0e84e6d783228187a0b72bb0a8888336705de4481ae02c3c",
+      "510f9cc85270eaf530e8f8bffede3175691687cc6a342535fea82e4983b12e13",
+      "5fa75398ac3d678b75f74563464f835beea894f9390efd1161a9f353a56e960d",
+      "07bf88743a4afb0c837cd4b14cf55631e9ddae82c6f8822fa4007e234f6984f1",
+      "354d05b9aa9282b523a09cb13ebbbbf9cb5170bdb528f3d107d9b0b3870ca9e0"
+    ]
+  },
+  "many_False": {
+    "observables": {
+      "summary": {
+        "completed": 22,
+        "error": 42,
+        "total": 64
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 64,
+          "completed": 22,
+          "failed": 42,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 34.38,
+          "failed_rate_percent": 65.62,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 32.0,
+          "avg_duration_seconds": 0.35,
+          "min_duration_seconds": 0.1,
+          "max_duration_seconds": 0.6,
+          "avg_completed_duration_seconds": 0.35
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 64,
+          "puzzles_solved": 32,
+          "puzzles_failed": 32,
+          "puzzle_success_rate_percent": 50.0,
+          "puzzle_failure_rate_percent": 50.0,
+          "avg_attempts": 1.97,
+          "total_attempts": 126,
+          "retried_puzzles": 42,
+          "total_retries": 63,
+          "avg_solved_duration_seconds": 0.356,
+          "avg_failed_duration_seconds": 0.344
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 22,
+            "percentage": 34.38,
+            "avg_duration_seconds": 0.35
+          },
+          "error": {
+            "count": 42,
+            "percentage": 65.62,
+            "avg_duration_seconds": 0.35
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 42,
+          "unique_error_types": 13,
+          "error_frequency": {
+            "reason 1": 4,
+            "reason 4": 4,
+            "reason 7": 4,
+            "reason 10": 4,
+            "reason 2": 3,
+            "reason 5": 3,
+            "reason 8": 3,
+            "reason 11": 3,
+            "reason 0": 3,
+            "reason 3": 3
+          },
+          "error_labels": {
+            "application_level_error": 42
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "3573050001720003",
+              "3573050002720003",
+              "3573050004720003",
+              "3573050005720003",
+              "3573050007720003",
+              "3573050008720003",
+              "3573050010720003",
+              "3573050011720003",
+              "3573050013720003",
+              "3573050014720003",
+              "3573050016720003",
+              "3573050017720003",
+              "3573050019720003",
+              "3573050020720003",
+              "3573050022720003",
+              "3573050023720003",
+              "3573050025720003",
+              "3573050026720003",
+              "3573050028720003",
+              "3573050029720003",
+              "3573050031720003",
+              "3573050032720003",
+              "3573050034720003",
+              "3573050035720003",
+              "3573050037720003",
+              "3573050038720003",
+              "3573050040720003",
+              "3573050041720003",
+              "3573050043720003",
+              "3573050044720003",
+              "3573050046720003",
+              "3573050047720003",
+              "3573050049720003",
+              "3573050050720003",
+              "3573050052720003",
+              "3573050053720003",
+              "3573050055720003",
+              "3573050056720003",
+              "3573050058720003",
+              "3573050059720003",
+              "3573050061720003",
+              "3573050062720003"
+            ],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "3573050000720003",
+              "3573050003720003",
+              "3573050006720003",
+              "3573050009720003",
+              "3573050012720003",
+              "3573050015720003",
+              "3573050018720003",
+              "3573050021720003",
+              "3573050024720003",
+              "3573050027720003",
+              "3573050030720003",
+              "3573050033720003",
+              "3573050036720003",
+              "3573050039720003",
+              "3573050042720003",
+              "3573050045720003",
+              "3573050048720003",
+              "3573050051720003",
+              "3573050054720003",
+              "3573050057720003",
+              "3573050060720003",
+              "3573050063720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {
+            "reason 1": [
+              "3573050001720003",
+              "3573050014720003",
+              "3573050040720003",
+              "3573050053720003"
+            ],
+            "reason 2": [
+              "3573050002720003",
+              "3573050028720003",
+              "3573050041720003"
+            ],
+            "reason 4": [
+              "3573050004720003",
+              "3573050017720003",
+              "3573050043720003",
+              "3573050056720003"
+            ],
+            "reason 5": [
+              "3573050005720003",
+              "3573050031720003",
+              "3573050044720003"
+            ],
+            "reason 7": [
+              "3573050007720003",
+              "3573050020720003",
+              "3573050046720003",
+              "3573050059720003"
+            ],
+            "reason 8": [
+              "3573050008720003",
+              "3573050034720003",
+              "3573050047720003"
+            ],
+            "reason 10": [
+              "3573050010720003",
+              "3573050023720003",
+              "3573050049720003",
+              "3573050062720003"
+            ],
+            "reason 11": [
+              "3573050011720003",
+              "3573050037720003",
+              "3573050050720003"
+            ],
+            "reason 0": [
+              "3573050013720003",
+              "3573050026720003",
+              "3573050052720003"
+            ],
+            "reason 3": [
+              "3573050016720003",
+              "3573050029720003",
+              "3573050055720003"
+            ],
+            "reason 6": [
+              "3573050019720003",
+              "3573050032720003",
+              "3573050058720003"
+            ],
+            "reason 9": [
+              "3573050022720003",
+              "3573050035720003",
+              "3573050061720003"
+            ],
+            "reason 12": [
+              "3573050025720003",
+              "3573050038720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "3573050000720003",
+            "3573050003720003",
+            "3573050006720003",
+            "3573050009720003",
+            "3573050012720003",
+            "3573050015720003",
+            "3573050018720003",
+            "3573050021720003",
+            "3573050024720003",
+            "3573050027720003",
+            "3573050030720003",
+            "3573050033720003",
+            "3573050036720003",
+            "3573050039720003",
+            "3573050042720003",
+            "3573050045720003",
+            "3573050048720003",
+            "3573050051720003",
+            "3573050054720003",
+            "3573050057720003",
+            "3573050060720003",
+            "3573050063720003"
+          ],
+          "failed_niks": [
+            "3573050001720003",
+            "3573050002720003",
+            "3573050004720003",
+            "3573050005720003",
+            "3573050007720003",
+            "3573050008720003",
+            "3573050010720003",
+            "3573050011720003",
+            "3573050013720003",
+            "3573050014720003",
+            "3573050016720003",
+            "3573050017720003",
+            "3573050019720003",
+            "3573050020720003",
+            "3573050022720003",
+            "3573050023720003",
+            "3573050025720003",
+            "3573050026720003",
+            "3573050028720003",
+            "3573050029720003",
+            "3573050031720003",
+            "3573050032720003",
+            "3573050034720003",
+            "3573050035720003",
+            "3573050037720003",
+            "3573050038720003",
+            "3573050040720003",
+            "3573050041720003",
+            "3573050043720003",
+            "3573050044720003",
+            "3573050046720003",
+            "3573050047720003",
+            "3573050049720003",
+            "3573050050720003",
+            "3573050052720003",
+            "3573050053720003",
+            "3573050055720003",
+            "3573050056720003",
+            "3573050058720003",
+            "3573050059720003",
+            "3573050061720003",
+            "3573050062720003"
+          ],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {
+            "application_level_error": [
+              "3573050001720003",
+              "3573050002720003",
+              "3573050004720003",
+              "3573050005720003",
+              "3573050007720003",
+              "3573050008720003",
+              "3573050010720003",
+              "3573050011720003",
+              "3573050013720003",
+              "3573050014720003",
+              "3573050016720003",
+              "3573050017720003",
+              "3573050019720003",
+              "3573050020720003",
+              "3573050022720003",
+              "3573050023720003",
+              "3573050025720003",
+              "3573050026720003",
+              "3573050028720003",
+              "3573050029720003",
+              "3573050031720003",
+              "3573050032720003",
+              "3573050034720003",
+              "3573050035720003",
+              "3573050037720003",
+              "3573050038720003",
+              "3573050040720003",
+              "3573050041720003",
+              "3573050043720003",
+              "3573050044720003",
+              "3573050046720003",
+              "3573050047720003",
+              "3573050049720003",
+              "3573050050720003",
+              "3573050052720003",
+              "3573050053720003",
+              "3573050055720003",
+              "3573050056720003",
+              "3573050058720003",
+              "3573050059720003",
+              "3573050061720003",
+              "3573050062720003"
+            ]
+          },
+          "errors_by_reason": {
+            "reason 1": [
+              "3573050001720003",
+              "3573050014720003",
+              "3573050040720003",
+              "3573050053720003"
+            ],
+            "reason 2": [
+              "3573050002720003",
+              "3573050028720003",
+              "3573050041720003"
+            ],
+            "reason 4": [
+              "3573050004720003",
+              "3573050017720003",
+              "3573050043720003",
+              "3573050056720003"
+            ],
+            "reason 5": [
+              "3573050005720003",
+              "3573050031720003",
+              "3573050044720003"
+            ],
+            "reason 7": [
+              "3573050007720003",
+              "3573050020720003",
+              "3573050046720003",
+              "3573050059720003"
+            ],
+            "reason 8": [
+              "3573050008720003",
+              "3573050034720003",
+              "3573050047720003"
+            ],
+            "reason 10": [
+              "3573050010720003",
+              "3573050023720003",
+              "3573050049720003",
+              "3573050062720003"
+            ],
+            "reason 11": [
+              "3573050011720003",
+              "3573050037720003",
+              "3573050050720003"
+            ],
+            "reason 0": [
+              "3573050013720003",
+              "3573050026720003",
+              "3573050052720003"
+            ],
+            "reason 3": [
+              "3573050016720003",
+              "3573050029720003",
+              "3573050055720003"
+            ],
+            "reason 6": [
+              "3573050019720003",
+              "3573050032720003",
+              "3573050058720003"
+            ],
+            "reason 9": [
+              "3573050022720003",
+              "3573050035720003",
+              "3573050061720003"
+            ],
+            "reason 12": [
+              "3573050025720003",
+              "3573050038720003"
+            ]
+          },
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {
+            "3573050000720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050001720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050002720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050003720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050004720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050005720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050006720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050007720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050008720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050009720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050010720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050011720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050012720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050013720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050014720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050015720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050016720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050017720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050018720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050019720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050020720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050021720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050022720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050023720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050024720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050025720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050026720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050027720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050028720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050029720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050030720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050031720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050032720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050033720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050034720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050035720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050036720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050037720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050038720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050039720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050040720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050041720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050042720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050043720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050044720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050045720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050046720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050047720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050048720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050049720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050050720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050051720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050052720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050053720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050054720003": {
+              "attempts": 4,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050055720003": {
+              "attempts": 0,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050056720003": {
+              "attempts": 1,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050057720003": {
+              "attempts": 2,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050058720003": {
+              "attempts": 3,
+              "solved": true,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050059720003": {
+              "attempts": 4,
+              "solved": false,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050060720003": {
+              "attempts": 0,
+              "solved": true,
+              "retry_count": 0,
+              "retry_process": ""
+            },
+            "3573050061720003": {
+              "attempts": 1,
+              "solved": false,
+              "retry_count": 1,
+              "retry_process": ""
+            },
+            "3573050062720003": {
+              "attempts": 2,
+              "solved": true,
+              "retry_count": 2,
+              "retry_process": ""
+            },
+            "3573050063720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "f84aa197a6557fbb4bfe199968c855dfba5ea6b12cfa68a9fc4601396187fea8",
+      "jsonl_path": "4f407f13496000d762841b4611f06e499591ad78ccfbc01cf3d841279f58ed75",
+      "meta_path": "f96e6fb3adbfe2b9f6785fae1332dc2b0e34ef4c68757f59d22c86d2d731e0c3",
+      "final_json_path": "bc01ae434e5cf9a54892f8b7e92526264a92a517df722d5a4376ac2263ca96e4",
+      "analytics_path": "9244d5b186e20d380b949ba149173a4525e1e507f8e459b9c7de3261aed2f00c",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "fe5f05c1650d59314bbdd071e62dac3888ddba6081ef743017a7b11098dc9371",
+      "8d255f627ea0ec8cf26c8ddf3c304555a11a9580712a38c1b11feccdbcf691c3",
+      "ab731b69947ab05f2d4738a625f99362470d6c7acaae21d7d74c3dd8f7777a29",
+      "3f1d4ad2d0f52fe50f000692e68610d08a29e05700de1526053a201222b0702c",
+      "a3a7d07d2495e0bb341bdb4f2961a717c76245e956ee196f8ba0b33d1a38cecf",
+      "754eaf7c99ca1921651c7e646f3e599dfefb167e8c38d8ac562398e75d7f667c",
+      "60ed6913539f3174258f30fac4694d5d8f27a1445d7f9d923209fa5c3842a50e",
+      "9fbf6acd397c52ec14aae944fd1e31e0441d66bc4fbf62c73c4444a68e0d6999",
+      "b5b6c382e351e5552e6cbab6da8df50ad76f2413bfb7808101fb106a53ea9bef",
+      "d6dab1818a65592050b0171f74ddfa4e6f8818a0b801be98ebca4be6dc0534d9",
+      "099608e3d36cd86fb2c93e893d5e64e9e74e2a942a297d9922f29a675363b194",
+      "bfdc09ab6aa9083ebddc8c3e50b4e16ea971425b9c0ea3d008abe0e9f740256f",
+      "f0aed3f0ca1a6598ad2dd593c09c28e115ccd7aa61a2cf4dbb91677625f19a80",
+      "282bf2492685627ee88225a751ecabc61d44cccb4d42e5c77cf2669f2187149c",
+      "3dd820b60fec3f98eebe0e8854a0c919ac05a61bc16faf8c46a960e20d3cf621",
+      "725115bf3b33b91d7179c523c3a8c6de45ab0fc4aeb477a6122f0f35367a1491",
+      "01ebe97cd9001b79164926c7f87b18e75f7e6ed7def92c54192df646ab0ccb80",
+      "5adeaf444bde0c30093a161128af438084a60c41e43c01e944ddd548612d39b5",
+      "c78eee694c9834097b9a226ab9395362cf785a4a99fd55e7fe4956c93c976b06",
+      "7bce817f5c72c1a342e7dc3cb1ecea3e497802515abdd24c58aeba80f16fb708",
+      "b6a04b6c9681022aec9052dd01bc088dfce19477e4c083fc3f747325089ae65e",
+      "3becf1854f89f6e04ffe52bfb201ec0cacc74681065d98ac6eb95e05430afee8",
+      "266b84fa521762daa444feffbc394044636575ccd5fa668b4af1d777c939b6e4",
+      "3cccde20033a0350da9bea3fea2a1c76f0af4def4e51deafa6871e294b52b7db",
+      "23879bd7b3970ffeeb4a01894f13b12c5b63459f068fe9356724f6394e8eb484",
+      "4e87f6f34fc1745558c96f0c429fa2a1ea086c41a731a6759c24790dd0292e25",
+      "6fd46e8ff3306585353ad255b10f41d34147c933091500b81b002760cd446850",
+      "f2dcd1153b0149f70b432fa7645db5a7aa5c98aac1a38165b6bb718507a0528c",
+      "9439cd504bb727a67c6d9006404ddb13a76ee2945a8a3767af735ae6e5f3c33c",
+      "398a7229fb6b9f077864c0a6fa2583693951ada48bf500f482742eaabca10b17",
+      "27b5334ae1fee0d1492e12a1d138c1e18232eaaa0e65fb7f55f8f528433f0abc",
+      "b36d29e7e65db9b9d755480976fbc57ca777820cf2e45f9c5abb20fc42c664c0",
+      "e8a156cb5f01a22779f4557585586dec6b459a8ae91e2cf5fbdc3d3472e5d724",
+      "60a06caafe3c4e654da9a524bd6af7a64fc27c63aaacf866b02d3b8f811a1e42",
+      "9b56fba5c47ca454a1388fb696776f0362d4780dbc74997cbc3c725281c16f00",
+      "f52877b633c9ef508815099dec3e3b3b16afc217fda74febbc60f4d8a3a7fe05",
+      "ee313159da479f1b01ecae151d20b444b97f64b369a60e60963b54747dfbed88",
+      "afbab799dde4c245ab027183790820b79be972450ecb0838c2e9b56a933a87bb",
+      "bd6bae968d57e00320c0c100a3609d981ad72af78fccf906cdf74d5f7dda8dae",
+      "34a5e653e4c21d9015bad97984fa4c0a991653dbc2e9d05ca35df052544cdd1e",
+      "c74fda6e073f12f1d05f2bea6f5e53fb54b11aac2bf0d5001ad1a20e6f2fb03b",
+      "a9ae2cf22a048235f53ce6e45bc2a924a9ade44bd3f32eee87ed6948f02945e8",
+      "c95c97cfab7ed3f29e304de92053b3e1b37df66e01433f8dc73337a8fd052bfb",
+      "dd6ef3b0a5264ac22a2558381b0ce113ae784c91267f8355aed368e96c01043e",
+      "d1f62d2d58ba2dbb16629885aad9eaa3403807f8dac2f3a472d474e27407d01e",
+      "81899a02ef812ec104e809443a5bbaef201b7c07adc8b6dbeb9bf2ff721c6afa",
+      "08c064d90c745ab6d81cc03a4a08d91d02b4063521369230ae526af4b2d8fe77",
+      "16923483b048b80f2f2f2b0b725c5a79226b94359598e829919bd7a092e0401e",
+      "a1a685b1b21b601e9deb39e5fd7987ea55191ead28d2ed0437d0c00dddac2e0a",
+      "1c4fa05da58b9cdf9adab2b264c43795695ad7a483c69daffedb1c02a5db8a8c",
+      "dc049c8d2f8704cf75f627f2f1d321d5fb8a7610c4098e5e0b1fb3ed167be4dd",
+      "9da5ce9f216c11572def6f19d0f5d90bdd862d01d9c2dce6a931696c5e87923a",
+      "067a09571fe6712a4a39a6c66e6b2480630b19e8db47af568dffe8b4c5c377d8",
+      "66091330ef9460d32577d438fe8a40a436c653ff9eec31d909fd03a79627517f",
+      "4591dc414ac40d21cc5012698a042d5264629f25f23238093be2dba75535c0d5",
+      "54d671871fa4efcd000e84c2ebd0e1b64e1fe59c23dadf7b74bceca5597a741e",
+      "3e7f00d6f961b30589432311c70f8f532d47d0edbcff5b91f2dd68b0d253213b",
+      "c0ee4ece55c47bfce3563e33938e5920634ac5c1dc3cc7e4369b61b8d5426554",
+      "fd72d6686ee4eed9de74c7edf361ee689851358b9af903ba87d79a56baa2d941",
+      "4292a3254ce4abc1f7c4fbd0c473f2fde0de4e8ec7ce656c5f18923675590d59",
+      "dd87df29ee87d75d5f7083f25442ba6a6f4194ad0b995ac6bb008df3641e488d",
+      "d664301301ba5e5776c5085d291989a91b1c722220d58e7d20f100b6ca59c2b2",
+      "0f14f39d66893c085891ec61ff285de9780bc3d10dfc31a8a08959f662feb4a2",
+      "8be676064c226b1e519576d178c67d475b7dd5da89eff312de40a640a1f4be87"
+    ]
+  },
+  "many_True": {
+    "observables": {
+      "summary": {
+        "completed": 22,
+        "error": 42,
+        "total": 64
+      },
+      "analytics": {
+        "summary": {
+          "total_transactions": 64,
+          "completed": 22,
+          "failed": 42,
+          "failed_puzzle_solve": 0,
+          "skipped": 0,
+          "unregistered": 0,
+          "success_rate_percent": 34.38,
+          "failed_rate_percent": 65.62,
+          "failed_puzzle_solve_rate_percent": 0.0,
+          "skip_rate_percent": 0.0,
+          "unregistered_rate_percent": 0.0
+        },
+        "performance": {
+          "total_runtime_seconds": 120.0,
+          "total_runtime_minutes": 2.0,
+          "throughput_per_minute": 32.0,
+          "avg_duration_seconds": 0.35,
+          "min_duration_seconds": 0.1,
+          "max_duration_seconds": 0.6,
+          "avg_completed_duration_seconds": 0.35
+        },
+        "puzzle_metrics": {
+          "total_puzzles": 64,
+          "puzzles_solved": 32,
+          "puzzles_failed": 32,
+          "puzzle_success_rate_percent": 50.0,
+          "puzzle_failure_rate_percent": 50.0,
+          "avg_attempts": 1.97,
+          "total_attempts": 126,
+          "retried_puzzles": 42,
+          "total_retries": 63,
+          "avg_solved_duration_seconds": 0.356,
+          "avg_failed_duration_seconds": 0.344
+        },
+        "breakdown_by_status": {
+          "completed": {
+            "count": 22,
+            "percentage": 34.38,
+            "avg_duration_seconds": 0.35
+          },
+          "error": {
+            "count": 42,
+            "percentage": 65.62,
+            "avg_duration_seconds": 0.35
+          }
+        },
+        "skip_reasons": {},
+        "error_analysis": {
+          "total_errors": 42,
+          "unique_error_types": 13,
+          "error_frequency": {
+            "reason 1": 4,
+            "reason 4": 4,
+            "reason 7": 4,
+            "reason 10": 4,
+            "reason 2": 3,
+            "reason 5": 3,
+            "reason 8": 3,
+            "reason 11": 3,
+            "reason 0": 3,
+            "reason 3": 3
+          },
+          "error_labels": {
+            "application_level_error": 42
+          }
+        },
+        "nik_details": {
+          "mapping_report": {
+            "failed": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "failed_puzzle_solve": [],
+            "successful": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "skipped": {},
+            "unregistered": []
+          },
+          "mapping_error_report": {
+            "reason 1": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 2": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 4": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 5": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 7": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 8": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 10": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 11": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 0": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 3": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 6": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 9": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 12": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "mapping_failed_puzzle_report": {},
+          "successful_niks": [
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_niks": [
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003",
+            "357305****720003"
+          ],
+          "failed_puzzle_solve_niks": [],
+          "skipped_by_type": {},
+          "unregistered_niks": [],
+          "errors_by_label": {
+            "application_level_error": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "errors_by_reason": {
+            "reason 1": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 2": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 4": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 5": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 7": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 8": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 10": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 11": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 0": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 3": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 6": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 9": [
+              "357305****720003",
+              "357305****720003",
+              "357305****720003"
+            ],
+            "reason 12": [
+              "357305****720003",
+              "357305****720003"
+            ]
+          },
+          "other_statuses": {},
+          "puzzle_failed_niks": [],
+          "puzzle_stats": {
+            "357305****720003": {
+              "attempts": 3,
+              "solved": false,
+              "retry_count": 0,
+              "retry_process": ""
+            }
+          },
+          "retry_report": {
+            "operator": "operator_01",
+            "operator_id": "operator_01",
+            "run_id": "fixed_run",
+            "run_started_at": "2026-08-20T12:00:00+00:00",
+            "total_retry_events": 0,
+            "total_retried_niks": 0,
+            "retried_niks": [],
+            "by_process": {},
+            "by_trigger": {},
+            "events": []
+          }
+        }
+      },
+      "parsing": {
+        "total": 0,
+        "by_reason": {}
+      },
+      "skipped_including_unregistered": {},
+      "workflow": {
+        "total_events": 0,
+        "consent_niks": 0,
+        "update_required_niks": 0,
+        "updated_niks": 0,
+        "same_nik_restarts": 0,
+        "update_failures": 0,
+        "repeated_update_requests": 0,
+        "updated_nik_values": [],
+        "consent_nik_values": [],
+        "update_failed_nik_values": []
+      }
+    },
+    "file_sha256": {
+      "csv_path": "a43db2eecabaefbcf2efa43294484f7bf54a9b85fb5125d8a6f10ab9db6aa3c9",
+      "jsonl_path": "285622c15cf7b0caa31fbc46259f636e88907be78850eccc6904311e51f7d6f2",
+      "meta_path": "8dfda3272039ddc7f0d235bf8ac69f01580a789284d3339b63de67979c816c43",
+      "final_json_path": "c76a360a7d78ec622de3148d08336bffff384eafeda0a395d63068c7304d6f79",
+      "analytics_path": "9244d5b186e20d380b949ba149173a4525e1e507f8e459b9c7de3261aed2f00c",
+      "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "meta_after_each_row": [
+      "c3e5cd9631aa775478417d0052217b87b37dc13342116edb93ede75cf71d0044",
+      "00b7fe096e3d7a617b18d251f5c667f23e5f9d06479c57363815dd6ce4f06c56",
+      "e8dc61f88951dcfb646ef1b8158f2dfacf6143c0114e05c39571fd8cc88e09f8",
+      "174b50fb2244dcabcaa91a1bf9b4b871fc8c56727e732ce916e9143170e2aef5",
+      "cb036d17af6864149fd8066b8ac8b48b8c2892235582a56c23a976c34231bf03",
+      "31a583ba096042aabb8a0b913b0df5dc84c11bf8b060746ae6d21a92c0581f61",
+      "1425a080bf2085281ef125cb122eee6f72dafdbf11b43a3c4333b2cdeb1ce46a",
+      "3e146dde3559a7f8e9f904371133dc843e3cdceb3fd5ea8022ad91e292bed7f5",
+      "945c07b74eb9ec87152200f7cef9a11c8bd1712347c0e0a6b1f74023c58bed6b",
+      "62ec4f86aa368f71a3fafe01506d52ccbc7eef6eedba8c2cf215668db018df91",
+      "fda447427e2cd78f8e9c0b69f9f04dbed29b0f7be4a7e2fffaf79b90494f65f8",
+      "26b61fc4a7febe95372b763160e5ab7a99d2493523ee41ef7a7a108b2d4ac46e",
+      "ea4bd19e602a69c29c8da869dac6610072cf4120ee625426031286fcc2cb75ab",
+      "0d6f5be56d4110868859b9432c64a4ec282edb0c3af438b619b0aa849f8819b5",
+      "acb0228baf803c675256b2fdeb0d704a819e4e512cb25c3525113c43bf753555",
+      "36318617c01ed9dee53b8855d655a043acbfc827e140933243d89d3c9585c62b",
+      "5f97b428dee68e496f087a177d023ea76e26c9c3768a744677d245156628fc35",
+      "4460bd20f90e840ab6c8fdea076551a8e6fc57c80f27c1409cdeeaad2d86b6ee",
+      "99bf2f6b903df5b3c81e4c87e346d439abb321ddd00d060c8a3f7a212551267d",
+      "18c59ef09e33b7ef2c93634c2d9a17597690ba4e8ae066fd21f45239e64e04ce",
+      "377021836561a92fa8fa10921bf2a69361e13f152eb9ef2ab42914dc7a05018f",
+      "d8522cc6eb49534be6c69edcd61b373979466204c0c4b4ad5bb29964b16adc87",
+      "7ebc74ed04e8793664a26ab5e9268330168baeda9e5b7edb822a1faf2354d78c",
+      "0d7faea4c5cefd5df9fc9a7687016d9790f544ccd942b3b59634dcb32062854f",
+      "9ac701277fd1bb57f6d93ff10fc5aad2f6a73af1b75864139d034413fe7d0fc1",
+      "2a07cd89a6f26b0d234440906a6aebb9832560e5068b1aae05539a77e7266724",
+      "80aa0cd0477759429d5c7c1731cc75fc7e87b593bdac4c687aa898b08a26e388",
+      "799836fb6df56430aac08d1c6f8f040c494477e5264cfbae6388864827d91183",
+      "824f102d92b3444a2d5cdf6c1873310a02ae677290cd9753bb5c3b57d0b4733b",
+      "6e72bd73e2c9930e48d6be1f6bc5adf5fefe7b65215457ad77d65562c898191d",
+      "e4e01416c6f2295d59098f010f4683bc14567fc6ad8beddc63f0eeb464d0aebd",
+      "08b0cbdf8c385f88468115849460ccac5a62196a3a35897a195bc2ee807f06a9",
+      "74177c460dbcc2ebe845c69683afaddde54bbbd2a9e7848a7a6211e96892d891",
+      "5d9bd9ed870189181f03d9a219504d4a76eeba3d522df116496654bf8e0bb601",
+      "d1c525112c951292a83064bc7ea26ee5d15b87b4a72d26906e7506d1d8c16e0c",
+      "efd434f356d03dbe9ed1c2ea24d472bf398c51c73b0f2b1bb1c2c631d3b23ccf",
+      "e3a3ea27c442996ca68d9424ce6b638c8ec9def10855e52c76b2dad7934ce4e1",
+      "73305104cedf3abdb3f5cd440bc2afb84d4290957978ef08864fc5251c2c2851",
+      "7e7ad09e553c33c86dbb7b5c1165e1d87dddc8b9ffcb6996cd1854840a87d9e0",
+      "4c7cfaea8300ae951c9ae2cd2ee75e64f0cb58b923c788491d3872a20c9ddf28",
+      "458b5c1b391db8ccab8c965ecbf2e54d2b71efdacae2503b477eb917c79a1e22",
+      "bb20be35d6a1b9f2230000d1f984552fd148800a535e45e3703a3c4d2a6a5968",
+      "49db74cb3f04124c64e674703ce810c0f4fc9cf18a6099e8a1ed6923e57244b3",
+      "d4c2a7a6049742a3ff4dc5aac2010a98d3596a8b671fa50a9122fe2a98287873",
+      "6eab27834f1ff3c09ea9f6d8a3dda39de7a6364a5c1bbd17322de38e175206ec",
+      "220bf71cc1f981d4c644a8be3df1c0b38738f20cab2fd6df8eb8d2434758a5bc",
+      "e4f21e2c1adb496d34907d558c15d0f58022ff5e5192952ba0772c587984b46f",
+      "62074674c4a2958cd550cc8d7e771ac48900f56f42f748b95c2c9dce0a57487a",
+      "f9ac7cf983558d1f6b02b19e2b97b232a2f6045baa7eeb96df9a5ec74649f572",
+      "502b7f4e1d06d51e350ba32019c5daa73583ab44fe12af54fcb270803b704753",
+      "d7cbd2d78954e67ac5e40cc0e2f1fc6b98a4d33542480a239b9a0b965579fe3a",
+      "ee2bddbcc99bd35dc9d6d72ab047ed4d47fe2bd4cafffe7b57d8b1b59213021d",
+      "2ce404a6d2bf0b5320cae05300b3d263058d7d6e7465c625f30cf5e5a9161024",
+      "640bb844e6fad32f6a4fe917ba5c5e0864247b168fd30492406571ca60889a93",
+      "e27f8327f94da99bd171b72cabf058e5b488e46af0e4b1900de9059c31a97154",
+      "d7ff94bbe71213cc822bea15e736d1b3bb4e0ca8ac0454ad17d463f01d928cda",
+      "8b39c873234f927b21167e66e3af9bd70c4d3510a0c21e9f548a54e1eaee45a4",
+      "670aba57762745fe536f4e6b1fefeaaa7dc8f0606fbafe577d5f851793426fa0",
+      "db8405dfe511066066173704689db5b59ba173b8e76ff581721c8b9833f69fa8",
+      "bf92995c8e7c93488a5fe8bf20df9dd716846a71a65197e27d9cf728de76148b",
+      "2e45e24c6f6e2e242693bb630457db301bed2234d05c238f1d71acf1d9dbc832",
+      "f9fe3fd5e84ed5d9d5766374d2c5fe3dcbd7ad1c79b029aa41310f08e5ebd8a6",
+      "4dec69ecabff17919050db6ff963739004ee652bdbce2591de97e4b3ba56a7a6",
+      "05e2e74a4af43e92a7b08ddeca63fe55b7f82cf21f3d634d15cc00503c453918"
+    ]
+  },
+  "two_operators_events": [
+    {
+      "observables": {
+        "summary": {
+          "completed": 1,
+          "total": 1
+        },
+        "analytics": {
+          "summary": {
+            "total_transactions": 1,
+            "completed": 1,
+            "failed": 0,
+            "failed_puzzle_solve": 0,
+            "skipped": 0,
+            "unregistered": 0,
+            "success_rate_percent": 100.0,
+            "failed_rate_percent": 0.0,
+            "failed_puzzle_solve_rate_percent": 0.0,
+            "skip_rate_percent": 0.0,
+            "unregistered_rate_percent": 0.0
+          },
+          "performance": {
+            "total_runtime_seconds": 120.0,
+            "total_runtime_minutes": 2.0,
+            "throughput_per_minute": 0.5,
+            "avg_duration_seconds": 1.234,
+            "min_duration_seconds": 1.234,
+            "max_duration_seconds": 1.234,
+            "avg_completed_duration_seconds": 1.234
+          },
+          "puzzle_metrics": {
+            "total_puzzles": 0,
+            "puzzles_solved": 0,
+            "puzzles_failed": 0,
+            "puzzle_success_rate_percent": 0.0,
+            "puzzle_failure_rate_percent": 0.0,
+            "avg_attempts": 0.0,
+            "total_attempts": 0,
+            "retried_puzzles": 0,
+            "total_retries": 0,
+            "avg_solved_duration_seconds": 0.0,
+            "avg_failed_duration_seconds": 0.0
+          },
+          "breakdown_by_status": {
+            "completed": {
+              "count": 1,
+              "percentage": 100.0,
+              "avg_duration_seconds": 1.234
+            }
+          },
+          "skip_reasons": {},
+          "error_analysis": {
+            "total_errors": 0,
+            "unique_error_types": 0,
+            "error_frequency": {},
+            "error_labels": {}
+          },
+          "nik_details": {
+            "mapping_report": {
+              "failed": [],
+              "failed_puzzle_solve": [],
+              "successful": [
+                "357305****720003"
+              ],
+              "skipped": {},
+              "unregistered": []
+            },
+            "mapping_error_report": {},
+            "mapping_failed_puzzle_report": {},
+            "successful_niks": [
+              "357305****720003"
+            ],
+            "failed_niks": [],
+            "failed_puzzle_solve_niks": [],
+            "skipped_by_type": {},
+            "unregistered_niks": [],
+            "errors_by_label": {},
+            "errors_by_reason": {},
+            "other_statuses": {},
+            "puzzle_failed_niks": [],
+            "puzzle_stats": {},
+            "retry_report": {
+              "operator": "operator_01",
+              "operator_id": "operator_01",
+              "run_id": "fixed_run",
+              "run_started_at": "2026-08-20T12:00:00+00:00",
+              "total_retry_events": 4,
+              "total_retried_niks": 3,
+              "retried_niks": [
+                "0",
+                "1",
+                "2"
+              ],
+              "by_process": {
+                "process0": [
+                  "0",
+                  "2"
+                ],
+                "process1": [
+                  "1"
+                ]
+              },
+              "by_trigger": {
+                "trigger0": [
+                  "0",
+                  "2"
+                ],
+                "trigger1": [
+                  "1"
+                ]
+              },
+              "events": [
+                {
+                  "operator": "operator_01",
+                  "nik": "0",
+                  "process": "process0",
+                  "trigger": "trigger0",
+                  "attempt_number": 2,
+                  "retry_number": 1,
+                  "max_retries": 3,
+                  "recorded_at": "2026-08-20T12:02:00+00:00",
+                  "url": "",
+                  "reason": "",
+                  "error_label": "",
+                  "run_id": "fixed_run",
+                  "operator_id": "operator_01"
+                },
+                {
+                  "operator": "operator_01",
+                  "nik": "1",
+                  "process": "process1",
+                  "trigger": "trigger1",
+                  "attempt_number": 2,
+                  "retry_number": 1,
+                  "max_retries": 3,
+                  "recorded_at": "2026-08-20T12:02:00+00:00",
+                  "url": "",
+                  "reason": "",
+                  "error_label": "",
+                  "run_id": "fixed_run",
+                  "operator_id": "operator_01"
+                },
+                {
+                  "operator": "operator_01",
+                  "nik": "0",
+                  "process": "process0",
+                  "trigger": "trigger0",
+                  "attempt_number": 2,
+                  "retry_number": 1,
+                  "max_retries": 3,
+                  "recorded_at": "2026-08-20T12:02:00+00:00",
+                  "url": "",
+                  "reason": "",
+                  "error_label": "",
+                  "run_id": "fixed_run",
+                  "operator_id": "operator_01"
+                },
+                {
+                  "operator": "operator_01",
+                  "nik": "2",
+                  "process": "process0",
+                  "trigger": "trigger0",
+                  "attempt_number": 2,
+                  "retry_number": 1,
+                  "max_retries": 3,
+                  "recorded_at": "2026-08-20T12:02:00+00:00",
+                  "url": "",
+                  "reason": "",
+                  "error_label": "",
+                  "run_id": "fixed_run",
+                  "operator_id": "operator_01"
+                }
+              ]
+            }
+          }
+        },
+        "parsing": {
+          "total": 0,
+          "by_reason": {}
+        },
+        "skipped_including_unregistered": {},
+        "workflow": {
+          "total_events": 8,
+          "consent_niks": 3,
+          "update_required_niks": 0,
+          "updated_niks": 3,
+          "same_nik_restarts": 0,
+          "update_failures": 0,
+          "repeated_update_requests": 0,
+          "updated_nik_values": [
+            "0",
+            "1",
+            "2"
+          ],
+          "consent_nik_values": [
+            "0",
+            "1",
+            "2"
+          ],
+          "update_failed_nik_values": []
+        }
+      },
+      "file_sha256": {
+        "csv_path": "fbd37a2ac8b6f9d581d7db4117251b803065fba2f4964d89ce11a6a88cc0786c",
+        "jsonl_path": "ef9b999d6e5506e939a0e76c948a68046b7263fdaab30641a63463a40ffa3885",
+        "meta_path": "3007b1f97655ac271cf772d5be07924c3396af128a7d5c4926bbac708da1c99d",
+        "final_json_path": "9bee4d37b59d5b23219fc513b834a234c04e3a9952a517109ab0eb38500b11ba",
+        "analytics_path": "ffd497cdb7f1d92c45ddbe3c4f523ed93d0777b9feb8c14a8944ad9b6e1f4748",
+        "workflow_events_path": "5f0f84855d1ff11b27239290cd772efa1466c8356ef5c6dfdf1279d93149b368",
+        "retries_path": "2a15832f15e3d3a566d4ee54a3c1bda23403ef8d2b8348a2e4565299e8e1f0de"
+      }
+    },
+    {
+      "observables": {
+        "summary": {
+          "error": 1,
+          "total": 1
+        },
+        "analytics": {
+          "summary": {
+            "total_transactions": 1,
+            "completed": 0,
+            "failed": 1,
+            "failed_puzzle_solve": 0,
+            "skipped": 0,
+            "unregistered": 0,
+            "success_rate_percent": 0.0,
+            "failed_rate_percent": 100.0,
+            "failed_puzzle_solve_rate_percent": 0.0,
+            "skip_rate_percent": 0.0,
+            "unregistered_rate_percent": 0.0
+          },
+          "performance": {
+            "total_runtime_seconds": 120.0,
+            "total_runtime_minutes": 2.0,
+            "throughput_per_minute": 0.5,
+            "avg_duration_seconds": 0.0,
+            "min_duration_seconds": 0.0,
+            "max_duration_seconds": 0.0,
+            "avg_completed_duration_seconds": 0.0
+          },
+          "puzzle_metrics": {
+            "total_puzzles": 0,
+            "puzzles_solved": 0,
+            "puzzles_failed": 0,
+            "puzzle_success_rate_percent": 0.0,
+            "puzzle_failure_rate_percent": 0.0,
+            "avg_attempts": 0.0,
+            "total_attempts": 0,
+            "retried_puzzles": 0,
+            "total_retries": 0,
+            "avg_solved_duration_seconds": 0.0,
+            "avg_failed_duration_seconds": 0.0
+          },
+          "breakdown_by_status": {
+            "error": {
+              "count": 1,
+              "percentage": 100.0,
+              "avg_duration_seconds": 0.0
+            }
+          },
+          "skip_reasons": {},
+          "error_analysis": {
+            "total_errors": 1,
+            "unique_error_types": 1,
+            "error_frequency": {
+              "unknown_error": 1
+            },
+            "error_labels": {
+              "application_level_error": 1
+            }
+          },
+          "nik_details": {
+            "mapping_report": {
+              "failed": [
+                "other"
+              ],
+              "failed_puzzle_solve": [],
+              "successful": [],
+              "skipped": {},
+              "unregistered": []
+            },
+            "mapping_error_report": {
+              "unknown_error": [
+                "other"
+              ]
+            },
+            "mapping_failed_puzzle_report": {},
+            "successful_niks": [],
+            "failed_niks": [
+              "other"
+            ],
+            "failed_puzzle_solve_niks": [],
+            "skipped_by_type": {},
+            "unregistered_niks": [],
+            "errors_by_label": {
+              "application_level_error": [
+                "other"
+              ]
+            },
+            "errors_by_reason": {
+              "unknown_error": [
+                "other"
+              ]
+            },
+            "other_statuses": {},
+            "puzzle_failed_niks": [],
+            "puzzle_stats": {},
+            "retry_report": {
+              "operator": "operator_02",
+              "operator_id": "operator_02",
+              "run_id": "fixed_run",
+              "run_started_at": "2026-08-20T12:00:00+00:00",
+              "total_retry_events": 0,
+              "total_retried_niks": 0,
+              "retried_niks": [],
+              "by_process": {},
+              "by_trigger": {},
+              "events": []
+            }
+          }
+        },
+        "parsing": {
+          "total": 0,
+          "by_reason": {}
+        },
+        "skipped_including_unregistered": {},
+        "workflow": {
+          "total_events": 0,
+          "consent_niks": 0,
+          "update_required_niks": 0,
+          "updated_niks": 0,
+          "same_nik_restarts": 0,
+          "update_failures": 0,
+          "repeated_update_requests": 0,
+          "updated_nik_values": [],
+          "consent_nik_values": [],
+          "update_failed_nik_values": []
+        }
+      },
+      "file_sha256": {
+        "csv_path": "dc53d59512d3a53f7ac607cc837e28710bbee143d5bd0c5594cbe6e48efac77b",
+        "jsonl_path": "b613250d38072fd215d0d35c349f881bc69c2cd1795f21b07aa9597236ecc2d2",
+        "meta_path": "d1c2d6a519989d1f1c5e05f3a9450271f54c575acfd36efceb4fa73d88e61b24",
+        "final_json_path": "b4adbd297bd37a893ea8362934d58d3edc1d0cde2e1c4ff682146e90b84d480f",
+        "analytics_path": "3ce8b79f2b2e2b52e142abfead98cd17d27074860fc60617b0aac08502484535",
+        "workflow_events_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retries_path": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ]
+}

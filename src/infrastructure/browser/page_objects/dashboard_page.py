@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Literal
 
 from playwright.sync_api import (
@@ -13,8 +13,15 @@ from playwright.sync_api import (
 )
 
 from src.infrastructure.browser.page_objects.base_page import BasePage
+from src.infrastructure.browser.page_objects.customer_type_modal import (
+    _CUSTOMER_TYPE_SELECTION_VERIFY_MS,
+    CustomerTypeModal,
+)
 from src.infrastructure.browser.page_objects.penjualan_page import (
     TRANSACTION_BLOCKER_ALERT_RE,
+)
+from src.infrastructure.browser.page_objects.simple_warning_modal import (
+    SimpleWarningModal,
 )
 from src.infrastructure.interaction_diagnostics import get_page_diagnostics
 from src.logging_utils import log_print
@@ -85,14 +92,6 @@ _CUSTOMER_TYPE_UPDATE_REQUIRED_MARKER = re.compile(
     re.IGNORECASE,
 )
 
-_CUSTOMER_TYPE_SELECTION_ATTEMPTS = 3
-_CUSTOMER_TYPE_SELECTION_VERIFY_MS = 5000
-
-# The target application can take several seconds to react after a click.
-# These waits are post-condition waits, not blind sleeps.
-_CUSTOMER_TYPE_CONTINUE_ATTEMPTS = 3
-_CUSTOMER_TYPE_CONTINUE_RESULT_TIMEOUT_MS = 20000
-_CUSTOMER_TYPE_CONTINUE_POLL_MS = 250
 
 _NIB_CONTINUE_ATTEMPTS = 2
 _NIB_POST_CLICK_TIMEOUT_MS = 20000
@@ -1020,14 +1019,26 @@ class Dashboard(BasePage):
 
         return None
 
+    def _customer_type_modal_component(self) -> CustomerTypeModal:
+        # Resolve current UI dependencies per call; do not cache Dashboard state.
+        return CustomerTypeModal(
+            page=self.page,
+            modal=self.jenis_pelanggan_modal,
+            is_visible=self._is_visible,
+            first_usable_locator=self._first_usable_locator,
+            followup_probe=self._get_customer_type_followup_state,
+            checkpoint=self._debug_interaction_checkpoint,
+            poll_states=self._debug_poll_interaction_states,
+            continue_locator_factory=self._debug_customer_type_continue_collection,
+            log=log_print,
+            expect_locator=expect,
+        )
+
     def _customer_type_is_selected(
         self,
         option_name: str,
     ) -> bool:
-        if option_name in {"Rumah Tangga", "Usaha Mikro"}:
-            return self._is_named_customer_type_selected(option_name)
-
-        return self._is_any_customer_type_selected()
+        return self._customer_type_modal_component().is_selected(option_name)
 
     def _is_named_customer_type_selected(
         self,
@@ -1043,81 +1054,11 @@ class Dashboard(BasePage):
         radio component and its rendered selected state is authoritative UI
         evidence that the application accepted the selection.
         """
-
-        radio = self.jenis_pelanggan_modal.locator(
-            f'input[type="radio"][value="{option_name}"]'
-        ).first
-
-        # First preference: actual native checked property.
-        try:
-            if radio.count() > 0 and radio.is_checked():
-                log_print(f"Customer type native radio is checked: {option_name}")
-                return True
-        except PlaywrightError:
-            pass
-
-        # Second signal: the website itself visually reports "Terpilih"
-        # inside the label belonging to this exact radio.
-        label = self.jenis_pelanggan_modal.locator(
-            f'label:has(input[type="radio"][value="{option_name}"])'
-        ).first
-
-        try:
-            if label.count() == 0 or not label.is_visible():
-                return False
-
-            selected_status = label.get_by_text(
-                "Terpilih",
-                exact=True,
-            )
-
-            if selected_status.count() > 0 and selected_status.is_visible():
-                log_print(f"Customer type visual selection confirmed: {option_name}")
-                return True
-
-        except PlaywrightError:
-            pass
-
-        return False
+        return self._customer_type_modal_component().is_named_selected(option_name)
 
     def _is_any_customer_type_selected(self) -> bool:
         """Check whether any customer-type radio is actually selected."""
-
-        scope = self.jenis_pelanggan_modal
-
-        native_radios = scope.locator("input[type='radio']")
-
-        try:
-            count = native_radios.count()
-        except PlaywrightError:
-            count = 0
-
-        for index in range(count):
-            radio = native_radios.nth(index)
-
-            try:
-                if radio.is_checked():
-                    return True
-            except PlaywrightError:
-                continue
-
-        aria_radios = scope.locator('[role="radio"]')
-
-        try:
-            count = aria_radios.count()
-        except PlaywrightError:
-            count = 0
-
-        for index in range(count):
-            radio = aria_radios.nth(index)
-
-            try:
-                if radio.get_attribute("aria-checked") == "true":
-                    return True
-            except PlaywrightError:
-                continue
-
-        return False
+        return self._customer_type_modal_component().is_any_selected()
 
     def _wait_for_customer_type_selection(
         self,
@@ -1125,17 +1066,9 @@ class Dashboard(BasePage):
         timeout_ms: int = _CUSTOMER_TYPE_SELECTION_VERIFY_MS,
     ) -> bool:
         """Wait for the selected radio state to propagate through the UI."""
-
-        interval_ms = 100
-        attempts = max(1, timeout_ms // interval_ms)
-
-        for _ in range(attempts):
-            if self._customer_type_is_selected(option_name):
-                return True
-
-            self.page.wait_for_timeout(interval_ms)
-
-        return self._customer_type_is_selected(option_name)
+        return self._customer_type_modal_component().wait_for_selection(
+            option_name, timeout_ms
+        )
 
     def _select_customer_type_with_confirmation(
         self,
@@ -1150,67 +1083,8 @@ class Dashboard(BasePage):
         every time. We do not switch customer types merely because the
         frontend was slow to acknowledge the first click.
         """
-
-        choice = initial_choice
-
-        for attempt in range(
-            1,
-            _CUSTOMER_TYPE_SELECTION_ATTEMPTS + 1,
-        ):
-            # It may already have become selected while React was rerendering.
-            if self._customer_type_is_selected(option_name):
-                log_print(f"Jenis Pelanggan '{option_name}' is already selected.")
-                return
-
-            log_print(
-                f"Selecting Jenis Pelanggan '{option_name}' "
-                f"(attempt {attempt}/"
-                f"{_CUSTOMER_TYPE_SELECTION_ATTEMPTS})"
-            )
-
-            self._debug_interaction_checkpoint("customer_type_radio_before_click")
-            try:
-                choice.scroll_into_view_if_needed(timeout=3000)
-
-                choice.click(timeout=5000)
-
-            except PlaywrightError as exc:
-                log_print(
-                    f"Click on Jenis Pelanggan '{option_name}' "
-                    "did not complete cleanly.",
-                    exc,
-                )
-            finally:
-                self._debug_interaction_checkpoint("customer_type_radio_after_click")
-
-            if self._wait_for_customer_type_selection(option_name):
-                log_print(f"Jenis Pelanggan selection confirmed: {option_name}")
-                return
-
-            log_print(
-                f"Jenis Pelanggan '{option_name}' was clicked but "
-                "the radio is still not selected."
-            )
-
-            if attempt >= _CUSTOMER_TYPE_SELECTION_ATTEMPTS:
-                break
-
-            # React may have replaced the original node. Re-resolve the
-            # locator instead of relying on the previous DOM element.
-            if option_name in {"Rumah Tangga", "Usaha Mikro"}:
-                refreshed_choice = self._find_named_customer_type_choice(option_name)
-            else:
-                refreshed_choice = self._find_first_available_customer_type_choice()
-
-            if refreshed_choice is not None:
-                choice = refreshed_choice
-
-            self.page.wait_for_timeout(300)
-
-        raise RuntimeError(
-            f"Jenis Pelanggan '{option_name}' could not be confirmed "
-            f"as selected after "
-            f"{_CUSTOMER_TYPE_SELECTION_ATTEMPTS} attempts."
+        return self._customer_type_modal_component().select_with_confirmation(
+            option_name, initial_choice
         )
 
     def _find_named_customer_type_choice(
@@ -1223,40 +1097,7 @@ class Dashboard(BasePage):
         The wrapping label is the preferred click target because this application
         implements a custom styled radio component.
         """
-
-        radio = self.jenis_pelanggan_modal.locator(
-            f'input[type="radio"][value="{option_name}"]'
-        ).first
-
-        try:
-            if radio.count() == 0:
-                log_print(f"Customer type radio not found by value: {option_name}")
-                return None
-        except PlaywrightError:
-            return None
-
-        # Prefer clicking the visible wrapping label rather than the possibly
-        # visually-hidden/custom-styled native radio input.
-        label = self.jenis_pelanggan_modal.locator(
-            f'label:has(input[type="radio"][value="{option_name}"])'
-        ).first
-
-        try:
-            if label.count() > 0 and label.is_visible():
-                log_print(f"Customer type label found by radio value: {option_name}")
-                return label
-        except PlaywrightError:
-            pass
-
-        # Fallback to native radio if it is itself usable.
-        try:
-            if radio.is_visible() and radio.is_enabled():
-                log_print(f"Using native customer type radio: {option_name}")
-                return radio
-        except PlaywrightError:
-            pass
-
-        return None
+        return self._customer_type_modal_component().find_named_choice(option_name)
 
     def _find_first_available_customer_type_choice(
         self,
@@ -1267,26 +1108,7 @@ class Dashboard(BasePage):
         This allows the automation to survive markup changes while still
         avoiding generated CSS classes.
         """
-
-        scope = self.jenis_pelanggan_modal
-
-        candidates = (
-            # Best case: accessible semantic radios.
-            scope.get_by_role("radio"),
-            # Common custom-radio implementation:
-            # visible label wrapping a hidden native radio.
-            scope.locator("label:has(input[type='radio'])"),
-            # Last semantic fallback.
-            scope.locator("input[type='radio']"),
-        )
-
-        for collection in candidates:
-            choice = self._first_usable_locator(collection)
-
-            if choice is not None:
-                return choice
-
-        return None
+        return self._customer_type_modal_component().find_first_available_choice()
 
     def _find_jenis_pelanggan_continue_button(
         self,
@@ -1298,37 +1120,7 @@ class Dashboard(BasePage):
         visually active while an ancestor is aria-hidden, which can make role
         selectors ignore the live button.
         """
-
-        button_pattern = re.compile(
-            r"^\s*LANJUTKAN\s+PENJUALAN\s*$",
-            re.IGNORECASE,
-        )
-
-        candidates = (
-            self.jenis_pelanggan_modal.locator("button")
-            .filter(has_text=button_pattern)
-            .filter(visible=True),
-            self.jenis_pelanggan_modal.get_by_role(
-                "button",
-                name=button_pattern,
-            ),
-            # Last fallback: visible exact-text button anywhere in the current
-            # portal. The modal visibility checks around the click prevent this
-            # fallback from being used after the flow has already transitioned.
-            self.page.locator("button")
-            .filter(has_text=button_pattern)
-            .filter(visible=True),
-        )
-
-        for collection in candidates:
-            button = self._first_usable_locator(
-                collection,
-                require_enabled=False,
-            )
-            if button is not None:
-                return button
-
-        return None
+        return self._customer_type_modal_component().find_continue_button()
 
     def _continue_jenis_pelanggan_with_confirmation(
         self,
@@ -1345,144 +1137,8 @@ class Dashboard(BasePage):
         This avoids racing a slow target application while still recovering
         when a click was visually performed but not accepted by the app.
         """
-
-        for attempt in range(1, _CUSTOMER_TYPE_CONTINUE_ATTEMPTS + 1):
-            if not self._is_visible(self.jenis_pelanggan_modal):
-                log_print(
-                    "Jenis Pelanggan modal already disappeared; "
-                    "continue action was accepted."
-                )
-                return
-
-            # React may re-render and lose the selected state before the action.
-            if not self._customer_type_is_selected(option_name):
-                log_print(
-                    "Jenis Pelanggan selection is no longer active; "
-                    "re-selecting before continuing."
-                )
-
-                refreshed_choice = (
-                    self._find_named_customer_type_choice(option_name)
-                    if option_name in {"Rumah Tangga", "Usaha Mikro"}
-                    else self._find_first_available_customer_type_choice()
-                )
-                if refreshed_choice is None:
-                    raise RuntimeError(
-                        "Customer-type selection disappeared and could not "
-                        "be located again."
-                    )
-
-                self._select_customer_type_with_confirmation(
-                    option_name,
-                    refreshed_choice,
-                )
-
-            continue_button = self._wait_for_jenis_pelanggan_continue_button()
-            if continue_button is None:
-                raise RuntimeError(
-                    "Jenis Pelanggan is selected, but LANJUTKAN PENJUALAN "
-                    "did not become visible."
-                )
-
-            try:
-                expect(continue_button).to_be_enabled(timeout=15000)
-            except AssertionError as exc:
-                # If the modal vanished while waiting, the previous action won.
-                if not self._is_visible(self.jenis_pelanggan_modal):
-                    return
-                raise RuntimeError(
-                    "LANJUTKAN PENJUALAN remained disabled after selecting "
-                    "Jenis Pelanggan."
-                ) from exc
-
-            # Small stabilization check: ensure the selected state still exists
-            # after the button becomes enabled.
-            if not self._customer_type_is_selected(option_name):
-                log_print(
-                    "Customer type changed while waiting for the continue "
-                    "button; retrying selection."
-                )
-                continue
-
-            log_print(
-                "Clicking LANJUTKAN PENJUALAN from Jenis Pelanggan "
-                f"(attempt {attempt}/{_CUSTOMER_TYPE_CONTINUE_ATTEMPTS})."
-            )
-
-            self._debug_interaction_checkpoint(
-                "customer_type_continue_before_click",
-                target_name="Jenis Pelanggan LANJUTKAN PENJUALAN",
-                target_locator_factory=self._debug_customer_type_continue_collection,
-            )
-            try:
-                continue_button.scroll_into_view_if_needed(timeout=5000)
-
-                expect(continue_button).to_be_visible(timeout=5000)
-
-                expect(continue_button).to_be_enabled(timeout=5000)
-
-                log_print(
-                    "Clicking LANJUTKAN PENJUALAN using direct "
-                    "Playwright locator.click()"
-                )
-
-                continue_button.click(timeout=15000)
-            except (PlaywrightError, AssertionError, TimeoutError) as exc:
-                # A Playwright-side click error does not necessarily mean the
-                # target ignored the action. Check post-state before failing.
-                if self._wait_for_jenis_pelanggan_transition(timeout_ms=3000):
-                    log_print(
-                        "Jenis Pelanggan transitioned despite a click-side "
-                        "exception; treating the action as successful."
-                    )
-                    return
-
-                log_print(
-                    "LANJUTKAN PENJUALAN click did not produce an immediate "
-                    "transition.",
-                    exc,
-                )
-            finally:
-                self._debug_interaction_checkpoint(
-                    "customer_type_continue_after_click",
-                    target_name="Jenis Pelanggan LANJUTKAN PENJUALAN",
-                    target_locator_factory=self._debug_customer_type_continue_collection,
-                )
-                self._debug_poll_interaction_states(
-                    "customer_type_continue_post_click_20s"
-                )
-
-            if self._wait_for_jenis_pelanggan_transition(
-                timeout_ms=_CUSTOMER_TYPE_CONTINUE_RESULT_TIMEOUT_MS
-            ):
-                log_print("Jenis Pelanggan continue action confirmed by UI transition.")
-                return
-
-            followup_state = self._get_customer_type_followup_state()
-
-            if followup_state is not None:
-                log_print(
-                    "Next workflow state detected after Jenis Pelanggan: "
-                    f"{followup_state}"
-                )
-                return
-
-            if not self._is_visible(self.jenis_pelanggan_modal):
-                return
-
-            if attempt < _CUSTOMER_TYPE_CONTINUE_ATTEMPTS:
-                log_print(
-                    "Jenis Pelanggan modal remains the active workflow state "
-                    "after the full post-click wait; reacquiring the button "
-                    "and retrying."
-                )
-
-                self.page.wait_for_timeout(500)
-
-        raise RuntimeError(
-            "LANJUTKAN PENJUALAN from Jenis Pelanggan did not produce "
-            "a state transition after "
-            f"{_CUSTOMER_TYPE_CONTINUE_ATTEMPTS} verified attempts."
+        return self._customer_type_modal_component().continue_with_confirmation(
+            option_name
         )
 
     def _wait_for_jenis_pelanggan_continue_button(
@@ -1490,22 +1146,9 @@ class Dashboard(BasePage):
         timeout_ms: int = 15000,
     ) -> Locator | None:
         """Wait for the live continue button to be rendered in the active modal."""
-
-        elapsed = 0
-        poll_ms = 200
-
-        while elapsed < timeout_ms:
-            if not self._is_visible(self.jenis_pelanggan_modal):
-                return None
-
-            button = self._find_jenis_pelanggan_continue_button()
-            if button is not None and self._is_visible(button):
-                return button
-
-            self.page.wait_for_timeout(poll_ms)
-            elapsed += poll_ms
-
-        return self._find_jenis_pelanggan_continue_button()
+        return self._customer_type_modal_component().wait_for_continue_button(
+            timeout_ms
+        )
 
     def _get_customer_type_followup_state(self) -> str | None:
         """
@@ -1557,39 +1200,9 @@ class Dashboard(BasePage):
         can render the next modal while the previous one is still present during
         its closing transition.
         """
-
-        elapsed = 0
-
-        while elapsed < timeout_ms:
-            followup_state = self._get_customer_type_followup_state()
-
-            if followup_state is not None:
-                log_print(
-                    "Jenis Pelanggan transitioned to next workflow state: "
-                    f"{followup_state}"
-                )
-                return True
-
-            # Normal case: old modal simply disappeared.
-            if not self._is_visible(self.jenis_pelanggan_modal):
-                log_print(
-                    "Jenis Pelanggan modal disappeared; continue action accepted."
-                )
-                return True
-
-            self.page.wait_for_timeout(_CUSTOMER_TYPE_CONTINUE_POLL_MS)
-            elapsed += _CUSTOMER_TYPE_CONTINUE_POLL_MS
-
-        # One final observation at timeout boundary.
-        followup_state = self._get_customer_type_followup_state()
-
-        if followup_state is not None:
-            log_print(
-                f"Jenis Pelanggan transitioned to next workflow state: {followup_state}"
-            )
-            return True
-
-        return not self._is_visible(self.jenis_pelanggan_modal)
+        return self._customer_type_modal_component().wait_for_transition(
+            timeout_ms=timeout_ms
+        )
 
     def _first_usable_locator(
         self,
@@ -1871,6 +1484,7 @@ class Dashboard(BasePage):
         action may later be replaced with Tutup (transaction cannot continue).
 
         Never return "continued" merely because click() returned successfully.
+        At most three Tutup attempts are shared across this entire invocation.
         """
 
         if not self.detect_perbarui_data_nib_pelanggan_if_needed():
@@ -1886,11 +1500,16 @@ class Dashboard(BasePage):
         )
         self._debug_pause("nib_modal_detected")
 
+        # All close paths consume the same budget; helper re-entry cannot reset it.
+        close_attempts = iter(range(1, _NIB_TUTUP_CLICK_ATTEMPTS + 1))
+
         for attempt in range(1, _NIB_CONTINUE_ATTEMPTS + 1):
             # If the server has already changed the modal to the blocker state,
             # close it immediately.
             if self._is_visible(self.perbarui_data_nib_pelanggan_tutup):
-                if self._dismiss_nib_tutup_with_confirmation():
+                if self._dismiss_nib_tutup_with_confirmation(
+                    close_attempts=close_attempts
+                ):
                     return "close"
                 return "cannot_continue"
 
@@ -1907,6 +1526,7 @@ class Dashboard(BasePage):
                 result = self._wait_for_nib_post_click_result(
                     timeout_ms=5000,
                     allow_modal_close=True,
+                    close_attempts=close_attempts,
                 )
                 if result == "close":
                     return "close"
@@ -1959,6 +1579,7 @@ class Dashboard(BasePage):
             result = self._wait_for_nib_post_click_result(
                 timeout_ms=_NIB_POST_CLICK_TIMEOUT_MS,
                 allow_modal_close=True,
+                close_attempts=close_attempts,
             )
 
             if result == "continued":
@@ -1983,10 +1604,9 @@ class Dashboard(BasePage):
                 self.page.wait_for_timeout(500)
 
         # Final defensive check before giving up.
-        if (
-            self._is_visible(self.perbarui_data_nib_pelanggan_tutup)
-            and self._dismiss_nib_tutup_with_confirmation()
-        ):
+        if self._is_visible(
+            self.perbarui_data_nib_pelanggan_tutup
+        ) and self._dismiss_nib_tutup_with_confirmation(close_attempts=close_attempts):
             return "close"
 
         if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
@@ -2000,6 +1620,7 @@ class Dashboard(BasePage):
         *,
         timeout_ms: int,
         allow_modal_close: bool,
+        close_attempts: Iterator[int],
     ) -> Literal["continued", "close", "pending"]:
         """
         Poll the live NIB modal until the server exposes its real result.
@@ -2020,7 +1641,9 @@ class Dashboard(BasePage):
                     ),
                 )
                 self._debug_pause("nib_tutup_detected")
-                if allow_modal_close and self._dismiss_nib_tutup_with_confirmation():
+                if allow_modal_close and self._dismiss_nib_tutup_with_confirmation(
+                    close_attempts=close_attempts,
+                ):
                     return "close"
                 return "pending"
 
@@ -2029,19 +1652,28 @@ class Dashboard(BasePage):
 
         return "pending"
 
-    def _dismiss_nib_tutup_with_confirmation(self) -> bool:
+    def _dismiss_nib_tutup_with_confirmation(
+        self,
+        *,
+        close_attempts: Iterator[int],
+    ) -> bool:
         """
         Click the NIB-specific Tutup button and verify that this exact modal
         actually disappears. Closing is safe to retry because it is not a
         transaction mutation.
         """
 
-        for attempt in range(1, _NIB_TUTUP_CLICK_ATTEMPTS + 1):
+        while True:
             if not self._is_visible(self.perbarui_data_nib_pelanggan_modal):
                 return True
 
             if not self._is_visible(self.perbarui_data_nib_pelanggan_tutup):
                 return False
+
+            # Consume before attempting close, including setup/click exceptions.
+            attempt = next(close_attempts, None)
+            if attempt is None:
+                break
 
             log_print(
                 "Clicking Tutup on 'Segera Lengkapi NIB' "
@@ -2177,48 +1809,24 @@ class Dashboard(BasePage):
         message_detect_log: str = "Detected modal message",
         missing_content_log: str = "Warning modal became visible without the expected title or message.",
     ) -> str | None:
-        try:
-            modal.wait_for(state="visible", timeout=detect_timeout)
-        except TimeoutError:
-            log_print(missing_log)
-            return None
-
-        modal_reason = message_fallback or title_fallback
-        detected_content = False
-
-        if message_locator is not None:
-            try:
-                message_locator.wait_for(state="visible", timeout=1500)
-                modal_reason = message_locator.inner_text().strip() or modal_reason
-                log_print(f"{message_detect_log}: {modal_reason}")
-                detected_content = True
-            except TimeoutError:
-                pass
-
-        if not detected_content and title_locator is not None:
-            try:
-                title_locator.wait_for(state="visible", timeout=1000)
-                modal_title = title_locator.inner_text().strip()
-                modal_reason = modal_title or modal_reason or title_fallback
-                log_print(f"{title_detect_log}: {modal_title}")
-                detected_content = True
-            except TimeoutError:
-                pass
-
-        if not detected_content:
-            log_print(missing_content_log)
-            modal_reason = modal_reason or title_fallback or message_fallback
-
-        return modal_reason
+        return SimpleWarningModal(modal).read_reason(
+            log=log_print,
+            detect_timeout=detect_timeout,
+            missing_log=missing_log,
+            title_locator=title_locator,
+            title_fallback=title_fallback,
+            title_detect_log=title_detect_log,
+            message_locator=message_locator,
+            message_fallback=message_fallback,
+            message_detect_log=message_detect_log,
+            missing_content_log=missing_content_log,
+        )
 
     def _dismiss_simple_warning_modal(self, *, modal, close_button) -> None:
-        self.click_locator(
-            close_button,
-            action_name="closing warning modal",
-            timeout_ms=5000,
-            load_state=None,
+        SimpleWarningModal(modal).dismiss(
+            close_button=close_button,
+            click_locator=self.click_locator,
         )
-        modal.wait_for(state="hidden", timeout=7000)
 
     def _customer_entry_outcome_locator(self):
         return (
@@ -2361,9 +1969,37 @@ class Dashboard(BasePage):
         ):
             return None
 
-        action = self.attempt_continue_perbarui_data_pelanggan()
-        if action == "continued":
+        # The old attempt_continue_* name now aliases the distinct NIB flow.
+        # Keep this compatibility operation scoped to the customer-data modal.
+        action = "close"
+        try:
+            self.click_locator(
+                self.perbarui_data_pelanggan_modal.get_by_role(
+                    "button",
+                    name=re.compile(
+                        r"^\s*nanti saja,\s*lanjut (?:penjualan|transaksi)\s*$",
+                        re.IGNORECASE,
+                    ),
+                ),
+                action_name="continuing past Perbarui Data Pelanggan modal",
+                timeout_ms=2000,
+                load_state=None,
+            )
+            self.perbarui_data_pelanggan_modal.wait_for(state="hidden", timeout=7000)
+            log_print(
+                "Clicked 'NANTI SAJA, LANJUT TRANSAKSI' on 'Perbarui Data Pelanggan'; continuing transaction."
+            )
             return None
+        except TimeoutError, AssertionError:
+            log_print(
+                "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
+            )
+        except Exception as exc:
+            action = "cannot_continue"
+            log_print(
+                "Failed to continue past 'Perbarui Data Pelanggan'; closing modal instead.",
+                exc,
+            )
 
         self.dismiss_perbarui_data_pelanggan_modal()
         self.reset_nik_input_or_return_to_dashboard(

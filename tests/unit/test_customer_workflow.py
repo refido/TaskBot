@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
 
 from nik_parser import load_region_mapping, parse_nik
@@ -93,10 +95,11 @@ class Dashboard:
         if self.on_customer_type is not None:
             self.on_customer_type()
 
-    def continue_perbarui_data_nib_pelanggan(self) -> None:
+    def attempt_continue_perbarui_data_nib_pelanggan(self) -> str:
         self.nib_reminder_calls += 1
         if self.on_nib_reminder is not None:
             self.on_nib_reminder()
+        return "continued"
 
     def read_registration_request_limited_reason_if_present(
         self, detect_timeout=6000
@@ -458,10 +461,109 @@ def test_nib_reminder_continues_once_then_resolves_transaction():
     assert action is PrecheckAction.CONTINUE
     assert service.dashboard.nib_reminder_calls == 1
     assert components[2].calls == 0
+    assert service.dashboard.entry == "transaction_ready"
+    assert service.dashboard.modal is None
+    assert all(component.calls == 0 for component in components)
+    assert service.reporter.skips == []
+    assert service.limiter.skip_calls == 0
     assert [event[1]["event"] for event in service.reporter.events] == [
         "customer_nib_reminder_detected",
         "customer_nib_reminder_continued",
     ]
+
+
+@pytest.mark.parametrize("outcome", ["cannot_continue", "unknown", None])
+def test_nib_unresolved_outcome_is_not_transaction_success(outcome):
+    service, _ = build_live_service()
+    handler = Mock(return_value=outcome)
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = handler
+
+    with pytest.raises(UnexpectedCustomerStateError):
+        service._handle_nib_reminder("3573051108720003", "start")
+
+    handler.assert_called_once_with()
+    assert service.reporter.skips == []
+    assert service.dashboard.reset_calls == []
+
+
+def test_nib_not_present_allows_processing_without_reset_or_skip():
+    service, _ = build_live_service()
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = Mock(
+        return_value="not_present"
+    )
+
+    assert service._handle_nib_reminder("3573051108720003", "start") is False
+    assert service.reporter.skips == []
+    assert service.dashboard.reset_calls == []
+    assert service.limiter.skip_calls == 0
+
+
+def test_nib_close_records_skip_and_resets_without_closing_other_modal():
+    service, components = build_live_service()
+    service.dashboard.modal = "nib_reminder"
+
+    def close_nib():
+        service.dashboard.modal = None
+        return "close"
+
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = Mock(
+        side_effect=close_nib
+    )
+    service.dashboard.dismiss_perbarui_data_pelanggan_modal = Mock()
+    service.reporter.skip_needs_update = Mock()
+
+    assert service.handle_pre_checks("3573051108720003", "start") is PrecheckAction.SKIP
+
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan.assert_called_once_with()
+    service.dashboard.dismiss_perbarui_data_pelanggan_modal.assert_not_called()
+    assert len(service.dashboard.reset_calls) == 1
+    service.reporter.skip_needs_update.assert_called_once_with(
+        "3573051108720003", "start", url=service.page.url,
+        reason=(
+            "Segera Lengkapi NIB blocked the transaction; "
+            "Tutup was clicked and the transaction was skipped."
+        ),
+    )
+    assert service.limiter.skip_calls == 1
+    assert all(component.calls == 0 for component in components)
+    assert [event[1]["event"] for event in service.reporter.events] == [
+        "customer_nib_reminder_detected", "customer_nib_reminder_closed",
+    ]
+
+
+@pytest.mark.parametrize("state", ["session_error", "login", "registration_limit", "other"])
+def test_nib_handler_exception_preserves_session_and_registration_handling(state):
+    service, _ = build_live_service(
+        login_page_detector=lambda *_args, **_kwargs: state == "login"
+    )
+    error = SessionExpiredError("expired") if state == "session_error" else RuntimeError("click race")
+
+    def fail():
+        if state == "registration_limit":
+            service.dashboard.modal = "registration_request_limited"
+        raise error
+
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = Mock(side_effect=fail)
+
+    if state == "registration_limit":
+        assert service._handle_nib_reminder("3573051108720003", "start") is True
+        assert service.dashboard.registration_request_limit_close_calls == 1
+        assert len(service.dashboard.reset_calls) == 1
+        assert len(service.reporter.skips) == 1
+        assert service.reporter.skips[0][2] == "registration_request_limited"
+        assert service.limiter.skip_calls == 1
+    else:
+        expected = SessionExpiredError if state in {"session_error", "login"} else RuntimeError
+        with pytest.raises(expected) as caught:
+            service._handle_nib_reminder("3573051108720003", "start")
+        if state == "login":
+            assert caught.value.__cause__ is error
+        else:
+            assert caught.value is error
+        assert service.reporter.skips == []
+        assert service.dashboard.reset_calls == []
+
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan.assert_called_once_with()
 
 
 def test_blocker_beats_stale_optional_workflow_state():

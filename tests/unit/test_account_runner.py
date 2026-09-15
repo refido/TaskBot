@@ -1,4 +1,8 @@
+import sys
 from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
+
+import pytest
 
 from src.application.services.account_runner import AccountRunner
 from src.application.use_cases.process_account import process_account, process_accounts
@@ -8,6 +12,7 @@ from src.infrastructure.browser.playwright_session import (
 from src.orchestration.browser_session import (
     BrowserSession as OrchestrationBrowserSession,
 )
+from src.web.reporter import TransactionReporter
 
 
 class FakeBoundLogger:
@@ -116,6 +121,382 @@ class PartiallyFailingProcessor(FakeProcessor):
         self.process_calls += 1
         self.reporter.record_terminal_rows(125)
         raise RuntimeError("browser session lost")
+
+
+@pytest.mark.parametrize("stage,prior", [
+    ("write", None), ("write", "process"), ("sync", None), ("sync", "write"),
+    ("close", None), ("close", "write"), ("summary", None), ("summary", "write"),
+])
+@pytest.mark.parametrize("log_stage", ["bind", "exception"])
+def test_finalization_logging_keeps_outcome_and_cleanup(finalization_case, monkeypatch, stage, prior, log_stage):
+    case = finalization_case(failures=tuple(s for s in (prior, stage) if s))
+    event = {
+        "write": "account.report_write_error", "sync": "account.report_db_sync_error",
+        "close": "account.report_db_close_error", "summary": "account.report_summary_error",
+    }[stage]
+    log = case.runner.logger
+    original_bind, original_exception = log.bind, log.exception
+    failure = RuntimeError("logger failed")
+
+    def bind(**context):
+        if context.get("event") == event and log_stage == "bind":
+            raise failure
+        return original_bind(**context)
+
+    def exception(message):
+        if log.last_bind["event"] == event and log_stage == "exception":
+            raise failure
+        original_exception(message)
+
+    monkeypatch.setattr(log, "bind", bind)
+    monkeypatch.setattr(log, "exception", exception)
+    expected = None if prior == "process" or (stage == "sync" and prior is None) else case.errors[prior or stage]
+    if expected:
+        with pytest.raises(type(expected)) as caught:
+            case.runner._run_with_context(case.config, "operator_01")
+        assert caught.value is expected
+    else:
+        assert case.runner._run_with_context(case.config, "operator_01") == ("operator_01", False)
+    assert case.events[-5:] == ["write", "flush", "sync", "close", "summary"]
+    case.syncer.close.assert_called_once_with()
+    assert case.runner.outcome["persistence_status"] == "failed"
+
+
+@pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
+def test_finalization_logger_fatal_interruption_still_propagates(finalization_case, monkeypatch, fatal_type):
+    case = finalization_case(failures=("write",))
+    interruption = fatal_type("logging interrupted")
+    monkeypatch.setattr(case.runner.logger, "exception", Mock(side_effect=interruption))
+    with pytest.raises(fatal_type) as caught:
+        case.runner._run_with_context(case.config, "operator_01")
+    assert caught.value is interruption
+    case.syncer.close.assert_not_called()
+
+
+@pytest.fixture
+def finalization_case():
+    def build(*, mode="batch", failures=()):
+        events = []
+        errors = {stage: RuntimeError(f"{stage} failed") for stage in failures}
+
+        def action(stage):
+            events.append(stage)
+            if stage in errors:
+                raise errors[stage]
+
+        reporter = SimpleNamespace(
+            write_files=Mock(side_effect=lambda: action("write")),
+            print_summary=Mock(side_effect=lambda: action("summary")),
+        )
+        syncer = Mock(side_effect=lambda *args: action("sync"))
+        syncer.close = Mock(side_effect=lambda: action("close"))
+        if mode == "batch":
+            reporter.configure_batch_sync = Mock()
+
+            def flush():
+                action("flush")
+                syncer(reporter, ("terminal-row",))
+
+            reporter.flush_pending_batches = Mock(side_effect=flush)
+
+        session = MagicMock()
+        session.__enter__.return_value = session
+        session.__exit__.side_effect = lambda *args: action("browser_exit") or False
+        session.initialize_session.side_effect = lambda: action("initialize")
+        session.require_page.return_value = "fake-page"
+        processor = SimpleNamespace(
+            process_all_niks=Mock(side_effect=lambda: action("process"))
+        )
+        log_sink = []
+        logger = FakeBoundLogger(log_sink)
+        logged_errors = []
+        original_exception = logger.exception
+
+        def log_exception(message):
+            logged_errors.append((logger.last_bind["event"], sys.exception()))
+            original_exception(message)
+
+        logger.exception = log_exception
+        runner = AccountRunner(
+            reporter_factory=lambda **kwargs: reporter,
+            limiter_factory=FakeLimiter,
+            browser_session_factory=lambda config: session,
+            transaction_processor_factory=lambda *args: processor,
+            report_syncer=None if mode == "disabled" else syncer,
+            logger=logger,
+        )
+        return SimpleNamespace(
+            runner=runner,
+            config=SimpleNamespace(operator_id="operator_01", nik=["3174"]),
+            reporter=reporter,
+            syncer=syncer,
+            events=events,
+            errors=errors,
+            logged_errors=logged_errors,
+            log_sink=log_sink,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("mode", ["batch", "legacy"])
+def test_write_files_failure_still_final_syncs_and_closes(finalization_case, mode):
+    case = finalization_case(mode=mode, failures=("write",))
+
+    with pytest.raises(RuntimeError) as caught:
+        case.runner.run(case.config)
+
+    assert caught.value is case.errors["write"]
+    # The original implementation stopped at write, skipping both sync and close.
+    assert case.events == [
+        "initialize", "process", "browser_exit", "write",
+        *(["flush"] if mode == "batch" else []), "sync", "close", "summary",
+    ]
+    assert case.syncer.call_count == 1
+    case.syncer.close.assert_called_once_with()
+    if mode == "batch":
+        case.reporter.flush_pending_batches.assert_called_once_with()
+
+
+@pytest.mark.parametrize("mode", ["batch", "legacy"])
+@pytest.mark.parametrize(
+    ("failures", "raised_stage"),
+    [
+        ((), None),
+        (("sync",), None),
+        (("close",), "close"),
+        (("write", "sync"), "write"),
+        (("sync", "close"), None),
+        (("write", "sync", "close"), "write"),
+        (("process",), None),
+        (("process", "write", "sync", "close"), None),
+        (("summary",), "summary"),
+        (("write", "summary"), "write"),
+        (("close", "summary"), "close"),
+        (("process", "write", "sync", "close", "summary"), None),
+    ],
+)
+def test_finalization_order_and_first_failure_contract(
+    finalization_case, mode, failures, raised_stage
+):
+    case = finalization_case(mode=mode, failures=failures)
+
+    if raised_stage:
+        with pytest.raises(RuntimeError) as caught:
+            case.runner.run(case.config)
+        assert caught.value is case.errors[raised_stage]
+    else:
+        assert case.runner.run(case.config) == ("operator_01", not failures)
+
+    assert case.events == [
+        "initialize", "process", "browser_exit", "write",
+        *(["flush"] if mode == "batch" else []), "sync", "close", "summary",
+    ]
+    case.reporter.write_files.assert_called_once_with()
+    case.reporter.print_summary.assert_called_once_with()
+    case.syncer.close.assert_called_once_with()
+    if mode == "batch":
+        case.reporter.flush_pending_batches.assert_called_once_with()
+        case.syncer.assert_called_once_with(case.reporter, ("terminal-row",))
+    else:
+        case.syncer.assert_called_once_with(case.reporter)
+
+    error_events = {
+        "process": "account.run.fatal_error",
+        "write": "account.report_write_error",
+        "sync": "account.report_db_sync_error",
+        "close": "account.report_db_close_error",
+        "summary": "account.report_summary_error",
+    }
+    # Primary and secondary errors remain observable with their original objects.
+    assert case.logged_errors == [
+        (error_events[stage], case.errors[stage]) for stage in failures
+    ]
+    assert case.log_sink[-1][1] == {
+        "event": "account.run.finished",
+        "operator_id": "operator_01",
+        "success": not failures,
+        "status": "failed" if failures else "completed",
+        "execution_status": "failed" if "process" in failures else "completed",
+        "persistence_status": (
+            "failed" if set(failures) & {"write", "sync", "close", "summary"} else "successful"
+        ),
+        "transaction_status": None,  # This legacy test double exposes no terminal rows.
+    }
+
+
+@pytest.mark.parametrize("failures", [("flush",), ("write", "flush", "close")])
+def test_flush_failure_still_closes_once_without_legacy_sync_fallback(
+    finalization_case, failures
+):
+    case = finalization_case(failures=failures)
+
+    if "write" in failures:
+        with pytest.raises(RuntimeError) as caught:
+            case.runner.run(case.config)
+        assert caught.value is case.errors["write"]
+    else:
+        assert case.runner.run(case.config) == ("operator_01", False)
+
+    case.reporter.flush_pending_batches.assert_called_once_with()
+    case.syncer.assert_not_called()
+    case.syncer.close.assert_called_once_with()
+    case.reporter.print_summary.assert_called_once_with()
+    assert ("account.report_db_sync_error", case.errors["flush"]) in case.logged_errors
+
+
+@pytest.mark.parametrize("failure_stage", ["initialize", "browser_exit"])
+def test_account_level_failure_remains_primary_through_finalization(
+    finalization_case, failure_stage
+):
+    case = finalization_case(failures=(failure_stage, "write", "sync", "close"))
+
+    assert case.runner.run(case.config) == ("operator_01", False)
+
+    assert case.logged_errors[0] == (
+        "account.run.fatal_error", case.errors[failure_stage]
+    )
+    assert len(case.logged_errors) == 4
+    case.reporter.write_files.assert_called_once_with()
+    case.reporter.flush_pending_batches.assert_called_once_with()
+    case.syncer.assert_called_once_with(case.reporter, ("terminal-row",))
+    case.syncer.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize("failures", [(), ("write",), ("process", "write")])
+def test_finalization_with_db_sync_disabled(finalization_case, failures):
+    case = finalization_case(mode="disabled", failures=failures)
+
+    if failures == ("write",):
+        with pytest.raises(RuntimeError) as caught:
+            case.runner.run(case.config)
+        assert caught.value is case.errors["write"]
+    else:
+        assert case.runner.run(case.config) == ("operator_01", not failures)
+
+    assert case.events == ["initialize", "process", "browser_exit", "write", "summary"]
+    case.syncer.assert_not_called()
+    case.syncer.close.assert_not_called()
+    case.reporter.write_files.assert_called_once_with()
+    case.reporter.print_summary.assert_called_once_with()
+
+
+@pytest.mark.parametrize("mode", ["batch", "legacy"])
+def test_finalization_supports_syncer_without_close(finalization_case, mode):
+    case = finalization_case(mode=mode, failures=("write",))
+
+    def sync_without_close(*args):
+        case.syncer(*args)
+
+    case.runner.report_syncer = sync_without_close
+    with pytest.raises(RuntimeError) as caught:
+        case.runner.run(case.config)
+
+    assert caught.value is case.errors["write"]
+    assert case.syncer.call_count == 1
+    case.syncer.close.assert_not_called()
+    case.reporter.print_summary.assert_called_once_with()
+
+
+@pytest.mark.parametrize("processing_fails", [False, True])
+def test_finalization_flushes_real_reporter_pending_row_after_write_failure(
+    monkeypatch, tmp_path, processing_fails
+):
+    reporter = TransactionReporter(out_dir=str(tmp_path), operator_id="operator_01")
+    events = []
+    write_error = OSError("final snapshot unavailable")
+
+    def sync(*args):
+        events.append("db_attempt")
+        if events.count("db_attempt") == 1:
+            raise RuntimeError("DB temporarily unavailable")
+
+    syncer = Mock(side_effect=sync)
+    syncer.close = Mock(side_effect=lambda: events.append("close"))
+
+    def process():
+        reporter.complete("3174", reporter.start_item("3174"), puzzle_solved=True)
+        assert reporter._pending_batch_rows == reporter.rows
+        if processing_fails:
+            raise RuntimeError("processing interrupted after terminal row")
+
+    def write_files():
+        events.append("write")
+        raise write_error
+
+    monkeypatch.setattr(reporter, "write_files", Mock(side_effect=write_files))
+    monkeypatch.setattr(reporter, "print_summary", Mock())
+    flush = Mock(wraps=reporter.flush_pending_batches)
+    monkeypatch.setattr(reporter, "flush_pending_batches", flush)
+    runner = AccountRunner(
+        reporter_factory=lambda **kwargs: reporter,
+        limiter_factory=FakeLimiter,
+        browser_session_factory=FakeSession,
+        transaction_processor_factory=lambda *args: SimpleNamespace(process_all_niks=process),
+        report_syncer=syncer,
+        logger=FakeBoundLogger([]),
+    )
+    config = SimpleNamespace(operator_id="operator_01", nik=["3174"])
+
+    if processing_fails:
+        assert runner.run(config) == ("operator_01", False)
+    else:
+        with pytest.raises(OSError) as caught:
+            runner.run(config)
+        assert caught.value is write_error
+
+    assert events == ["db_attempt", "write", "db_attempt", "close"]
+    flush.assert_called_once_with()
+    syncer.close.assert_called_once_with()
+    # One failed per-row sync and one final retry; no extra final sync or new row.
+    assert len(reporter.rows) == 1
+    assert reporter.rows[0].status == "completed"
+    assert reporter._pending_batch_rows == []
+    assert [call.args for call in syncer.call_args_list] == [
+        (reporter, (reporter.rows[0],)), (reporter, (reporter.rows[0],)),
+    ]
+    assert len(reporter.jsonl_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    ("statuses", "clean"),
+    [
+        (["completed"], True),
+        (["error"], False),
+        (["failed_puzzle_solve"], False),
+        (["skipped_out_of_stock"], False),
+        ([], False),
+    ],
+)
+def test_account_return_remains_a_tuple_with_clean_success_semantics(finalization_case, statuses, clean):
+    case = finalization_case()
+    case.reporter.rows = [SimpleNamespace(nik="3174", status=status) for status in statuses]
+
+    result = case.runner.run(case.config)
+
+    assert type(result) is tuple
+    assert result == ("operator_01", clean)
+    assert case.runner.outcome["execution_status"] == "completed"
+    assert case.runner.outcome["persistence_status"] == "successful"
+    assert case.runner.outcome["status"] == ("completed" if clean else "completed_with_errors")
+    case.reporter.flush_pending_batches.assert_called_once_with()
+    case.syncer.close.assert_called_once_with()
+
+
+def test_transaction_error_does_not_suppress_primary_finalization_exception(finalization_case):
+    case = finalization_case(failures=("write", "sync", "close"))
+    case.reporter.rows = [SimpleNamespace(nik="3174", status="error")]
+
+    with pytest.raises(RuntimeError) as caught:
+        case.runner.run(case.config)
+
+    assert caught.value is case.errors["write"]
+    assert case.runner.outcome["status"] == "failed"
+    assert case.runner.outcome["transaction_status"] == "completed_with_errors"
+    assert case.runner.outcome["execution_status"] == "completed"
+    assert case.runner.outcome["persistence_status"] == "failed"
+    case.reporter.flush_pending_batches.assert_called_once_with()
+    case.syncer.close.assert_called_once_with()
 
 
 def test_browser_session_shim_reexports_infrastructure_session():

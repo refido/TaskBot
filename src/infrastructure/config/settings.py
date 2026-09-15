@@ -24,6 +24,14 @@ class AppSettings:
     accounts: tuple[AccountSettings, ...]
     headless: bool = True
     mask_nik: bool = True
+    max_concurrent_accounts: int | None = None
+
+    def __post_init__(self) -> None:
+        limit = self.max_concurrent_accounts
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+        ):
+            raise ValueError("MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset.")
 
     @classmethod
     def from_env(
@@ -44,6 +52,9 @@ class AppSettings:
             accounts=accounts,
             headless=cls._parse_headless(source.get("HEADLESS", "")),
             mask_nik=cls._parse_mask(source.get("MASK", "")),
+            max_concurrent_accounts=cls._parse_max_concurrent_accounts(
+                source.get("MAX_CONCURRENT_ACCOUNTS", "")
+            ),
         )
 
     def primary_account(self) -> AccountSettings | None:
@@ -57,7 +68,17 @@ class AppSettings:
             accounts=(account,),
             headless=self.headless,
             mask_nik=self.mask_nik,
+            max_concurrent_accounts=self.max_concurrent_accounts,
         )
+
+    @staticmethod
+    def _parse_max_concurrent_accounts(raw_value: str) -> int | None:
+        normalized = raw_value.strip()
+        if not normalized:
+            return None  # Preserve existing deployments unless a cap is configured.
+        if re.fullmatch(r"[0-9]+", normalized) is None:
+            raise ValueError("MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset.")
+        return int(normalized)
 
     @classmethod
     def _load_accounts(cls, environ: Mapping[str, str]) -> list[AccountSettings]:

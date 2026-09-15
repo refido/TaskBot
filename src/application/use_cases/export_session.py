@@ -162,6 +162,7 @@ def run_user_session_export(
         json_log_path=logging_meta["json_log_path"],
     ).info("User session export started")
 
+    operation_failed = False
     try:
         artifacts, failed_operators, output_dir = export_configured_sessions(
             config,
@@ -180,7 +181,14 @@ def run_user_session_export(
         ).info("User session export finished")
 
         return 1 if failed_operators else 0
+    except BaseException:
+        operation_failed = True
+        raise
     finally:
-        complete = getattr(log, "complete", None)
-        if callable(complete):
-            complete()
+        try:
+            complete = getattr(log, "complete", None)
+            if callable(complete):
+                complete()
+        except Exception:
+            if not operation_failed:
+                raise

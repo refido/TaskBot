@@ -1,3 +1,4 @@
+from contextlib import suppress
 from types import TracebackType
 from typing import Self
 
@@ -40,10 +41,14 @@ class PlaywrightSession:
             raise ValueError("TASKBOT_INTERACTION_PAUSE requires HEADLESS=FALSE.")
 
     def __enter__(self) -> Self:
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.firefox.launch(headless=self.config.headless)
-        self.context = self.browser.new_context()
-        self.page = self.context.new_page()
+        try:
+            self.playwright = sync_playwright().start()
+            self.browser = self.playwright.firefox.launch(headless=self.config.headless)
+            self.context = self.browser.new_context()
+            self.page = self.context.new_page()
+        except BaseException:  # __exit__ is not called when startup fails.
+            self._cleanup(context_manager_failed=True)
+            raise
         return self
 
     def __exit__(
@@ -52,51 +57,58 @@ class PlaywrightSession:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        try:
-            if self.interaction_diagnostics:
-                self.interaction_diagnostics.stop(
-                    context_manager_failed=exc_type is not None
-                )
-        except Exception as exc:  # noqa: BLE001 - cleanup must not mask the original failure.
-            logger.bind(
-                event="browser.session.cleanup_failed",
-                resource="interaction_diagnostics",
-                error_type=type(exc).__name__,
-            ).debug("Failed to stop interaction diagnostics")
-        finally:
-            self.interaction_diagnostics = None
+        self._cleanup(context_manager_failed=exc_type is not None)
 
-        del exc_type, exc_val, exc_tb
-
+    def _cleanup(self, *, context_manager_failed: bool) -> None:
+        # Detach each owned resource before teardown so repeated cleanup cannot retry it.
+        diagnostics, self.interaction_diagnostics = self.interaction_diagnostics, None
         try:
-            if self.context:
-                self.context.close()
+            if diagnostics is not None:
+                diagnostics.stop(context_manager_failed=context_manager_failed)
         except Exception as exc:  # noqa: BLE001 - cleanup must not mask the original failure.
-            logger.bind(
-                event="browser.session.cleanup_failed",
-                resource="context",
-                error_type=type(exc).__name__,
-            ).debug("Failed to close browser context")
-
+            with suppress(Exception):  # Cleanup error reporting is best-effort.
+                logger.bind(
+                    event="browser.session.cleanup_failed",
+                    resource="interaction_diagnostics",
+                    error_type=type(exc).__name__,
+                ).debug("Failed to stop interaction diagnostics")
+        # The context owns its pages; closing it handles page teardown as before.
+        self.page = None
+        context, self.context = self.context, None
         try:
-            if self.browser:
-                self.browser.close()
+            if context is not None:
+                context.close()
         except Exception as exc:  # noqa: BLE001 - cleanup must not mask the original failure.
-            logger.bind(
-                event="browser.session.cleanup_failed",
-                resource="browser",
-                error_type=type(exc).__name__,
-            ).debug("Failed to close browser")
+            with suppress(Exception):  # Cleanup error reporting is best-effort.
+                logger.bind(
+                    event="browser.session.cleanup_failed",
+                    resource="context",
+                    error_type=type(exc).__name__,
+                ).debug("Failed to close browser context")
 
+        browser, self.browser = self.browser, None
         try:
-            if self.playwright:
-                self.playwright.stop()
+            if browser is not None:
+                browser.close()
         except Exception as exc:  # noqa: BLE001 - cleanup must not mask the original failure.
-            logger.bind(
-                event="browser.session.cleanup_failed",
-                resource="playwright",
-                error_type=type(exc).__name__,
-            ).debug("Failed to stop Playwright")
+            with suppress(Exception):  # Cleanup error reporting is best-effort.
+                logger.bind(
+                    event="browser.session.cleanup_failed",
+                    resource="browser",
+                    error_type=type(exc).__name__,
+                ).debug("Failed to close browser")
+
+        playwright, self.playwright = self.playwright, None
+        try:
+            if playwright is not None:
+                playwright.stop()
+        except Exception as exc:  # noqa: BLE001 - cleanup must not mask the original failure.
+            with suppress(Exception):  # Cleanup error reporting is best-effort.
+                logger.bind(
+                    event="browser.session.cleanup_failed",
+                    resource="playwright",
+                    error_type=type(exc).__name__,
+                ).debug("Failed to stop Playwright")
 
     def require_page(self) -> Page:
         if not self.page:

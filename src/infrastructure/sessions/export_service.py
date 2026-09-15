@@ -181,10 +181,18 @@ def read_sqlite_cookie_rows(cookie_db_path: Path) -> list[dict[str, Any]]:
 
     connection = sqlite3.connect(cookie_db_path)
     connection.row_factory = sqlite3.Row
+    operation_failed = False
     try:
         rows = [dict(row) for row in connection.execute(query).fetchall()]
+    except BaseException:
+        operation_failed = True
+        raise
     finally:
-        connection.close()
+        try:
+            connection.close()
+        except Exception:
+            if not operation_failed:
+                raise
 
     return rows
 
@@ -441,6 +449,7 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             headless=config.headless,
         )
 
+        operation_failed = False
         try:
             page = context.pages[0] if context.pages else context.new_page()
             page.context.set_default_timeout(10000)
@@ -495,8 +504,15 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
                     paths["profile_dir"] / "Default" / "Network" / "Cookies"
                 ).resolve(),
             }
+        except BaseException:
+            operation_failed = True
+            raise
         finally:
-            context.close()
+            try:
+                context.close()
+            except Exception:
+                if not operation_failed:
+                    raise
 
     cookie_db_path = paths["profile_dir"] / "Default" / "Network" / "Cookies"
     sqlite_rows = build_enriched_sqlite_rows(read_sqlite_cookie_rows(cookie_db_path))
