@@ -1,4 +1,4 @@
-"""Characterize read-only Reporter projections before extracting their logic."""
+"""Canonical row projections and the supported Reporter adapter contracts."""
 
 from copy import deepcopy
 from inspect import signature
@@ -7,12 +7,11 @@ from unittest.mock import Mock
 
 import pytest
 
-import src.privacy as privacy
+from src import privacy
 from src.infrastructure.reporting import row_queries
 from src.infrastructure.reporting.models import TransactionRow
 from src.privacy import nik_masking_enabled, set_nik_masking
 from src.web.reporter import TransactionReporter
-
 
 N1 = "1111111234222222"
 N2 = "3333335678444444"
@@ -42,11 +41,9 @@ def reporter_for(rows):
     return reporter
 
 
-@pytest.fixture(params=("reporter", "direct"))
-def query(request):
-    if request.param == "direct":
-        return lambda name, rows: getattr(row_queries, name)(rows)
-    return lambda name, rows: getattr(reporter_for(rows), name)()
+@pytest.fixture
+def query():
+    return lambda name, rows: getattr(row_queries, name)(rows)
 
 
 def mixed_rows():
@@ -192,6 +189,12 @@ def test_parsing_reason_sanitization_at_query_time(query, monkeypatch):
 def test_reporter_reads_current_history_after_replacement_and_mutation(name):
     reporter = reporter_for(mixed_rows())
     assert_ordered_equal(getattr(reporter, name)(), EXPECTED[name])
+    set_nik_masking(True)
+    masked = getattr(reporter, name)()
+    assert_ordered_equal(masked, getattr(row_queries, name)(reporter.rows))
+    assert masked != EXPECTED[name]
+    set_nik_masking(False)
+    assert_ordered_equal(getattr(reporter, name)(), EXPECTED[name])
     reporter.rows = []
     empty = {"total": 0, "by_reason": {}} if name == QUERIES[-1] else {}
     assert getattr(reporter, name)() == empty
@@ -219,6 +222,11 @@ def test_reporter_delegates_current_history_without_copying(name, monkeypatch):
     assert getattr(reporter_for(rows), name)() is result
     projection.assert_called_once_with(rows)
     assert projection.call_args.args[0] is rows
+    failure = RuntimeError("projection unavailable")
+    projection.side_effect = failure
+    with pytest.raises(RuntimeError) as raised:
+        getattr(reporter_for(rows), name)()
+    assert raised.value is failure
 
 
 @pytest.mark.parametrize("name", QUERIES)

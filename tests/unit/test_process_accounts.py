@@ -1,12 +1,12 @@
 """Controlled account scheduling; no wall-clock sleeps or real browsers."""
 
+import importlib
 from collections import Counter
 from functools import partial
 from queue import Queue
 from threading import Event, Lock, Thread, get_ident
 from types import SimpleNamespace
 from unittest.mock import Mock
-import importlib
 
 import pytest
 

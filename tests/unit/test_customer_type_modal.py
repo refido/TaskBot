@@ -9,7 +9,6 @@ from playwright.sync_api import Error, TimeoutError
 from src.infrastructure.browser.page_objects import dashboard_page
 from src.web.session_state import SessionExpiredError
 
-
 HOUSEHOLD = "Rumah Tangga"
 MICRO = "Usaha Mikro"
 
@@ -202,14 +201,10 @@ def test_absent_modal(ui):
     assert not ui.clicks()
 
 
-@pytest.mark.parametrize("mode", ["select", "native_selected", "visual_selected"])
-def test_selection_and_continue_success(ui, mode):
-    if mode != "select":
-        ui.selected = HOUSEHOLD
-        ui.visual_only = mode == "visual_selected"
+def test_selection_and_continue_success(ui):
     assert ui.dashboard.select_jenis_pelanggan_if_needed() is True
     assert ui.selected == HOUSEHOLD and ui.followup == "transaction_ready"
-    assert [e[0] for e in ui.clicks()] == (["label", "button"] if mode == "select" else ["button"])
+    assert [e[0] for e in ui.clicks()] == ["label", "button"]
     assert ("customer_type_radio_confirmed", None) in ui.diagnostics
     assert ui.polls == ["customer_type_continue_post_click_20s"]
 
@@ -224,12 +219,6 @@ def test_option_priority_and_generic_fallback(ui, options, expected):
     else:
         ui.dashboard.select_jenis_pelanggan()
         assert ui.selected == expected
-
-
-def test_named_option_native_fallback(ui):
-    ui.label_visible = False
-    ui.dashboard.select_jenis_pelanggan()
-    assert ui.clicks()[0][:3] == ("radio", "click", HOUSEHOLD)
 
 
 def test_missing_options_are_not_polled(ui):
@@ -259,24 +248,6 @@ def test_continue_observes_transition_without_acting_on_other_domain(ui, next_st
     assert ui.followup == next_state if next_state != "disappeared" else not ui.visible
 
 
-def test_selection_confirmation_retry_bound(ui):
-    ui.selection_works = False
-    with pytest.raises(RuntimeError, match="after 3 attempts"):
-        ui.dashboard.select_jenis_pelanggan()
-    assert ui.clicks() == [("label", "click", HOUSEHOLD, 5000)] * 3
-    assert ui.elapsed == 3 * 5000 + 2 * 300
-    assert ui.diagnostics.count(("customer_type_radio_after_click", None)) == 3
-
-
-@pytest.mark.parametrize("kind", ["label", "button"])
-def test_playwright_click_error_followed_by_observable_success(ui, kind):
-    ui.errors[kind] = Error("click failed after effect")
-    ui.dashboard.select_jenis_pelanggan()
-    assert ui.followup == "transaction_ready"
-    assert len(ui.clicks()) == 2
-    assert any(label.endswith("after_click") for label, _ in ui.diagnostics)
-
-
 @pytest.mark.parametrize("error", [ValueError("unexpected"), SessionExpiredError("session")])
 @pytest.mark.parametrize("kind", ["label", "button"])
 def test_unexpected_or_session_error_preserves_identity_and_finally_diagnostics(ui, kind, error):
@@ -288,32 +259,22 @@ def test_unexpected_or_session_error_preserves_identity_and_finally_diagnostics(
     assert any(label == f"customer_type_{suffix}_after_click" for label, _ in ui.diagnostics)
 
 
-@pytest.mark.parametrize("mode", ["unresolved", "unknown", "click_timeout"])
-def test_continue_retry_bound(ui, mode):
-    ui.continue_works = mode == "unknown"
+def test_continue_click_timeout_retry_bound(ui):
+    ui.continue_works = False
     ui.next_state = "unknown"
-    if mode == "click_timeout":
-        ui.errors["button"] = TimeoutError("click timeout")
+    ui.errors["button"] = TimeoutError("click timeout")
     with pytest.raises(RuntimeError, match="3 verified attempts"):
         ui.dashboard.select_jenis_pelanggan()
     assert sum(e[0] == "button" for e in ui.clicks()) == 3
-    assert ui.elapsed == 61000 + (9000 if mode == "click_timeout" else 0)
+    assert ui.elapsed == 70000
     assert len(ui.polls) == 3
 
 
-@pytest.mark.parametrize("mode", ["missing", "disabled", "portal"])
-def test_continue_button_availability(ui, mode):
-    ui.button_visible = mode == "disabled"
-    ui.portal_button = mode == "portal"
-    ui.enabled = mode != "disabled"
-    if mode == "portal":
-        ui.dashboard.select_jenis_pelanggan()
-        assert ui.clicks()[-1][0] == "portal_button"
-    else:
-        with pytest.raises(RuntimeError, match="disabled" if mode == "disabled" else "did not become visible"):
-            ui.dashboard.select_jenis_pelanggan()
-        assert len(ui.clicks()) == 1
-        assert ui.elapsed == (15000 if mode == "missing" else 0)
+def test_continue_button_portal_fallback(ui):
+    ui.button_visible = False
+    ui.portal_button = True
+    ui.dashboard.select_jenis_pelanggan()
+    assert ui.clicks()[-1][0] == "portal_button"
 
 
 def test_continue_reselects_lost_selection(ui):
@@ -329,7 +290,9 @@ def test_repeated_invocation_after_modal_disappears(ui):
 
 
 def make_component(ui):
-    from src.infrastructure.browser.page_objects.customer_type_modal import CustomerTypeModal
+    from src.infrastructure.browser.page_objects.customer_type_modal import (
+        CustomerTypeModal,
+    )
 
     def first_usable(collection, *, require_enabled=True):
         for index in range(collection.count()):
@@ -370,12 +333,17 @@ def test_component_selection(ui, scenario):
         if error:
             assert caught.value is error
         else:
-            assert len(ui.clicks()) == 3 and ui.elapsed == 15600
+            assert "after 3 attempts" in str(caught.value)
+            assert ui.clicks() == [("label", "click", HOUSEHOLD, 5000)] * 3
+            assert ui.elapsed == 3 * 5000 + 2 * 300
+            assert ui.diagnostics.count(("customer_type_radio_after_click", None)) == 3
     else:
         assert component.select_with_confirmation(HOUSEHOLD, ui.choice) is None
         assert component.is_selected(HOUSEHOLD)
         assert len(ui.clicks()) == (0 if scenario.endswith("selected") else 1)
         assert ui.elapsed == (400 if scenario == "delayed" else 0)
+    if error:
+        assert ("customer_type_radio_after_click", None) in ui.diagnostics
 
 
 @pytest.mark.parametrize("scenario", ["label", "native", "missing", "delayed", "generic"])
@@ -393,6 +361,9 @@ def test_component_option_lookup(ui, scenario):
         assert choice is None
     else:
         assert choice.kind == ("radio" if scenario == "native" else "label")
+        if scenario == "native":
+            component.select_with_confirmation(HOUSEHOLD, choice)
+            assert ui.clicks()[0][:3] == ("radio", "click", HOUSEHOLD)
     if scenario == "generic":
         choice = component.find_first_available_choice()
         component.select_with_confirmation("first visible/enabled customer type", choice)
@@ -426,15 +397,23 @@ def test_component_continue(ui, scenario):
         ui.selected = None
         ui.options = []
     if scenario in {"button_missing", "disabled", "pending", "unknown", "selection_missing"}:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError) as caught:
             component.continue_with_confirmation(HOUSEHOLD)
         assert len(ui.clicks()) == (3 if scenario in {"pending", "unknown"} else 0)
         if scenario in {"pending", "unknown"}:
+            assert "3 verified attempts" in str(caught.value)
             assert ui.elapsed == 61000
+            assert len(ui.polls) == 3
+        elif scenario in {"button_missing", "disabled"}:
+            assert ("disabled" if scenario == "disabled" else "did not become visible") in str(caught.value)
+            assert ui.elapsed == (15000 if scenario == "button_missing" else 0)
     else:
         assert component.continue_with_confirmation(HOUSEHOLD) is None
         assert len(ui.clicks()) == (0 if scenario == "absent" else 1)
         assert ui.elapsed == (750 if scenario == "delayed" else 600 if scenario == "button_late" else 0)
+        if scenario == "click_error":
+            assert ui.followup == "transaction_ready"
+            assert any(label == "customer_type_continue_after_click" for label, _ in ui.diagnostics)
 
 
 def test_component_final_timeout_boundary_observation(ui):
@@ -448,7 +427,10 @@ def test_component_final_timeout_boundary_observation(ui):
 
 def test_dashboard_adapters_resolve_current_dependencies(ui, monkeypatch):
     from unittest.mock import Mock
-    from src.infrastructure.browser.page_objects.customer_type_modal import CustomerTypeModal
+
+    from src.infrastructure.browser.page_objects.customer_type_modal import (
+        CustomerTypeModal,
+    )
 
     original = CustomerTypeModal.find_named_choice
     seen = []

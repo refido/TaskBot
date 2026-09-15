@@ -11,16 +11,46 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 import main as taskbot_main
+from src.infrastructure.database import report_syncer
 from src.infrastructure.database.operator_store import OperatorDatabaseManager
 from src.web.reporter import TransactionRow
+
+
+@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("log_stage", ["bind", "exception"])
+def test_one_off_cleanup_logging_preserves_primary(monkeypatch, primary_type, log_stage):
+    primary = primary_type("sync failed") if primary_type else None
+    syncer = Mock(side_effect=primary)
+    syncer.close = Mock(side_effect=OSError("close failed"))
+    monkeypatch.setattr(taskbot_main, "DatabaseReportSyncer", lambda: syncer)
+    log = Mock()
+    log_error = RuntimeError("logger failed")
+    if log_stage == "bind":
+        log.bind.side_effect = log_error
+    else:
+        log.bind.return_value.exception.side_effect = log_error
+    monkeypatch.setattr(taskbot_main, "logger", log)
+    if primary:
+        with pytest.raises(type(primary)) as caught:
+            taskbot_main._sync_report_to_database(object())
+        assert caught.value is primary
+    else:
+        assert taskbot_main._sync_report_to_database(object()) is None
+    syncer.close.assert_called_once_with()
 
 
 @pytest.fixture
 def db_case(monkeypatch, tmp_path):
     events, connections, instances, committed = [], [], [], []
-    case = SimpleNamespace(events=events, connections=connections, instances=instances,
-                           committed=committed, fail_nik=None, skip_nik=None,
-                           close_error=None)
+    case = SimpleNamespace(
+        events=events,
+        connections=connections,
+        instances=instances,
+        committed=committed,
+        fail_nik=None,
+        skip_nik=None,
+        close_error=None,
+    )
 
     class Connection:
         def __init__(self):
@@ -59,7 +89,9 @@ def db_case(monkeypatch, tmp_path):
     manager.targets = None
     manager._log_context = lambda **kw: {}
     manager._connect = Mock(side_effect=connect)
-    manager.ensure_database_and_tables = Mock(side_effect=lambda: events.append("ensure"))
+    manager.ensure_database_and_tables = Mock(
+        side_effect=lambda: events.append("ensure")
+    )
 
     def upsert(payload, **kwargs):
         events.append(f"row:{payload['nik']}")
@@ -85,11 +117,19 @@ def db_case(monkeypatch, tmp_path):
     monkeypatch.setattr(taskbot_main, "DatabaseReportSyncer", factory)
     log = Mock()
     monkeypatch.setattr(taskbot_main, "logger", log)
+    monkeypatch.setattr(report_syncer, "logger", log)
     path = tmp_path / "items.jsonl"
-    path.write_text(json.dumps({"nik": "file-row", "status": "completed"}) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps({"nik": "file-row", "status": "completed"}) + "\n", encoding="utf-8"
+    )
     case.reporter = SimpleNamespace(jsonl_path=path)
     case.rows = [TransactionRow("one", "completed"), TransactionRow("two", "error")]
-    case.factory, case.manager, case.from_env, case.log = factory, manager, from_env, log
+    case.factory, case.manager, case.from_env, case.log = (
+        factory,
+        manager,
+        from_env,
+        log,
+    )
     case.real_syncer = real_syncer
     return case
 
@@ -151,13 +191,17 @@ def test_repeated_wrapper_calls_have_separate_owners_and_connections(db_case):
         connection.close.assert_called_once_with()
 
 
-@pytest.mark.parametrize("mode", ["empty_list", "empty_tuple", "disabled", "missing_path"])
+@pytest.mark.parametrize(
+    "mode", ["empty_list", "empty_tuple", "disabled", "missing_path"]
+)
 def test_no_resource_paths_preserve_skip_semantics(db_case, mode):
     case = db_case
     rows = [] if mode == "empty_list" else (() if mode == "empty_tuple" else None)
     reporter = SimpleNamespace() if mode == "missing_path" else case.reporter
     if mode == "disabled":
-        case.from_env.side_effect = ValueError("Missing database environment variables: DB_HOST")
+        case.from_env.side_effect = ValueError(
+            "Missing database environment variables: DB_HOST"
+        )
     assert taskbot_main._sync_report_to_database(reporter, rows) is None
     case.factory.assert_called_once_with()
     assert case.connections == []
@@ -188,9 +232,11 @@ def test_constructor_failure_has_no_acquired_owner_to_close(db_case):
 def test_failure_before_connection_return_keeps_original_error(db_case, stage):
     case = db_case
     failure = ValueError("invalid database configuration")
-    target = {"configuration": case.from_env,
-              "setup": case.manager.ensure_database_and_tables,
-              "open": case.manager._connect}[stage]
+    target = {
+        "configuration": case.from_env,
+        "setup": case.manager.ensure_database_and_tables,
+        "open": case.manager._connect,
+    }[stage]
     target.side_effect = failure
     with pytest.raises(ValueError) as caught:
         taskbot_main._sync_report_to_database(case.reporter)
@@ -212,9 +258,16 @@ def test_persistent_syncer_reuses_connection_until_explicit_close(db_case):
     case.connections[0].close.assert_called_once_with()
 
 
-@pytest.mark.parametrize("sync_error", [None, RuntimeError("primary sync"), KeyboardInterrupt("interrupt")])
-@pytest.mark.parametrize("close_error", [None, OSError("secondary close"), KeyboardInterrupt("close interrupted")])
-def test_wrapper_exception_precedence_and_close_attempt(monkeypatch, sync_error, close_error):
+@pytest.mark.parametrize(
+    "sync_error", [None, RuntimeError("primary sync"), KeyboardInterrupt("interrupt")]
+)
+@pytest.mark.parametrize(
+    "close_error",
+    [None, OSError("secondary close"), KeyboardInterrupt("close interrupted")],
+)
+def test_wrapper_exception_precedence_and_close_attempt(
+    monkeypatch, sync_error, close_error
+):
     syncer = Mock(side_effect=sync_error, return_value=None)
     syncer.close = Mock(side_effect=close_error)
     factory = Mock(return_value=syncer)
@@ -235,13 +288,17 @@ def test_wrapper_exception_precedence_and_close_attempt(monkeypatch, sync_error,
     factory.assert_called_once_with()
     syncer.assert_called_once_with(reporter, rows)
     syncer.close.assert_called_once_with()
-    if close_error is not None and (sync_error is not None or isinstance(close_error, Exception)):
+    if close_error is not None and (
+        sync_error is not None or isinstance(close_error, Exception)
+    ):
         logger.bind.assert_called_once_with(event="report.db_sync.one_off_close_failed")
         logger.bind.return_value.exception.assert_called_once()
 
 
 @pytest.mark.parametrize("sync_fails", [False, True])
-def test_real_syncer_close_failure_is_logged_without_duplicate_close(db_case, sync_fails):
+def test_real_syncer_close_failure_is_logged_without_duplicate_close(
+    db_case, sync_fails
+):
     case = db_case
     case.close_error = OSError("connection close unavailable")
     if sync_fails:

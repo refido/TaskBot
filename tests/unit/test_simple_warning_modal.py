@@ -9,7 +9,6 @@ from playwright.sync_api import Error, TimeoutError
 from src.infrastructure.browser.page_objects import base_page, dashboard_page
 from src.web.session_state import SessionExpiredError
 
-
 DOMAINS = ("invalid_registered_nik", "unusual_transaction", "cannot_transact_at_base")
 FALLBACKS = {
     "invalid_registered_nik": "NIK pelanggan yang didaftarkan tidak valid.",
@@ -202,9 +201,13 @@ def test_reset_failure_preserves_existing_exception(ui):
     assert not ui.visible[ui.kind]
 
 
+# The primitive has two read shapes; unusual_transaction repeats the message shape.
+@pytest.mark.parametrize("ui", ["invalid_registered_nik", "cannot_transact_at_base"], indirect=True)
 @pytest.mark.parametrize("scenario", ["absent", "text", "blank", "missing", "unexpected"])
 def test_component_read_without_dashboard_workflow(ui, scenario):
-    from src.infrastructure.browser.page_objects.simple_warning_modal import SimpleWarningModal
+    from src.infrastructure.browser.page_objects.simple_warning_modal import (
+        SimpleWarningModal,
+    )
 
     ui.visible[ui.kind] = scenario != "absent"
     if scenario == "blank":
@@ -236,9 +239,13 @@ def test_component_read_without_dashboard_workflow(ui, scenario):
     assert not any(e[2] == "click" for e in ui.trace)
 
 
+# Domain-specific locator wiring and reset policy are covered by the wrapper tests.
+@pytest.mark.parametrize("ui", ["invalid_registered_nik"], indirect=True)
 @pytest.mark.parametrize("scenario", ["success", "visible", "click_error", "session"])
 def test_component_dismiss_preserves_session_aware_action(ui, scenario):
-    from src.infrastructure.browser.page_objects.simple_warning_modal import SimpleWarningModal
+    from src.infrastructure.browser.page_objects.simple_warning_modal import (
+        SimpleWarningModal,
+    )
 
     ui.visible[ui.kind] = True
     ui.stays = scenario == "visible"

@@ -10,11 +10,9 @@ from unittest.mock import Mock
 
 import pytest
 
-import main  # Preserve the application's normal import order.
 import src.infrastructure.reporting.analytics as analytics_module
 import src.web.reporter as reporting
 from src.privacy import set_nik_masking
-
 
 START = "2026-08-20T12:00:00+00:00"
 END = "2026-08-20T12:02:00+00:00"

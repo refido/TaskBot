@@ -14,6 +14,33 @@ import main as taskbot_main
 from src.infrastructure.database import operator_store
 
 
+@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("log_stage", ["bind", "exception"])
+def test_cleanup_logging_failure_preserves_operation(setup_case, primary_type, log_stage):
+    case = setup_case
+    primary = primary_type("operation failed") if primary_type else None
+    if primary:
+        case.errors["sql"] = primary
+    case.errors["connection.close"] = OSError("close failed")
+    log_error = RuntimeError("cleanup logger failed")
+
+    def bind(**context):
+        if context.get("event") == "database.tables.connection.close_failed":
+            if log_stage == "bind":
+                raise log_error
+            return Mock(exception=Mock(side_effect=log_error))
+        return Mock()
+
+    case.log.bind.side_effect = bind
+    if primary:
+        with pytest.raises(type(primary)) as caught:
+            case.manager.ensure_tables_exist()
+        assert caught.value is primary
+    else:
+        assert case.manager.ensure_tables_exist() is None
+    case.connections[0].close.assert_called_once_with()
+
+
 @pytest.fixture
 def setup_case(monkeypatch):
     case = SimpleNamespace(

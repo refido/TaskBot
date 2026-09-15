@@ -5,6 +5,7 @@ import traceback
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -1115,12 +1116,15 @@ class TransactionReporter:
                     ).exception("Metadata cache update failed; using row history")
                 self._write_meta()
             except Exception:  # noqa: BLE001 - isolate derived output failures.
-                logger.bind(
-                    event="report.summary_failed",
-                    operator_id=self.operator_id,
-                    run_id=self.run_id,
-                    meta_path=str(self.meta_path),
-                ).exception("Summary update failed; terminal row files are preserved")
+                with suppress(Exception):  # Cleanup error reporting is best-effort.
+                    logger.bind(
+                        event="report.summary_failed",
+                        operator_id=self.operator_id,
+                        run_id=self.run_id,
+                        meta_path=str(self.meta_path),
+                    ).exception(
+                        "Summary update failed; terminal row files are preserved"
+                    )
         logger.bind(
             event="report.row_recorded",
             operator_id=self.operator_id,

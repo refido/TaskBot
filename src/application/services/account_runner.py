@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from src.logging_utils import operator_logging_context
@@ -88,10 +89,11 @@ class AccountRunner:
                 if is_successful:
                     finalization_error = exc
                 is_successful = False
-                self.logger.bind(
-                    event="account.report_write_error",
-                    operator_id=operator_id,
-                ).exception("Final report file writing failed")
+                with suppress(Exception):  # Cleanup error reporting is best-effort.
+                    self.logger.bind(
+                        event="account.report_write_error",
+                        operator_id=operator_id,
+                    ).exception("Final report file writing failed")
 
             if self.report_syncer is not None:
                 try:
@@ -104,10 +106,11 @@ class AccountRunner:
                     is_successful = False
                     persistence_status = "failed"
 
-                    self.logger.bind(
-                        event="account.report_db_sync_error",
-                        operator_id=operator_id,
-                    ).exception("Report database sync failed")
+                    with suppress(Exception):  # Cleanup error reporting is best-effort.
+                        self.logger.bind(
+                            event="account.report_db_sync_error",
+                            operator_id=operator_id,
+                        ).exception("Report database sync failed")
 
                 finally:
                     try:
@@ -119,10 +122,11 @@ class AccountRunner:
                         if is_successful:
                             finalization_error = exc
                         is_successful = False
-                        self.logger.bind(
-                            event="account.report_db_close_error",
-                            operator_id=operator_id,
-                        ).exception("Report database syncer close failed")
+                        with suppress(Exception):  # Cleanup error reporting is best-effort.
+                            self.logger.bind(
+                                event="account.report_db_close_error",
+                                operator_id=operator_id,
+                            ).exception("Report database syncer close failed")
 
             try:
                 reporter.print_summary()
@@ -131,10 +135,11 @@ class AccountRunner:
                 if is_successful:
                     finalization_error = exc
                 is_successful = False
-                self.logger.bind(
-                    event="account.report_summary_error",
-                    operator_id=operator_id,
-                ).exception("Final report summary printing failed")
+                with suppress(Exception):  # Cleanup error reporting is best-effort.
+                    self.logger.bind(
+                        event="account.report_summary_error",
+                        operator_id=operator_id,
+                    ).exception("Final report summary printing failed")
 
         transactions = self._transaction_outcome(reporter, config)
         status = (

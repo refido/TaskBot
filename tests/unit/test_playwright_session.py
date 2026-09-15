@@ -6,6 +6,59 @@ import pytest
 import src.infrastructure.browser.playwright_session as playwright_session_module
 
 
+@pytest.mark.parametrize("resource", ["interaction_diagnostics", "context", "browser", "playwright"])
+@pytest.mark.parametrize("primary", [False, True])
+@pytest.mark.parametrize("log_stage", ["bind", "debug"])
+def test_cleanup_logging_does_not_mask_body_or_stop_teardown(startup_case, resource, primary, log_stage):
+    case = startup_case(cleanup_failures=(resource,))
+    failure = RuntimeError("body failed")
+    diagnostics = Mock()
+    if resource == "interaction_diagnostics":
+        diagnostics.stop.side_effect = OSError("diagnostics failed")
+    case.session.interaction_diagnostics = diagnostics
+    if log_stage == "bind":
+        case.logger.bind.side_effect = RuntimeError("logger failed")
+    else:
+        case.logger.bind.return_value.debug.side_effect = RuntimeError("logger failed")
+
+    def run():
+        with case.session:
+            if primary:
+                raise failure
+
+    if primary:
+        with pytest.raises(RuntimeError) as caught:
+            run()
+        assert caught.value is failure
+    else:
+        run()
+    diagnostics.stop.assert_called_once_with(context_manager_failed=primary)
+    case.context.close.assert_called_once_with()
+    case.browser.close.assert_called_once_with()
+    case.playwright.stop.assert_called_once_with()
+    assert case.session.page is case.session.context is case.session.browser is None
+    assert case.session.playwright is case.session.interaction_diagnostics is None
+
+
+@pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("source", ["cleanup", "logger"])
+@pytest.mark.parametrize("primary", [False, True])
+def test_fatal_teardown_interruptions_keep_existing_precedence(startup_case, fatal_type, source, primary):
+    case = startup_case(cleanup_failures=("context",))
+    interruption = fatal_type("teardown interrupted")
+    if source == "cleanup":
+        case.context.close.side_effect = interruption
+    else:
+        case.logger.bind.side_effect = interruption
+    with pytest.raises(fatal_type) as caught, case.session:
+        if primary:
+            raise RuntimeError("body failed")
+    assert caught.value is interruption
+    case.context.close.assert_called_once_with()
+    # Existing browser policy propagates fatal teardown immediately.
+    case.browser.close.assert_not_called()
+
+
 @pytest.fixture
 def startup_case(monkeypatch):
     monkeypatch.setenv("TASKBOT_INTERACTION_DEBUG", "0")
@@ -81,9 +134,8 @@ def test_startup_failure_releases_only_acquired_resources(
     exit_spy = Mock()
     monkeypatch.setattr(playwright_session_module.PlaywrightSession, "__exit__", exit_spy)
 
-    with pytest.raises(ValueError) as caught:
-        with case.session:
-            pytest.fail("startup failure must not enter the with body")
+    with pytest.raises(ValueError) as caught, case.session:
+        pytest.fail("startup failure must not enter the with body")
 
     assert caught.value is case.startup_error
     exit_spy.assert_not_called()
@@ -410,10 +462,9 @@ def test_initialize_session_failure_after_page_creation_still_cleans_up(
     monkeypatch.setattr(target, attribute, failing_setup)
     session = playwright_session_module.BrowserSession(_debug_config(tmp_path))
 
-    with pytest.raises(RuntimeError) as caught:
-        with session:
-            assert session.require_page() is context.page
-            session.initialize_session()
+    with pytest.raises(RuntimeError) as caught, session:
+        assert session.require_page() is context.page
+        session.initialize_session()
 
     assert caught.value is failure
     failing_setup.assert_called_once()

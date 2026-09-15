@@ -3,10 +3,10 @@
 from types import SimpleNamespace
 
 import pytest
-from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from src.infrastructure.browser.page_objects import base_page, dashboard_page
-
 
 CLOSED = "Perbarui Data Pelanggan closed; transaction skipped."
 

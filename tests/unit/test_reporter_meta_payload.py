@@ -1,6 +1,7 @@
 """Metadata acquisition, schema and failure contracts around Reporter writes."""
 
 import json
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime
 from types import SimpleNamespace
@@ -8,11 +9,10 @@ from unittest.mock import Mock
 
 import pytest
 
-import src.infrastructure.reporting.analytics as analytics
 import src.web.reporter as reporting
+from src.infrastructure.reporting import analytics
 from src.infrastructure.reporting.meta_payload import build_metadata_payload
 from src.privacy import display_nik, nik_masking_enabled, set_nik_masking
-
 
 START = "2026-08-20T12:00:00+00:00"
 END = "2026-08-20T12:02:00+00:00"
@@ -78,6 +78,50 @@ def capture_payload(reporter, monkeypatch):
     return writer.call_args.args[1]
 
 
+@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("log_stage", ["bind", "exception"])
+def test_summary_error_logging_preserves_terminal_boundary(reporter_factory, monkeypatch, primary_type, log_stage):
+    reporter = reporter_factory()
+    primary = primary_type("queue failed") if primary_type else None
+    monkeypatch.setattr(reporter, "_queue_row_for_batch_sync", Mock(side_effect=primary))
+    monkeypatch.setattr(reporter, "_write_meta", Mock(side_effect=OSError("summary failed")))
+    log = Mock()
+    failure = RuntimeError("logger failed")
+    if log_stage == "bind":
+        def bind(**context):
+            if context.get("event") == "report.summary_failed":
+                raise failure
+            return Mock()
+        log.bind.side_effect = bind
+    else:
+        log.bind.return_value.exception.side_effect = failure
+    monkeypatch.setattr(reporting, "logger", log)
+    if primary:
+        with pytest.raises(type(primary)) as caught:
+            reporter.complete(NIK, START)
+        assert caught.value is primary
+    else:
+        reporter.complete(NIK, START)
+    assert len(reporter.rows) == 1
+    assert reporter.rows[0].status == "completed"
+    assert reporter.jsonl_path.read_text(encoding="utf-8").count("\n") == 1
+    reporter._queue_row_for_batch_sync.assert_called_once()
+
+
+@pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
+def test_summary_logger_fatal_interruption_still_propagates(reporter_factory, monkeypatch, fatal_type):
+    reporter = reporter_factory()
+    monkeypatch.setattr(reporter, "_write_meta", Mock(side_effect=OSError("summary failed")))
+    interruption = fatal_type("logging interrupted")
+    log = Mock()
+    log.bind.return_value.exception.side_effect = interruption
+    monkeypatch.setattr(reporting, "logger", log)
+    with pytest.raises(fatal_type) as caught:
+        reporter.complete(NIK, START)
+    assert caught.value is interruption
+    assert len(reporter.rows) == 1
+
+
 @pytest.mark.parametrize("operator", ["operator_01", "operator_02"])
 @pytest.mark.parametrize("masked", [False, True])
 @pytest.mark.parametrize("cached", [False, True])
@@ -123,7 +167,7 @@ def test_metadata_schema_and_cached_fallback_parity(
 
 
 @pytest.mark.parametrize("mode", ["cached", "invalid", "replaced"])
-def test_projection_call_order_and_count(reporter_factory, monkeypatch, mode):
+def test_projection_counts_and_write_boundary(reporter_factory, monkeypatch, mode):
     reporter = reporter_factory()
     add_history(reporter)
     if mode == "invalid":
@@ -159,7 +203,8 @@ def test_projection_call_order_and_count(reporter_factory, monkeypatch, mode):
     expected += ["_compact_retry_report", "get_summary", "_meta_workflow_report", "clock", "get_analytics", "get_summary"]
     if mode != "cached":
         expected += ["get_nik_parsing_failure_report", "get_error_niks_by_label", "get_other_status_niks_by_status"]
-    assert calls == expected + ["write"]
+    assert Counter(calls) == Counter(expected + ["write"])
+    assert calls[-1] == "write"  # All projections finish before serialization starts.
 
 
 @pytest.mark.parametrize("entry", ["direct", "compatibility", "terminal"])
@@ -197,7 +242,7 @@ def test_metadata_failure_boundaries(reporter_factory, monkeypatch, entry, failu
 
 def test_summary_field_failure_precedes_analytics(reporter_factory, monkeypatch):
     reporter = reporter_factory()
-    monkeypatch.setattr(reporter, "_meta_workflow_report", lambda: {})
+    monkeypatch.setattr(reporter, "_meta_workflow_report", dict)
     calculator = Mock(side_effect=RuntimeError("later analytics failure"))
     monkeypatch.setattr(reporting.MetricsCalculator, "get_analytics", calculator)
     with pytest.raises(KeyError, match="updated_niks"):

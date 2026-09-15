@@ -9,7 +9,10 @@ from unittest.mock import Mock
 import pytest
 
 import main as taskbot_main
-from src.orchestration.transaction_processor import OutOfSellableStockError, TransactionProcessor
+from src.orchestration.transaction_processor import (
+    OutOfSellableStockError,
+    TransactionProcessor,
+)
 from src.web.reporter import TransactionReporter
 
 

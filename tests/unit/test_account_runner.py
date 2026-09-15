@@ -123,6 +123,56 @@ class PartiallyFailingProcessor(FakeProcessor):
         raise RuntimeError("browser session lost")
 
 
+@pytest.mark.parametrize("stage,prior", [
+    ("write", None), ("write", "process"), ("sync", None), ("sync", "write"),
+    ("close", None), ("close", "write"), ("summary", None), ("summary", "write"),
+])
+@pytest.mark.parametrize("log_stage", ["bind", "exception"])
+def test_finalization_logging_keeps_outcome_and_cleanup(finalization_case, monkeypatch, stage, prior, log_stage):
+    case = finalization_case(failures=tuple(s for s in (prior, stage) if s))
+    event = {
+        "write": "account.report_write_error", "sync": "account.report_db_sync_error",
+        "close": "account.report_db_close_error", "summary": "account.report_summary_error",
+    }[stage]
+    log = case.runner.logger
+    original_bind, original_exception = log.bind, log.exception
+    failure = RuntimeError("logger failed")
+
+    def bind(**context):
+        if context.get("event") == event and log_stage == "bind":
+            raise failure
+        return original_bind(**context)
+
+    def exception(message):
+        if log.last_bind["event"] == event and log_stage == "exception":
+            raise failure
+        original_exception(message)
+
+    monkeypatch.setattr(log, "bind", bind)
+    monkeypatch.setattr(log, "exception", exception)
+    expected = None if prior == "process" or (stage == "sync" and prior is None) else case.errors[prior or stage]
+    if expected:
+        with pytest.raises(type(expected)) as caught:
+            case.runner._run_with_context(case.config, "operator_01")
+        assert caught.value is expected
+    else:
+        assert case.runner._run_with_context(case.config, "operator_01") == ("operator_01", False)
+    assert case.events[-5:] == ["write", "flush", "sync", "close", "summary"]
+    case.syncer.close.assert_called_once_with()
+    assert case.runner.outcome["persistence_status"] == "failed"
+
+
+@pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
+def test_finalization_logger_fatal_interruption_still_propagates(finalization_case, monkeypatch, fatal_type):
+    case = finalization_case(failures=("write",))
+    interruption = fatal_type("logging interrupted")
+    monkeypatch.setattr(case.runner.logger, "exception", Mock(side_effect=interruption))
+    with pytest.raises(fatal_type) as caught:
+        case.runner._run_with_context(case.config, "operator_01")
+    assert caught.value is interruption
+    case.syncer.close.assert_not_called()
+
+
 @pytest.fixture
 def finalization_case():
     def build(*, mode="batch", failures=()):

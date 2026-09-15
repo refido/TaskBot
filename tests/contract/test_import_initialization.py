@@ -1,12 +1,11 @@
 """Fresh-process import contracts: pytest's warmed sys.modules cannot hide cycles."""
 
-from pathlib import Path
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
