@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from inspect import Parameter, signature
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from src.logging_utils import log_print, logger
+from src.privacy import display_nik
 
 
 @dataclass(slots=True)
@@ -32,11 +35,13 @@ class PuzzleService:
         retry_modal_timeout_ms: int,
         refresh_timeout_ms: int,
         retry_process: str,
+        write_debug_artifacts: bool = False,
         log_func: Callable[..., None] = log_print,
     ) -> None:
         self.page = page
         self.dashboard = dashboard
-        self.operator_email = operator_email
+        # Parameter name is kept for compatibility; callers now pass the safe ID.
+        self.operator_id = operator_email
         self.helpers_factory = helpers_factory
         self.puzzle_solver_factory = puzzle_solver_factory
         self.slider_solver = slider_solver
@@ -45,6 +50,7 @@ class PuzzleService:
         self.retry_modal_timeout_ms = retry_modal_timeout_ms
         self.refresh_timeout_ms = refresh_timeout_ms
         self.retry_process = retry_process
+        self.write_debug_artifacts = write_debug_artifacts
         self.log_func = log_func
 
     def solve(self, nik: str) -> PuzzleSolveOutcome:
@@ -55,27 +61,52 @@ class PuzzleService:
         for attempt_number in range(1, self.max_attempts + 1):
             attempts_used = attempt_number
             helpers = self.helpers_factory(self.page)
-            bg_src, piece_src = helpers.get_puzzle_image_sources()
-            piece_path = helpers.save_puzzle_piece(nik)
-            bg_path = helpers.save_puzzle_bg(nik)
+            capture_images = getattr(helpers, "capture_puzzle_images", None)
+            image_arrays = None
+            if callable(capture_images):
+                bundle = capture_images(nik)
+                bg_src, piece_src = bundle.background_src, bundle.piece_src
+                bg_path = bundle.background_path
+                piece_path = bundle.piece_path
+                image_arrays = bundle.arrays
+            else:
+                bg_src, piece_src = helpers.get_puzzle_image_sources()
+                piece_path = Path(helpers.save_puzzle_piece(nik))
+                bg_path = Path(helpers.save_puzzle_bg(nik))
 
-            out_dir = Path(piece_path).parent
-            result_path = out_dir / helpers.build_puzzle_output_name(nik, "result")
-
+            # Keep the fused match image on the same concrete .png path used by the
+            # working flow.  This is a normal solver output, not an optional
+            # slider-debug artifact.
+            result_path = Path(piece_path).parent / helpers.build_puzzle_output_name(
+                nik, "result"
+            )
             self.log_func(f"Result path (abs): {result_path.resolve()}")
 
-            solver = self.puzzle_solver_factory(
-                gap_image_path=piece_path,
-                bg_image_path=bg_path,
-                output_image_path=str(result_path),
-            )
+            solver_kwargs: dict[str, Any] = {
+                "gap_image_path": piece_path,
+                "bg_image_path": bg_path,
+                "output_image_path": str(result_path),
+            }
+            if image_arrays is not None:
+                solver_kwargs["gap_image"] = image_arrays.get("piece")
+                solver_kwargs["bg_image"] = image_arrays.get("background")
+
+            solver = self.puzzle_solver_factory(**solver_kwargs)
             position = solver.discern_xy()
             self.log_func(f"The position of the slide is: {position}")
+            timing_metrics = getattr(solver, "timing_metrics", None)
+            if timing_metrics:
+                self.log_func(f"Puzzle solve timing (ms): {dict(timing_metrics)}")
 
-            success = self.slider_solver(
-                self.page,
+            success = self._call_slider_solver(
                 imgs={"background": Path(bg_path), "piece": Path(piece_path)},
-                max_wait_success_ms=self.max_wait_success_ms,
+                nik=nik,
+                image_arrays=image_arrays,
+                puzzle_result=position,
+                puzzle_result_path=result_path,
+                solver_timing_ms=(
+                    dict(timing_metrics) if isinstance(timing_metrics, dict) else None
+                ),
             )
             self.log_func(f"Slider solved on attempt {attempt_number}: {success}")
 
@@ -100,7 +131,7 @@ class PuzzleService:
             retry_process = self.retry_process
             logger.bind(
                 event="transaction.puzzle_retry",
-                operator=self.operator_email,
+                operator_id=self.operator_id,
                 nik=str(nik),
                 retry_count=retry_count,
                 retry_process=retry_process,
@@ -122,3 +153,37 @@ class PuzzleService:
             retry_count=retry_count,
             retry_process=retry_process,
         )
+
+    def _call_slider_solver(
+        self,
+        *,
+        imgs: dict[str, Path],
+        nik: str,
+        image_arrays: dict[str, Any] | None,
+        puzzle_result: Any,
+        puzzle_result_path: Path,
+        solver_timing_ms: dict[str, float] | None,
+    ) -> bool:
+        kwargs: dict[str, Any] = {"max_wait_success_ms": self.max_wait_success_ms}
+        optional_kwargs: dict[str, Any] = {
+            "nik": display_nik(nik),
+            "image_arrays": image_arrays,
+            "puzzle_result": puzzle_result,
+            "puzzle_result_path": puzzle_result_path,
+            "solver_timing_ms": solver_timing_ms,
+            "write_debug_artifacts": self.write_debug_artifacts,
+        }
+
+        try:
+            params = signature(self.slider_solver).parameters
+        except TypeError, ValueError:
+            params = {}
+
+        accepts_kwargs = any(
+            param.kind == Parameter.VAR_KEYWORD for param in params.values()
+        )
+        for key, value in optional_kwargs.items():
+            if value is not None and (accepts_kwargs or key in params):
+                kwargs[key] = value
+
+        return bool(self.slider_solver(self.page, imgs=imgs, **kwargs))

@@ -32,6 +32,7 @@ class SliderConfig:
     success_selector: str = ".captcha-success"
     success_text: str = "Berhasil"
     max_wait_success_ms: int = 3500
+    success_poll_interval_ms: int = 100
 
     # Movement parameters
     min_steps: int = 20
@@ -54,6 +55,10 @@ class SliderConfig:
 
     # Debugging
     debug_root: str = "data_puzzle/puzzle_debug/"
+    write_debug_artifacts: bool = False
+    run_id: str = ""
+    operator_id: str = ""
+    nik: str = ""
 
 
 @dataclass(slots=True)

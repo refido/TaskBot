@@ -1,12 +1,25 @@
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 
 def render_puzzle_overlay(
-    bg_path: str, match_xy: tuple[int, int], tpl_wh: tuple[int, int], out_path: Path
+    bg_path: str,
+    match_xy: tuple[int, int],
+    tpl_wh: tuple[int, int],
+    out_path: Path,
+    bg_img: np.ndarray | None = None,
 ) -> None:
-    bg = cv2.imread(bg_path, cv2.IMREAD_COLOR)
+    bg = bg_img
+    if bg is None:
+        bg = cv2.imread(bg_path, cv2.IMREAD_COLOR)
+    if bg is None:
+        return
+    if bg.ndim == 2:
+        bg = cv2.cvtColor(bg, cv2.COLOR_GRAY2BGR)
+    elif bg.shape[2] == 4:
+        bg = cv2.cvtColor(bg, cv2.COLOR_BGRA2BGR)
     x, y = match_xy
     tw, th = tpl_wh
     tl = (int(x), int(y))

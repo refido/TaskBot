@@ -2,8 +2,7 @@ import re
 
 from playwright.sync_api import Page
 
-
-_LOGIN_BUTTON_NAME = re.compile(r"^\s*masuk\s*$", re.I)
+_LOGIN_BUTTON_NAME = re.compile(r"^\s*masuk\s*$", re.IGNORECASE)
 _EMAIL_INPUT_SELECTOR = (
     'div.mantine-TextInput-root:has(label:has-text("Email")) input'
 )

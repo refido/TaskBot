@@ -167,3 +167,6 @@ data_puzzle
 .pytest_tmp/
 pytest-cache-files-*/
 tmp*/
+db_query/
+.ruff_cache
+.pytest*

@@ -26,39 +26,27 @@ def local_ncc_refine(
     h_bg, w_bg = bg_gray.shape[:2]
     match_mask = build_match_mask(mask, erode_iterations=0)
 
-    best_xy = (x0, y0)
-    best_score = -1.0
+    x_min = max(0, x0 - radius)
+    y_min = max(0, y0 - radius)
+    x_max = min(w_bg - tw, x0 + radius)
+    y_max = min(h_bg - th, y0 + radius)
 
-    for dy in range(-radius, radius + 1):
-        y = y0 + dy
-        if y < 0 or y + th > h_bg:
-            continue
-
-        for dx in range(-radius, radius + 1):
-            x = x0 + dx
-            if x < 0 or x + tw > w_bg:
-                continue
-
-            roi = bg_gray[y : y + th, x : x + tw]
-            if match_mask is not None:
-                try:
-                    res = cv2.matchTemplate(
-                        roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask
-                    )
-                except cv2.error:
-                    res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
-            else:
-                res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
-
-            score = float(res[0, 0])
-            if score > best_score:
-                best_score = score
-                best_xy = (x, y)
-
-    if best_score < 0:
+    if x_max < x_min or y_max < y_min:
         return (x0, y0), -1.0
 
-    return best_xy, best_score
+    roi = bg_gray[y_min : y_max + th, x_min : x_max + tw]
+    if match_mask is not None:
+        try:
+            res = cv2.matchTemplate(
+                roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask
+            )
+        except cv2.error:
+            res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
+    else:
+        res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
+
+    _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(res)
+    return (int(x_min + max_loc[0]), int(y_min + max_loc[1])), float(max_val)
 
 
 def subpixel_refine(res_map: FloatMap, max_loc: Point, win: int = 2) -> PointF:

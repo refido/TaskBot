@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def print_skipped_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None:
@@ -18,6 +19,27 @@ def print_skipped_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None
         else:
             log_print_fn(f"    First 5: {', '.join(niks[:5])}")
             log_print_fn(f"    ... and {len(niks) - 5} more")
+
+
+def print_nik_parsing_failures(
+    reporter: Any, log_print_fn: Callable[..., None]
+) -> None:
+    report = reporter.get_nik_parsing_failure_report()
+    if not report["total"]:
+        return
+    log_print_fn(
+        f"\nGagal parsing NIK (dilewati): {report['total']}",
+        event="report.nik_parsing.summary",
+        run_id=reporter.run_id,
+        operator_id=reporter.operator_id,
+    )
+    for reason, niks in report["by_reason"].items():
+        log_print_fn(
+            f"  {reason} | NIK: {', '.join(niks)}",
+            event="report.nik_parsing.summary",
+            run_id=reporter.run_id,
+            operator_id=reporter.operator_id,
+        )
 
 
 def print_unregistered_niks(reporter: Any, log_print_fn: Callable[..., None]) -> None:
@@ -41,8 +63,7 @@ def print_nik_statistics(reporter: Any, log_print_fn: Callable[..., None]) -> No
     log_print_fn(f"  Total Successful: {len(reporter.get_successful_niks())}")
     log_print_fn(f"  Total Failed: {len(reporter.get_failed_niks())}")
     log_print_fn(
-        "  Total Failed Puzzle Solve: "
-        f"{len(reporter.get_failed_puzzle_solve_niks())}"
+        f"  Total Failed Puzzle Solve: {len(reporter.get_failed_puzzle_solve_niks())}"
     )
 
     skipped_by_type = reporter.get_skipped_niks_by_type()
@@ -53,6 +74,39 @@ def print_nik_statistics(reporter: Any, log_print_fn: Callable[..., None]) -> No
     puzzle_failed = reporter.get_puzzle_failed_niks()
     if puzzle_failed:
         log_print_fn(f"  Puzzle Failed: {len(puzzle_failed)}")
+
+
+def print_retry_report(reporter: Any, log_print_fn: Callable[..., None]) -> None:
+    retry_report = reporter.get_retry_report()
+
+    if retry_report["total_retry_events"] <= 0:
+        return
+
+    log_print_fn("\nRetry Report:")
+    log_print_fn(f"  Retried NIKs: {retry_report['total_retried_niks']}")
+    log_print_fn(f"  Retry Events: {retry_report['total_retry_events']}")
+    for process, niks in retry_report["by_process"].items():
+        log_print_fn(f"  {process}: {len(niks)} NIKs")
+        if len(niks) <= 5:
+            for nik in niks:
+                log_print_fn(f"    - {nik}")
+        else:
+            log_print_fn(f"    First 5: {', '.join(niks[:5])}")
+            log_print_fn(f"    ... and {len(niks) - 5} more")
+
+
+def print_workflow_summary(reporter: Any, log_print_fn: Callable[..., None]) -> None:
+    summary = reporter.get_workflow_event_report()
+    if summary["total_events"] <= 0:
+        return
+    log_print_fn("\nCUSTOMER WORKFLOW")
+    log_print_fn("-----------------")
+    log_print_fn(f"  Consent encountered: {summary['consent_niks']}")
+    log_print_fn(f"  Update required: {summary['update_required_niks']}")
+    log_print_fn(f"  Update successful: {summary['updated_niks']}")
+    log_print_fn(f"  Same-NIK restarts: {summary['same_nik_restarts']}")
+    log_print_fn(f"  Update failures: {summary['update_failures']}")
+    log_print_fn(f"  Repeated update requests: {summary['repeated_update_requests']}")
 
 
 def print_section(
@@ -112,9 +166,7 @@ def print_puzzle_metrics(
     if puzzle["avg_solved_duration_seconds"] > 0:
         log_print_fn(f"  Avg Solve Time: {puzzle['avg_solved_duration_seconds']:.3f}s")
     if puzzle["avg_failed_duration_seconds"] > 0:
-        log_print_fn(
-            f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s"
-        )
+        log_print_fn(f"  Avg Failed Time: {puzzle['avg_failed_duration_seconds']:.3f}s")
 
 
 def print_status_breakdown(

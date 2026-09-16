@@ -67,8 +67,8 @@ def test_export_configured_sessions_limits_accounts_and_applies_cooldown():
     assert resolved_output_dir == output_dir
     assert failed_operators == []
     assert [artifact.operator for artifact in artifacts] == [
-        "one@example.com",
-        "two@example.com",
+        "operator_01",
+        "operator_02",
     ]
     assert [email for email, _ in exported] == [
         "one@example.com",

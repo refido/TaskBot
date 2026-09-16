@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from src.pipelines.slider.mask import MaskProcessor
 from src.pipelines.slider.types import (
     BoundingBoxes,
@@ -24,11 +26,12 @@ class CoordinateMapper:
         tpl_w: int,
         bg_img_width: int,
         boxes: BoundingBoxes,
+        piece_img: np.ndarray | None = None,
     ) -> CoordinateMapping:
         """Map puzzle coordinates to screen coordinates."""
 
         slot_left_x_img, puzzle_tile_w = self.mask_processor.compute_slot_left_x(
-            piece_path, x_piece, tpl_w
+            piece_path, x_piece, tpl_w, piece_img=piece_img
         )
 
         max_offset_img = max(1.0, float(bg_img_width - puzzle_tile_w))

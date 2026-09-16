@@ -9,48 +9,72 @@ from src.pipelines.slider.types import SliderConfig
 class SuccessDetector:
     """Detects CAPTCHA success."""
 
-    _ROOT_HIDDEN_TIMEOUT_MS: int = 1500
-
     def __init__(self, config: SliderConfig) -> None:
         self.config = config
 
     def check_success(self, page: Page, root: Locator) -> bool:
         """Check if CAPTCHA was solved successfully."""
-        if self._check_by_selector(page):
+        signal = self._wait_for_any_success_signal(page, root)
+        if signal:
+            log_print(f"[SuccessDetector] SUCCESS via {signal}.")
             return True
-        if self._check_by_text(page):
-            return True
-        if self._check_root_hidden(root):
-            return True
+        log_print("[SuccessDetector] No success signal detected before timeout.")
         return False
 
-    def _check_by_selector(self, page: Page) -> bool:
+    def _wait_for_any_success_signal(self, page: Page, root: Locator) -> str | None:
         try:
-            page.locator(self.config.success_selector).first.wait_for(
-                timeout=self.config.max_wait_success_ms, state="visible"
-            )
-            return True
+            root_handle = root.element_handle(timeout=250)
         except Exception as exc:
-            log_print(f"[SuccessDetector] Selector not found: {exc}")
-            return False
+            try:
+                root.wait_for(state="hidden", timeout=250)
+                return "root_hidden"
+            except Exception:
+                log_print(f"[SuccessDetector] Root handle unavailable: {exc}")
+                return None
 
-    def _check_by_text(self, page: Page) -> bool:
         try:
-            page.get_by_text(self.config.success_text).first.wait_for(
-                timeout=self.config.max_wait_success_ms, state="visible"
-            )
-            log_print(
-                f"[SuccessDetector] SUCCESS via text '{self.config.success_text}'!"
-            )
-            return True
-        except Exception as exc:
-            log_print(f"[SuccessDetector] Text not found: {exc}")
-            return False
+            result = page.wait_for_function(
+                """
+                ([root, successSelector, successText]) => {
+                    const visible = (element) => {
+                        if (!element || !element.isConnected) return false;
+                        const style = window.getComputedStyle(element);
+                        if (style.display === "none" || style.visibility === "hidden") {
+                            return false;
+                        }
+                        const rect = element.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0;
+                    };
 
-    def _check_root_hidden(self, root: Locator) -> bool:
-        try:
-            root.wait_for(state="hidden", timeout=self._ROOT_HIDDEN_TIMEOUT_MS)
-            return True
+                    if (!visible(root)) return "root_hidden";
+
+                    if (successSelector) {
+                        const selectorMatch = document.querySelector(successSelector);
+                        if (visible(selectorMatch)) return "selector";
+                    }
+
+                    if (
+                        successText &&
+                        document.body &&
+                        document.body.innerText &&
+                        document.body.innerText.includes(successText)
+                    ) {
+                        return "text";
+                    }
+
+                    return false;
+                }
+                """,
+                arg=[
+                    root_handle,
+                    self.config.success_selector,
+                    self.config.success_text,
+                ],
+                timeout=self.config.max_wait_success_ms,
+                polling=self.config.success_poll_interval_ms,
+            )
+            value = result.json_value()
+            return str(value) if value else None
         except Exception as exc:
-            log_print(f"[SuccessDetector] Root timeout: {exc}")
-            return False
+            log_print(f"[SuccessDetector] Success wait timed out: {exc}")
+            return None
