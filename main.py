@@ -9,12 +9,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from dotenv import load_dotenv
-
 from src.application.services.account_runner import AccountRunner
 from src.application.use_cases.process_account import process_account, process_accounts
 from src.config import Config
 from src.infrastructure.browser.playwright_session import BrowserSession
+from src.infrastructure.config.environment import load_environment
 
 # Compatibility exports retain canonical identity and composition patch points.
 from src.infrastructure.database.report_syncer import (
@@ -273,7 +272,7 @@ def _aggregate_run_status(
 
 def main() -> None:
     """Main entry point."""
-    load_dotenv(dotenv_path=Path(__file__).resolve().with_name(".env"))
+    load_environment(dotenv_path=Path(__file__).resolve().with_name(".env"))
     status = "failed"
     run_context = None
     logging_meta: dict[str, str] | None = None

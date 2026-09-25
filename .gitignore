@@ -170,3 +170,4 @@ tmp*/
 db_query/
 .ruff_cache
 .pytest*
+.vscode/

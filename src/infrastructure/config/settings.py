@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+from src.infrastructure.config.environment import load_environment
 
 _OPERATOR_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 
@@ -40,10 +39,7 @@ class AppSettings:
         *,
         load_env_file: bool = True,
     ) -> AppSettings:
-        if load_env_file:
-            load_dotenv()
-
-        source = os.environ if environ is None else environ
+        source = load_environment(environ, load_env_file=load_env_file)
         url_application = source.get("URL_APPLICATION", "").strip()
         accounts = tuple(cls._load_accounts(source))
         cls._validate_unique_operator_ids(accounts)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import re
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
@@ -12,9 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2 import sql
 
+from src.infrastructure.config.environment import load_environment
 from src.logging_utils import logger
 from src.privacy import register_private_values
 
@@ -119,10 +118,7 @@ class DatabaseConfig:
         *,
         load_env_file: bool = True,
     ) -> DatabaseConfig:
-        if load_env_file:
-            load_dotenv()
-
-        source = os.environ if environ is None else environ
+        source = load_environment(environ, load_env_file=load_env_file)
         missing = [
             key
             for key in ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
@@ -178,10 +174,7 @@ class OperatorTargets:
         *,
         load_env_file: bool = True,
     ) -> OperatorTargets:
-        if load_env_file:
-            load_dotenv()
-
-        source = os.environ if environ is None else environ
+        source = load_environment(environ, load_env_file=load_env_file)
         targets: list[OperatorTarget] = []
         configured_operator_ids: dict[str, str] = {}
         numbered_account_configured = any(
@@ -354,9 +347,10 @@ class OperatorDatabaseManager:
         load_env_file: bool = True,
         require_operator_targets: bool = True,
     ) -> OperatorDatabaseManager:
-        config = DatabaseConfig.from_env(environ, load_env_file=load_env_file)
+        source = load_environment(environ, load_env_file=load_env_file)
+        config = DatabaseConfig.from_env(source, load_env_file=False)
         targets = (
-            OperatorTargets.from_env(environ, load_env_file=False)
+            OperatorTargets.from_env(source, load_env_file=False)
             if require_operator_targets
             else None
         )
