@@ -8,6 +8,10 @@ from src.application.models.customer_workflow import (
     CustomerUpdateLoopError,
     PrecheckAction,
 )
+from src.application.models.transaction_outcome import (
+    TransactionConfirmationError,
+    TransactionOutcome,
+)
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
 from src.application.services.session_recovery import SessionRecoveryService
 from src.application.services.transaction_prechecks import (
@@ -84,6 +88,7 @@ class TransactionProcessor:
         self._session_recovery_service: SessionRecoveryService | None = None
         # Execution-local invariant: a confirmed NIK must never be submitted again.
         self._confirmed_success_niks: set[str] = set()
+        self._unconfirmed_transaction_niks: set[str] = set()
 
     def process_all_niks(self) -> None:
         """Process all NIKs from configuration."""
@@ -108,7 +113,10 @@ class TransactionProcessor:
 
     def process_single_nik(self, nik: str) -> None:
         """Process a single NIK transaction."""
-        if str(nik) in self._confirmed_success_niks:
+        if (
+            str(nik) in self._confirmed_success_niks
+            or str(nik) in self._unconfirmed_transaction_niks
+        ):
             return
         started_at = self.reporter.start_item(nik)
         session_retries_used = 0
@@ -234,8 +242,8 @@ class TransactionProcessor:
                 puzzle_outcome = self._solve_puzzle(nik)
                 puzzle_solved = puzzle_outcome.solved
                 if puzzle_solved:
-                    # Leave the retry boundary before logging, navigation or reporting.
-                    self._confirmed_success_niks.add(str(nik))
+                    # CAPTCHA completion is not sale confirmation. Observe the result
+                    # outside the retry boundary so uncertainty cannot resubmit it.
                     break
                 puzzle_attempts = puzzle_outcome.attempts
                 puzzle_retry_count = puzzle_outcome.retry_count
@@ -395,8 +403,32 @@ class TransactionProcessor:
                 return
 
         if puzzle_solved:
+            self._unconfirmed_transaction_niks.add(str(nik))
+            try:
+                outcome = cek_penjualan.wait_for_transaction_outcome()
+                if not isinstance(outcome, TransactionOutcome):
+                    raise TransactionConfirmationError("Invalid transaction outcome")
+            except Exception as exc:  # Observation failure must be reported, never retried.
+                self._record_unconfirmed_transaction(
+                    nik, started_at,
+                    TransactionOutcome("unknown", "confirmation_error"),
+                    puzzle_outcome, customer_information, observation_error=exc,
+                )
+                return
+
+            if not outcome.success_confirmed:
+                if outcome.status == "completed":
+                    outcome = TransactionOutcome("unknown", "missing_success_evidence")
+                self._record_unconfirmed_transaction(
+                    nik, started_at, outcome, puzzle_outcome, customer_information
+                )
+                return
+
+            self._unconfirmed_transaction_niks.discard(str(nik))
+            self._confirmed_success_niks.add(str(nik))
             # Success is terminal even when any post-transaction operation fails.
             try:
+                self._log_transaction_outcome(nik, outcome)
                 self._log_transaction_stage(
                     nik,
                     "puzzle_finished",
@@ -442,6 +474,74 @@ class TransactionProcessor:
             )
         else:
             self._record_workflow_event(nik, "skipped_nik_recovery_succeeded")
+
+    def _log_transaction_outcome(self, nik: str, outcome: TransactionOutcome) -> None:
+        logger.bind(
+            event="transaction.outcome",
+            operator_id=self.operator_id,
+            nik=str(nik),
+            transaction_outcome=outcome.status,
+            transaction_confirmed=outcome.success_confirmed,
+            reason=outcome.reason,
+            evidence=outcome.evidence,
+            url=self.page.url,
+        ).info("Transaction outcome observed")
+
+    def _record_unconfirmed_transaction(
+        self,
+        nik: str,
+        started_at: str,
+        outcome: TransactionOutcome,
+        puzzle: PuzzleSolveOutcome,
+        customer: CustomerInformation,
+        *,
+        observation_error: Exception | None = None,
+    ) -> None:
+        """Persist a rejection/unknown result before recovery, without resubmission."""
+        self._log_transaction_outcome(nik, outcome)
+        fields = {
+            "url": self.page.url,
+            "nama_pengguna": customer.nama_pengguna,
+            "jenis_pengguna": customer.jenis_pengguna,
+        }
+        skip_methods = {
+            "customer_data_required": self.reporter.skip_needs_update,
+            "max_kuota": self.reporter.skip_max_kuota,
+            "zero_stock": self.reporter.skip_out_of_stock,
+        }
+        if outcome.status == "blocked" and outcome.reason in skip_methods:
+            skip_methods[outcome.reason](
+                nik, started_at, reason=outcome.evidence, **fields
+            )
+            self._unconfirmed_transaction_niks.discard(str(nik))
+            if outcome.reason == "zero_stock":
+                raise OutOfSellableStockError(outcome.evidence, reported=True)
+            self.limiter.record_skip()
+        else:
+            # Use the existing error row/schema, retaining a real traceback and
+            # the cause of an observation failure. Unknown sales are not replayed.
+            try:
+                raise TransactionConfirmationError(
+                    f"Transaction outcome unconfirmed: {outcome.reason or 'unknown'}"
+                ) from observation_error
+            except TransactionConfirmationError as exc:
+                logger.bind(
+                    event="transaction.confirmation_failed",
+                    operator_id=self.operator_id,
+                    nik=str(nik),
+                    transaction_confirmed=False,
+                    reason=outcome.reason,
+                ).exception("Transaction result could not be confirmed")
+                self.reporter.error(
+                    nik, started_at, exc=exc,
+                    puzzle_solved=True,
+                    puzzle_attempts=puzzle.attempts,
+                    puzzle_retry_count=puzzle.retry_count,
+                    puzzle_retry_process=puzzle.retry_process,
+                    **fields,
+                )
+        self._capture_failure_artifact(nik, "transaction_unconfirmed")
+        self._handle_session_recovery()
 
     def _handle_post_processing_failure(self, nik: str, exc: Exception) -> None:
         logger.bind(

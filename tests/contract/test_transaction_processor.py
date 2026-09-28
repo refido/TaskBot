@@ -1,5 +1,6 @@
 import csv
 import json
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,6 +12,7 @@ from src.application.models.customer_workflow import (
     CustomerUpdateLoopError,
     PrecheckAction,
 )
+from src.application.models.transaction_outcome import TransactionOutcome
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
 from src.application.services.transaction_prechecks import TransactionPrechecksService
 from src.logging_utils import configure_logging, logger
@@ -75,6 +77,17 @@ class FakeReporter:
 
     def skip(self, nik: str, started_at: str, skip_type: str, **kwargs) -> None:
         self.skip_calls.append((nik, started_at, skip_type, kwargs))
+
+    def skip_needs_update(self, nik, started_at, **kwargs):
+        self.skip(nik, started_at, "need updated customer data", **kwargs)
+
+    def skip_max_kuota(self, nik, started_at, **kwargs):
+        self.skip(nik, started_at, "max_kuota", **kwargs)
+
+
+class ConfirmedSalePage:
+    def wait_for_transaction_outcome(self):
+        return TransactionOutcome("completed", evidence="KEMBALI KE HALAMAN UTAMA")
 
 
 class FakeLimiter:
@@ -213,6 +226,7 @@ def _build_processor(
     processor._precheck_service = precheck_service
     processor._puzzle_service = puzzle_service
     processor._confirmed_success_niks = set()
+    processor._unconfirmed_transaction_niks = set()
     processor._session_recovery_service = (
         session_recovery_service or FakeSessionRecoveryService()
     )
@@ -708,7 +722,7 @@ def test_confirmed_sale_dashboard_failure_does_not_repeat_submission(monkeypatch
         def cek_pesanan(self):
             pass
 
-    class FakeCekPenjualan:
+    class FakeCekPenjualan(ConfirmedSalePage):
         def __init__(self, page):
             pass
 
@@ -749,7 +763,10 @@ def test_confirmed_sale_dashboard_failure_does_not_repeat_submission(monkeypatch
 @pytest.fixture
 def confirmed_sale_processor(monkeypatch):
     sale_page = SimpleNamespace(
-        proses_penjualan=Mock(), kembali_ke_dashboard=Mock()
+        proses_penjualan=Mock(), kembali_ke_dashboard=Mock(),
+        wait_for_transaction_outcome=Mock(return_value=TransactionOutcome(
+            "completed", evidence="KEMBALI KE HALAMAN UTAMA"
+        )),
     )
     monkeypatch.setattr(
         transaction_processor, "Penjualan",
@@ -761,6 +778,123 @@ def confirmed_sale_processor(monkeypatch):
         puzzle_service=FakePuzzleService(PuzzleSolveOutcome(solved=True, attempts=1)),
     )
     return processor, sale_page
+
+
+@pytest.mark.parametrize("blocked_count", [2, 4])
+def test_customer_data_blockers_are_retained_but_not_counted_as_completed(
+    confirmed_sale_processor, tmp_path, monkeypatch, blocked_count, request
+):
+    from src.infrastructure.database.operator_store import OperatorDbRecord, OperatorTarget
+    processor, sale_page = confirmed_sale_processor
+    set_nik_masking(False)
+    request.addfinalizer(lambda: set_nik_masking(True))
+    processor.reporter = TransactionReporter(out_dir=str(tmp_path), run_name="outcomes")
+    reason = (
+        "Terlalu banyak permintaan. Terdapat beberapa data yang belum lengkap. "
+        "Lengkapi data dahulu untuk melanjutkan transaksi."
+    )
+    sale_page.wait_for_transaction_outcome.side_effect = [
+        TransactionOutcome("completed", evidence="KEMBALI KE HALAMAN UTAMA")
+    ] * 100 + [TransactionOutcome("blocked", "customer_data_required", reason)] * blocked_count
+    processor.config.nik = [f"{i:016d}" for i in range(100 + blocked_count)]
+    monkeypatch.setattr(processor, "_capture_failure_artifact", Mock())
+
+    processor.process_all_niks()
+    processor.reporter.write_files()
+
+    assert processor.reporter.summary() == {
+        "completed": 100,
+        "skipped_need updated customer data": blocked_count,
+        "total": 100 + blocked_count,
+    }
+    assert len(processor.reporter.rows) == 100 + blocked_count
+    assert sale_page.kembali_ke_dashboard.call_count == 100
+    assert processor.limiter.success_calls == 100
+    assert processor.limiter.skip_calls == blocked_count
+    assert processor._session_recovery_service.recovery_calls == blocked_count
+    assert processor.reporter.retry_events == []
+    blocked = processor.reporter.rows[-1]
+    assert blocked.reason == reason
+    target = OperatorTarget("OPERATOR_1", "Test", operator_id="operator_01")
+    record = OperatorDbRecord.from_report_payload(asdict(blocked), target)
+    assert record.status_code == 422
+
+
+@pytest.mark.parametrize("outcome", [
+    TransactionOutcome("unknown", "confirmation_timeout"),
+    TransactionOutcome("completed"),
+    TransactionOutcome("completed", evidence="  "),
+    TransactionOutcome("unknown", "customer_update_result", "Data Pelanggan berhasil"),
+])
+def test_unconfirmed_sale_never_completes_or_retries(confirmed_sale_processor, outcome):
+    processor, sale_page = confirmed_sale_processor
+    sale_page.wait_for_transaction_outcome.return_value = outcome
+
+    processor.process_single_nik("3174")
+    processor.process_single_nik("3174")
+
+    sale_page.proses_penjualan.assert_called_once()
+    sale_page.kembali_ke_dashboard.assert_not_called()
+    assert processor.reporter.complete_calls == []
+    assert len(processor.reporter.error_calls) == 1
+    assert processor.reporter.retry_calls == []
+    assert processor.limiter.success_calls == 0
+    assert processor._confirmed_success_niks == set()
+    assert processor._session_recovery_service.recovery_calls == 1
+
+
+@pytest.mark.parametrize("error", [RuntimeError("observation failed"), SessionExpiredError("expired")])
+def test_confirmation_error_is_recorded_without_resubmission(confirmed_sale_processor, error):
+    processor, sale_page = confirmed_sale_processor
+    sale_page.wait_for_transaction_outcome.side_effect = error
+    processor.process_single_nik("3174")
+    assert processor.reporter.complete_calls == []
+    assert len(processor.reporter.error_calls) == 1
+    assert processor.reporter.error_calls[0][2].__cause__ is error
+    assert processor.reporter.retry_calls == []
+    sale_page.proses_penjualan.assert_called_once()
+
+
+def test_blocked_row_survives_recovery_failure(confirmed_sale_processor):
+    processor, sale_page = confirmed_sale_processor
+    sale_page.wait_for_transaction_outcome.return_value = TransactionOutcome(
+        "blocked", "customer_data_required", "Terlalu banyak permintaan"
+    )
+    processor._session_recovery_service.handle_session_recovery = Mock(
+        side_effect=RuntimeError("recovery failed")
+    )
+    with pytest.raises(RuntimeError, match="recovery failed"):
+        processor.process_single_nik("3174")
+    assert len(processor.reporter.skip_calls) == 1
+    assert processor.reporter.complete_calls == processor.reporter.error_calls == []
+    assert processor.reporter.retry_calls == []
+    sale_page.proses_penjualan.assert_called_once()
+
+
+def test_stock_empty_after_captcha_still_stops_remaining_accounts_niks(confirmed_sale_processor):
+    processor, sale_page = confirmed_sale_processor
+    processor.config.nik = ["3174", "3275"]
+    sale_page.wait_for_transaction_outcome.return_value = TransactionOutcome(
+        "blocked", "zero_stock", "Stok Tabung Kosong"
+    )
+    processor.process_all_niks()
+    assert len(processor.reporter.out_of_stock_calls) == 1
+    assert processor.reporter.complete_calls == processor.reporter.error_calls == []
+    sale_page.proses_penjualan.assert_called_once()
+
+
+def test_confirmed_sale_is_logged_with_positive_evidence(confirmed_sale_processor, request):
+    processor, sale_page = confirmed_sale_processor
+    records = []
+    sink = logger.add(lambda message: records.append(message.record))
+    request.addfinalizer(lambda: logger.remove(sink))
+    processor.process_single_nik("3174")
+    sale_page.wait_for_transaction_outcome.assert_called_once()
+    assert len(processor.reporter.complete_calls) == 1
+    event = next(r["extra"] for r in records if r["extra"].get("event") == "transaction.outcome")
+    assert event["transaction_outcome"] == "completed"
+    assert event["transaction_confirmed"] is True
+    assert event["evidence"] == "KEMBALI KE HALAMAN UTAMA"
 
 
 @pytest.mark.parametrize("error_type", [RuntimeError, SessionExpiredError])
@@ -912,7 +1046,7 @@ def test_process_single_nik_completes_and_records_success(monkeypatch):
         def cek_pesanan(self) -> None:
             FakePenjualan.cek_pesanan_calls += 1
 
-    class FakeCekPenjualan:
+    class FakeCekPenjualan(ConfirmedSalePage):
         proses_penjualan_calls = 0
         kembali_calls = 0
 
@@ -1080,7 +1214,7 @@ def test_successful_update_restarts_same_nik_without_consuming_retry_budgets(
         def cek_pesanan(self) -> None:
             return None
 
-    class FakeCekPenjualan:
+    class FakeCekPenjualan(ConfirmedSalePage):
         def __init__(self, page) -> None:
             self.page = page
 
@@ -1183,7 +1317,7 @@ def test_process_single_nik_reports_failed_puzzle_and_recovers(monkeypatch):
         def cek_pesanan(self) -> None:
             return None
 
-    class FakeCekPenjualan:
+    class FakeCekPenjualan(ConfirmedSalePage):
         def __init__(self, page) -> None:
             self.page = page
 
@@ -1271,7 +1405,7 @@ def test_process_single_nik_retries_general_errors_twice_then_completes(monkeypa
                     f"transient attempt {FlakyPenjualan.cek_pesanan_calls}"
                 )
 
-    class FakeCekPenjualan:
+    class FakeCekPenjualan(ConfirmedSalePage):
         def __init__(self, page) -> None:
             self.page = page
 

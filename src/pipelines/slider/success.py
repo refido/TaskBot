@@ -7,16 +7,25 @@ from src.pipelines.slider.types import SliderConfig
 
 
 class SuccessDetector:
-    """Detects CAPTCHA success."""
+    """Detects completion of the CAPTCHA stage, never confirmation of a sale."""
 
     def __init__(self, config: SliderConfig) -> None:
         self.config = config
 
     def check_success(self, page: Page, root: Locator) -> bool:
-        """Check if CAPTCHA was solved successfully."""
+        """Return whether CAPTCHA finished; the caller must confirm the sale.
+
+        Root disappearance can also precede a business rejection. The boolean
+        interface is retained for slider callers and is not transaction evidence.
+        """
         signal = self._wait_for_any_success_signal(page, root)
         if signal:
-            log_print(f"[SuccessDetector] SUCCESS via {signal}.")
+            log_print(
+                f"[SuccessDetector] CAPTCHA stage finished via {signal}.",
+                event="captcha.stage.finished",
+                evidence=signal,
+                transaction_confirmed=False,
+            )
             return True
         log_print("[SuccessDetector] No success signal detected before timeout.")
         return False
