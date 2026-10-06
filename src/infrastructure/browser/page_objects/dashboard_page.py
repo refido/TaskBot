@@ -123,6 +123,7 @@ PrecheckModalName = Literal[
     "nib_reminder",
     "perbarui",
     "invalid_registered_nik",
+    "nik_mismatch",
     "cannot_transact_at_base",
     "unusual_transaction",
 ]
@@ -179,6 +180,31 @@ class Dashboard(BasePage):
         )
 
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
+
+        self.nik_mismatch_modal = (
+            page.locator("section")
+            .filter(
+                has=page.get_by_text("NIK Pelanggan Tidak Padan", exact=True).filter(
+                    visible=True
+                )
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.nik_mismatch_continue = (
+            self.nik_mismatch_modal.get_by_role(
+                "button", name="LANJUTKAN Penjualan", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.nik_mismatch_tutup = (
+            self.nik_mismatch_modal.get_by_role(
+                "button", name="Tutup", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
+        )
 
         self.transaction_blocker_alert = (
             page.locator(
@@ -925,12 +951,39 @@ class Dashboard(BasePage):
             ("invalid_registered_nik", self.invalid_registered_nik_modal),
             ("cannot_transact_at_base", self.cannot_transact_at_base_modal),
             ("unusual_transaction", self.unusual_transaction_modal),
+            ("nik_mismatch", self.nik_mismatch_modal),
             ("nib_reminder", self.perbarui_data_nib_pelanggan_modal),
             ("perbarui", self.perbarui_data_pelanggan_modal),
         ]:
             if self._is_visible(modal):
                 return modal_name
         return None
+
+    def attempt_continue_nik_mismatch(self) -> bool:
+        try:
+            self.click_locator(
+                self.nik_mismatch_continue,
+                action_name="continuing sale after NIK mismatch",
+                expected_text="LANJUTKAN Penjualan",
+                timeout_ms=5000,
+                load_state=None,
+            )
+            self.nik_mismatch_modal.wait_for(state="hidden", timeout=7000)
+        except (PlaywrightError, AssertionError) as exc:
+            log_print(
+                "NIK mismatch sale continuation unavailable:",
+                str(exc),
+                event="nik.mismatch.proceed_unavailable",
+                reason=str(exc),
+            )
+            return False
+        return True
+
+    def dismiss_nik_mismatch_modal(self) -> None:
+        self._dismiss_simple_warning_modal(
+            modal=self.nik_mismatch_modal,
+            close_button=self.nik_mismatch_tutup,
+        )
 
     def select_jenis_pelanggan_if_needed(
         self,
@@ -1846,6 +1899,7 @@ class Dashboard(BasePage):
             .or_(self.invalid_registered_nik_modal)
             .or_(self.cannot_transact_at_base_modal)
             .or_(self.unusual_transaction_modal)
+            .or_(self.nik_mismatch_modal)
         )
 
     @staticmethod

@@ -1150,6 +1150,173 @@ def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
     assert session_recovery_service.recovery_calls == 0
 
 
+@pytest.mark.parametrize(
+    "proceed,puzzle_solved,close_failed,recovery_failed",
+    [
+        (True, True, False, False),
+        (True, False, False, False),
+        (False, True, False, False),
+        (False, True, True, False),
+        (False, True, False, True),
+    ],
+    ids=["proceed", "puzzle-failure", "skip", "close-failure", "recovery-failure"],
+)
+def test_mismatch_integrates_with_transactions_puzzle_and_reports(
+    monkeypatch, tmp_path, request, proceed, puzzle_solved, close_failed, recovery_failed
+):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    import main as taskbot_main
+    from src.infrastructure.database.operator_store import OperatorDbRecord, OperatorTargets
+
+    request.addfinalizer(logger.remove)
+    metadata = configure_logging(log_dir=str(tmp_path), run_id="mismatch-run")
+    niks = ["3573051108720003", "3573051108720004"]
+    transaction_calls = []
+
+    class MismatchDashboard(FakeDashboard):
+        modal = None
+        close_calls = 0
+
+        def catat_penjualan(self, nik):
+            super().catat_penjualan(nik)
+            self.modal = "nik_mismatch" if nik == niks[0] else None
+
+        def get_visible_customer_entry(self):
+            return "transaction_ready"
+
+        def get_visible_precheck_modal(self):
+            return self.modal
+
+        def attempt_continue_nik_mismatch(self):
+            if proceed:
+                self.modal = None
+            return proceed
+
+        def dismiss_nik_mismatch_modal(self):
+            self.close_calls += 1
+            if close_failed:
+                raise PlaywrightTimeoutError("Tutup not actionable")
+            self.modal = None
+
+    class Penjualan:
+        def __init__(self, page):
+            pass
+
+        def cek_pesanan(self):
+            transaction_calls.append("order_checked")
+
+        def read_transaction_blocker_alert(self, **kwargs):
+            return None
+
+    class SalePage(ConfirmedSalePage):
+        def __init__(self, page):
+            pass
+
+        def proses_penjualan(self):
+            transaction_calls.append("sale_submitted")
+
+        def kembali_ke_dashboard(self):
+            pass
+
+    class Recovery(FakeSessionRecoveryService):
+        def handle_session_recovery(self):
+            super().handle_session_recovery()
+            if recovery_failed:
+                raise RuntimeError("Dashboard recovery failed")
+
+    monkeypatch.setattr(transaction_processor, "Penjualan", Penjualan)
+    monkeypatch.setattr(transaction_processor, "CekPenjualan", SalePage)
+    reporter = TransactionReporter(out_dir=str(tmp_path), operator_id="operator_01")
+    batches = []
+    reporter.configure_batch_sync(batches.append, batch_size=10)
+    page = FakePage()
+    dashboard = MismatchDashboard()
+    limiter = FakeLimiter()
+    component = SimpleNamespace(is_visible=lambda: False)
+    prechecks = TransactionPrechecksService(
+        page=page, dashboard=dashboard, reporter=reporter, limiter=limiter,
+        post_skip_cooldown_ms=0, max_kuota_timeout_ms=0, zero_stock_timeout_ms=0,
+        consent_page=component, customer_update_page=component,
+        update_required_modal=component, update_confirmation_modal=component,
+        update_success_modal=component, login_page_detector=lambda *a, **kw: False,
+    )
+    puzzle = FakePuzzleService(PuzzleSolveOutcome(solved=puzzle_solved, attempts=1))
+    recovery = Recovery()
+    processor = _build_processor(
+        reporter=reporter, limiter=limiter, dashboard=dashboard, page=page,
+        precheck_service=prechecks, puzzle_service=puzzle,
+        session_recovery_service=recovery,
+    )
+    processor.config.nik = niks
+    processor.process_all_niks()
+
+    downstream_status = "completed" if puzzle_solved else "failed_puzzle_solve"
+    statuses = [downstream_status if proceed else "skipped_nik_mismatch", downstream_status]
+    assert [row.status for row in reporter.rows] == statuses
+    assert puzzle.calls == (niks if proceed else niks[1:])
+    assert transaction_calls == ["order_checked", "sale_submitted"] * (2 if proceed else 1)
+    assert dashboard.catat_penjualan_calls == niks
+    assert dashboard.close_calls == (0 if proceed else 1)
+    assert limiter.skip_calls == (0 if proceed else 1)
+    assert limiter.success_calls == statuses.count("completed")
+    assert reporter.retry_events == []
+
+    items = [json.loads(line) for line in reporter.jsonl_path.read_text().splitlines()]
+    with reporter.csv_path.open(encoding="utf-8", newline="") as stream:
+        csv_items = list(csv.DictReader(stream))
+    assert [item["status"] for item in items] == statuses
+    assert [item["status"] for item in csv_items] == statuses
+    events = [json.loads(line) for line in reporter.workflow_events_path.read_text().splitlines()]
+    mismatch_events = [event["event"] for event in events if event["event"] in {
+        "mismatch_detected", "mismatch_proceeded", "mismatch_skipped"
+    }]
+    assert mismatch_events == ["mismatch_detected", "mismatch_proceeded" if proceed else "mismatch_skipped"]
+    if not proceed:
+        assert reporter.rows[0].reason == "NIK mismatch - unable to proceed with sale"
+        assert reporter.rows[0].puzzle_solved is None
+        expected_recovery = "skipped_nik_recovery_failed" if recovery_failed else "skipped_nik_recovery_succeeded"
+        assert expected_recovery in [event["event"] for event in events]
+        assert reporter.get_failed_niks() == []
+
+    reporter.write_files()
+    summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
+    snapshot = json.loads(reporter.final_json_path.read_text(encoding="utf-8"))
+    for report in (summary, snapshot):
+        assert {key: int(value) for key, value in report["counts"].items()} == reporter.summary()
+    analytics = reporter.get_analytics()["summary"]
+    assert analytics["total_transactions"] == 2
+    assert analytics["completed"] == statuses.count("completed")
+    assert analytics["skipped"] == (0 if proceed else 1)
+    assert analytics["failed"] == 0
+    assert analytics["failed_puzzle_solve"] == statuses.count("failed_puzzle_solve")
+
+    summary_logs = []
+    monkeypatch.setattr(taskbot_main, "log_print", lambda *args, **kw: summary_logs.append(" ".join(args)))
+    taskbot_main._print_run_summary(
+        SimpleNamespace(run_dir=reporter.run_dir), [processor.config],
+        outcomes={"operator_01": {"counts": reporter.summary()}},
+    )
+    assert f"completed={statuses.count('completed')} skipped={0 if proceed else 1}" in summary_logs[-1]
+    reporter.flush_pending_batches()
+    reporter.flush_pending_batches()
+    assert batches == [tuple(reporter.rows)]
+    target = OperatorTargets.from_env({
+        "EMAIL_1": "tester@example.com", "PIN_1": "123456",
+        "NAME_OPERATORS_1": "Test Operator",
+    }, load_env_file=False).resolve("operator_01")
+    db_record = OperatorDbRecord.from_report_payload(asdict(reporter.rows[0]), target)
+    assert db_record.kuota_delta == (1 if statuses[0] == "completed" else 0)
+    assert db_record.status_code != 200 or statuses[0] == "completed"
+    if not proceed:
+        assert reporter.rows[0].reason in db_record.problem
+
+    logger.complete()
+    application_log = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
+    assert "customer.workflow.mismatch_detected" in application_log
+    assert f"customer.workflow.{'mismatch_proceeded' if proceed else 'mismatch_skipped'}" in application_log
+
+
 def test_inline_transaction_blocker_stops_before_cek_pesanan_and_puzzle(monkeypatch):
     class FailIfCheckedPenjualan:
         def __init__(self, page) -> None:

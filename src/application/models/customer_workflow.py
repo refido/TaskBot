@@ -28,6 +28,7 @@ class CustomerState(StrEnum):
     NOT_REGISTERED = "not_registered"
     REGISTRATION_REQUEST_LIMITED = "registration_request_limited"
     INVALID_REGISTERED_NIK = "invalid_registered_nik"
+    NIK_MISMATCH = "nik_mismatch"
     CANNOT_TRANSACT_AT_BASE = "cannot_transact_at_base"
     UNUSUAL_TRANSACTION = "unusual_transaction"
     UNKNOWN = "unknown"
