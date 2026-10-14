@@ -351,6 +351,7 @@ def test_catat_penjualan_defers_existing_registration_limit_without_clicking():
 def test_terminal_blocker_modal_beats_stale_perbarui_modal():
     dashboard = Dashboard.__new__(Dashboard)
     dashboard.nik_mismatch_modal = object()
+    dashboard.cannot_transact_modal = object()
     dashboard.pelanggan_tidak_terdaftar_modal = object()
     dashboard.registration_request_limited_modal = object()
     dashboard.perbarui_data_pelanggan_modal = object()
@@ -371,6 +372,7 @@ def test_terminal_blocker_modal_beats_stale_perbarui_modal():
 def test_registration_request_limit_beats_stale_customer_update_modal():
     dashboard = Dashboard.__new__(Dashboard)
     dashboard.nik_mismatch_modal = object()
+    dashboard.cannot_transact_modal = object()
     dashboard.pelanggan_tidak_terdaftar_modal = object()
     dashboard.registration_request_limited_modal = object()
     dashboard.perbarui_data_pelanggan_modal = object()
@@ -623,6 +625,7 @@ def test_inline_transaction_blocker_is_a_known_customer_entry_outcome():
 def test_visible_nib_reminder_is_not_classified_as_perbarui_customer_data():
     dashboard = Dashboard.__new__(Dashboard)
     dashboard.nik_mismatch_modal = object()
+    dashboard.cannot_transact_modal = object()
     dashboard.pelanggan_tidak_terdaftar_modal = object()
     dashboard.registration_request_limited_modal = object()
     dashboard.perbarui_data_pelanggan_modal = object()

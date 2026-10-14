@@ -1151,18 +1151,25 @@ def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "proceed,puzzle_solved,close_failed,recovery_failed",
+    "modal_name,proceed,puzzle_solved,close_failed,recovery_failed",
     [
-        (True, True, False, False),
-        (True, False, False, False),
-        (False, True, False, False),
-        (False, True, True, False),
-        (False, True, False, True),
+        ("nik_mismatch", True, True, False, False),
+        ("nik_mismatch", True, False, False, False),
+        ("nik_mismatch", False, True, False, False),
+        ("nik_mismatch", False, True, True, False),
+        ("nik_mismatch", False, True, False, True),
+        ("cannot_transact", False, True, False, False),
+        ("cannot_transact", False, True, True, False),
+        ("cannot_transact", False, True, False, True),
     ],
-    ids=["proceed", "puzzle-failure", "skip", "close-failure", "recovery-failure"],
+    ids=[
+        "proceed", "puzzle-failure", "skip", "close-failure", "recovery-failure",
+        "cannot-transact", "cannot-transact-close-failure", "cannot-transact-recovery-failure",
+    ],
 )
-def test_mismatch_integrates_with_transactions_puzzle_and_reports(
-    monkeypatch, tmp_path, request, proceed, puzzle_solved, close_failed, recovery_failed
+def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
+    monkeypatch, tmp_path, request, modal_name, proceed, puzzle_solved, close_failed,
+    recovery_failed
 ):
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -1173,14 +1180,19 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
     metadata = configure_logging(log_dir=str(tmp_path), run_id="mismatch-run")
     niks = ["3573051108720003", "3573051108720004"]
     transaction_calls = []
+    event_prefix = "mismatch" if modal_name == "nik_mismatch" else "cannot_transact"
+    skip_reason = (
+        "NIK mismatch - unable to proceed with sale" if modal_name == "nik_mismatch"
+        else "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
+    )
 
-    class MismatchDashboard(FakeDashboard):
+    class WarningDashboard(FakeDashboard):
         modal = None
         close_calls = 0
 
         def catat_penjualan(self, nik):
             super().catat_penjualan(nik)
-            self.modal = "nik_mismatch" if nik == niks[0] else None
+            self.modal = modal_name if nik == niks[0] else None
 
         def get_visible_customer_entry(self):
             return "transaction_ready"
@@ -1189,6 +1201,7 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
             return self.modal
 
         def attempt_continue_nik_mismatch(self):
+            assert modal_name == "nik_mismatch"
             if proceed:
                 self.modal = None
             return proceed
@@ -1198,6 +1211,13 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
             if close_failed:
                 raise PlaywrightTimeoutError("Tutup not actionable")
             self.modal = None
+
+        def read_cannot_transact_reason_if_present(self, detect_timeout=6000):
+            assert modal_name == "cannot_transact"
+            return skip_reason
+
+        def dismiss_cannot_transact_modal(self):
+            self.dismiss_nik_mismatch_modal()
 
     class Penjualan:
         def __init__(self, page):
@@ -1231,7 +1251,7 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
     batches = []
     reporter.configure_batch_sync(batches.append, batch_size=10)
     page = FakePage()
-    dashboard = MismatchDashboard()
+    dashboard = WarningDashboard()
     limiter = FakeLimiter()
     component = SimpleNamespace(is_visible=lambda: False)
     prechecks = TransactionPrechecksService(
@@ -1252,7 +1272,7 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
     processor.process_all_niks()
 
     downstream_status = "completed" if puzzle_solved else "failed_puzzle_solve"
-    statuses = [downstream_status if proceed else "skipped_nik_mismatch", downstream_status]
+    statuses = [downstream_status if proceed else f"skipped_{modal_name}", downstream_status]
     assert [row.status for row in reporter.rows] == statuses
     assert puzzle.calls == (niks if proceed else niks[1:])
     assert transaction_calls == ["order_checked", "sale_submitted"] * (2 if proceed else 1)
@@ -1268,12 +1288,16 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
     assert [item["status"] for item in items] == statuses
     assert [item["status"] for item in csv_items] == statuses
     events = [json.loads(line) for line in reporter.workflow_events_path.read_text().splitlines()]
-    mismatch_events = [event["event"] for event in events if event["event"] in {
-        "mismatch_detected", "mismatch_proceeded", "mismatch_skipped"
+    warning_events = [event["event"] for event in events if event["event"] in {
+        f"{event_prefix}_detected", f"{event_prefix}_proceeded", f"{event_prefix}_skipped"
     }]
-    assert mismatch_events == ["mismatch_detected", "mismatch_proceeded" if proceed else "mismatch_skipped"]
+    assert warning_events == [
+        f"{event_prefix}_detected",
+        f"{event_prefix}_proceeded" if proceed else f"{event_prefix}_skipped",
+    ]
+    assert (f"{event_prefix}_skip_cleanup_failed" in [event["event"] for event in events]) == close_failed
     if not proceed:
-        assert reporter.rows[0].reason == "NIK mismatch - unable to proceed with sale"
+        assert reporter.rows[0].reason == skip_reason
         assert reporter.rows[0].puzzle_solved is None
         expected_recovery = "skipped_nik_recovery_failed" if recovery_failed else "skipped_nik_recovery_succeeded"
         assert expected_recovery in [event["event"] for event in events]
@@ -1308,13 +1332,18 @@ def test_mismatch_integrates_with_transactions_puzzle_and_reports(
     db_record = OperatorDbRecord.from_report_payload(asdict(reporter.rows[0]), target)
     assert db_record.kuota_delta == (1 if statuses[0] == "completed" else 0)
     assert db_record.status_code != 200 or statuses[0] == "completed"
+    if modal_name == "cannot_transact":
+        assert db_record.status_code == 409
+        assert db_record.status_code_description == "Unable to perform transaction"
     if not proceed:
         assert reporter.rows[0].reason in db_record.problem
 
     logger.complete()
     application_log = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
-    assert "customer.workflow.mismatch_detected" in application_log
-    assert f"customer.workflow.{'mismatch_proceeded' if proceed else 'mismatch_skipped'}" in application_log
+    assert f"customer.workflow.{event_prefix}_detected" in application_log
+    assert f"customer.workflow.{event_prefix}_{'proceeded' if proceed else 'skipped'}" in application_log
+    if modal_name == "cannot_transact":
+        assert skip_reason in application_log
 
 
 def test_inline_transaction_blocker_stops_before_cek_pesanan_and_puzzle(monkeypatch):

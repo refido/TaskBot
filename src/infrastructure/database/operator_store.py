@@ -74,6 +74,7 @@ _STATUS_MAPPINGS = {
     "successful": ReportStatusMapping(200, "Transaction successful"),
     "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
     "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
+    "skipped_cannot_transact": ReportStatusMapping(409, "Unable to perform transaction"),
     "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
     "skipped_registration_request_limited": ReportStatusMapping(
         429, "Consumer registration request limit reached"

@@ -255,6 +255,68 @@ def test_mismatch_fallback_records_one_skip_and_requests_recovery(close_error):
     assert ("mismatch_skip_cleanup_failed" in events) == bool(close_error)
 
 
+@pytest.mark.parametrize("close_error", [None, "timeout", "session", "unexpected"])
+def test_cannot_transact_persists_skip_before_close_and_requests_recovery(close_error):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    service, components = build_live_service()
+    service.dashboard.modal = "cannot_transact"
+    service.dashboard.entry = "transaction_ready"
+    components[4].visible_now = True  # A stale update screen must not beat the modal.
+    reason = "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
+    service.dashboard.read_cannot_transact_reason_if_present = Mock(return_value=reason)
+    service.dashboard.attempt_continue_nik_mismatch = Mock()
+    error = {
+        None: None,
+        "timeout": PlaywrightTimeoutError("TUTUP unavailable"),
+        "session": SessionExpiredError("Session expired closing modal"),
+        "unexpected": RuntimeError("Cleanup failed"),
+    }[close_error]
+
+    def close():
+        assert len(service.reporter.skips) == 1
+        assert service.limiter.skip_calls == 1
+        if error is not None:
+            raise error
+
+    service.dashboard.dismiss_cannot_transact_modal = Mock(side_effect=close)
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.SKIP_REQUIRES_RECOVERY
+    )
+    service.dashboard.dismiss_cannot_transact_modal.assert_called_once_with()
+    service.dashboard.attempt_continue_nik_mismatch.assert_not_called()
+    assert service.reporter.skips == [
+        ("3573051108720003", "start", "cannot_transact", {
+            "url": service.page.url, "reason": reason,
+        })
+    ]
+    assert service.limiter.skip_calls == 1
+    assert all(component.calls == 0 for component in components)
+    events = [payload["event"] for _, payload in service.reporter.events]
+    assert events[:2] == ["cannot_transact_detected", "cannot_transact_skipped"]
+    assert ("cannot_transact_skip_cleanup_failed" in events) == bool(close_error)
+
+
+def test_cannot_transact_interrupts_customer_update_transition():
+    service, components = build_live_service()
+    components[2].visible_now = True
+
+    def open_update():
+        service.dashboard.modal = "cannot_transact"
+
+    components[2].on_action = open_update
+    service.dashboard.read_cannot_transact_reason_if_present = Mock(return_value=None)
+    service.dashboard.dismiss_cannot_transact_modal = Mock()
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.SKIP_REQUIRES_RECOVERY
+    )
+    assert components[1].calls == 0
+    assert service.reporter.skips[0][3]["reason"] == "Tidak Dapat Melakukan Transaksi"
+    assert service.limiter.skip_calls == 1
+
+
 def test_mismatch_proceed_does_not_bypass_missing_downstream_state():
     service, _ = build_live_service()
     service.dashboard.modal = "nik_mismatch"
