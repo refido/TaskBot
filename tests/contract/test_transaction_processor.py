@@ -1161,10 +1161,14 @@ def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
         ("cannot_transact", False, True, False, False),
         ("cannot_transact", False, True, True, False),
         ("cannot_transact", False, True, False, True),
+        ("fraud", False, True, False, False),
+        ("fraud", False, True, True, False),
+        ("fraud", False, True, False, True),
     ],
     ids=[
         "proceed", "puzzle-failure", "skip", "close-failure", "recovery-failure",
         "cannot-transact", "cannot-transact-close-failure", "cannot-transact-recovery-failure",
+        "fraud", "fraud-close-failure", "fraud-recovery-failure",
     ],
 )
 def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
@@ -1180,11 +1184,12 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     metadata = configure_logging(log_dir=str(tmp_path), run_id="mismatch-run")
     niks = ["3573051108720003", "3573051108720004"]
     transaction_calls = []
-    event_prefix = "mismatch" if modal_name == "nik_mismatch" else "cannot_transact"
-    skip_reason = (
-        "NIK mismatch - unable to proceed with sale" if modal_name == "nik_mismatch"
-        else "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
-    )
+    event_prefix = "mismatch" if modal_name == "nik_mismatch" else modal_name
+    skip_reason = {
+        "nik_mismatch": "NIK mismatch - unable to proceed with sale",
+        "cannot_transact": "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan.",
+        "fraud": "NIK pelanggan diblokir karena pelanggan terindikasi fraud",
+    }[modal_name]
 
     class WarningDashboard(FakeDashboard):
         modal = None
@@ -1217,6 +1222,13 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
             return skip_reason
 
         def dismiss_cannot_transact_modal(self):
+            self.dismiss_nik_mismatch_modal()
+
+        def read_fraud_reason_if_present(self, detect_timeout=6000):
+            assert modal_name == "fraud"
+            return skip_reason
+
+        def dismiss_fraud_modal(self):
             self.dismiss_nik_mismatch_modal()
 
     class Penjualan:
@@ -1335,6 +1347,9 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     if modal_name == "cannot_transact":
         assert db_record.status_code == 409
         assert db_record.status_code_description == "Unable to perform transaction"
+    if modal_name == "fraud":
+        assert db_record.status_code == 409
+        assert db_record.status_code_description == "NIK blocked due to suspected fraud"
     if not proceed:
         assert reporter.rows[0].reason in db_record.problem
 
@@ -1342,7 +1357,7 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     application_log = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
     assert f"customer.workflow.{event_prefix}_detected" in application_log
     assert f"customer.workflow.{event_prefix}_{'proceeded' if proceed else 'skipped'}" in application_log
-    if modal_name == "cannot_transact":
+    if modal_name in {"cannot_transact", "fraud"}:
         assert skip_reason in application_log
 
 

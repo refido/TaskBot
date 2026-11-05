@@ -19,6 +19,7 @@ MODALS = (
     "registration_request_limited",
     "invalid_registered_nik",
     "cannot_transact",
+    "fraud",
     "cannot_transact_at_base",
     "unusual_transaction",
     "nik_mismatch",
@@ -35,7 +36,7 @@ COMPONENTS = (
 PRIORITY = (
     "session_expired",
     "under_17",
-    *MODALS[:7],
+    *MODALS[:8],
     *COMPONENTS,
     "nib_reminder",
     "customer_type",

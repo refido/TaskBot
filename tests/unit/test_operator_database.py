@@ -304,6 +304,29 @@ def test_registration_request_limit_maps_to_http_429_without_kuota_delta():
     assert record.problem == f"skipped_registration_request_limited: {reason}"
 
 
+def test_fraud_skip_preserves_reason_without_kuota_delta():
+    targets = OperatorTargets.from_env(
+        {"NAME_OPERATORS_1": "First Operator"}, load_env_file=False
+    )
+    reason = "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+
+    record = OperatorDbRecord.from_report_payload(
+        {
+            "operator_id": "operator_01",
+            "nik": "1234",
+            "status": "skipped_fraud",
+            "reason": reason,
+        },
+        targets.resolve("operator_01"),
+    )
+
+    assert record.kuota_delta == 0
+    assert record.status_code == 409
+    assert record.status_code_description == "NIK blocked due to suspected fraud"
+    assert record.conflict is True
+    assert record.problem == f"skipped_fraud: {reason}"
+
+
 def test_operator_record_uses_customer_fields_when_report_contains_them():
     targets = OperatorTargets.from_env(
         {

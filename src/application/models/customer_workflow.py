@@ -30,6 +30,7 @@ class CustomerState(StrEnum):
     INVALID_REGISTERED_NIK = "invalid_registered_nik"
     NIK_MISMATCH = "nik_mismatch"
     CANNOT_TRANSACT = "cannot_transact"
+    FRAUD = "fraud"
     CANNOT_TRANSACT_AT_BASE = "cannot_transact_at_base"
     UNUSUAL_TRANSACTION = "unusual_transaction"
     UNKNOWN = "unknown"

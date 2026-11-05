@@ -256,15 +256,24 @@ def test_mismatch_fallback_records_one_skip_and_requests_recovery(close_error):
 
 
 @pytest.mark.parametrize("close_error", [None, "timeout", "session", "unexpected"])
-def test_cannot_transact_persists_skip_before_close_and_requests_recovery(close_error):
+@pytest.mark.parametrize("modal_name", ["cannot_transact", "fraud"])
+def test_close_only_warning_persists_skip_before_close_and_requests_recovery(
+    close_error, modal_name
+):
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
     service, components = build_live_service()
-    service.dashboard.modal = "cannot_transact"
+    service.dashboard.modal = modal_name
     service.dashboard.entry = "transaction_ready"
     components[4].visible_now = True  # A stale update screen must not beat the modal.
-    reason = "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
-    service.dashboard.read_cannot_transact_reason_if_present = Mock(return_value=reason)
+    reason = (
+        "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+        if modal_name == "fraud"
+        else "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
+    )
+    setattr(
+        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=reason)
+    )
     service.dashboard.attempt_continue_nik_mismatch = Mock()
     error = {
         None: None,
@@ -279,41 +288,53 @@ def test_cannot_transact_persists_skip_before_close_and_requests_recovery(close_
         if error is not None:
             raise error
 
-    service.dashboard.dismiss_cannot_transact_modal = Mock(side_effect=close)
+    dismiss = Mock(side_effect=close)
+    setattr(service.dashboard, f"dismiss_{modal_name}_modal", dismiss)
     assert (
         service.handle_pre_checks("3573051108720003", "start")
         is PrecheckAction.SKIP_REQUIRES_RECOVERY
     )
-    service.dashboard.dismiss_cannot_transact_modal.assert_called_once_with()
+    dismiss.assert_called_once_with()
     service.dashboard.attempt_continue_nik_mismatch.assert_not_called()
     assert service.reporter.skips == [
-        ("3573051108720003", "start", "cannot_transact", {
+        ("3573051108720003", "start", modal_name, {
             "url": service.page.url, "reason": reason,
         })
     ]
     assert service.limiter.skip_calls == 1
     assert all(component.calls == 0 for component in components)
     events = [payload["event"] for _, payload in service.reporter.events]
-    assert events[:2] == ["cannot_transact_detected", "cannot_transact_skipped"]
-    assert ("cannot_transact_skip_cleanup_failed" in events) == bool(close_error)
+    assert events[:2] == [f"{modal_name}_detected", f"{modal_name}_skipped"]
+    assert (f"{modal_name}_skip_cleanup_failed" in events) == bool(close_error)
 
 
-def test_cannot_transact_interrupts_customer_update_transition():
+@pytest.mark.parametrize(
+    "modal_name,fallback_reason",
+    [
+        ("cannot_transact", "Tidak Dapat Melakukan Transaksi"),
+        ("fraud", "NIK pelanggan diblokir karena pelanggan terindikasi fraud"),
+    ],
+)
+def test_close_only_warning_interrupts_customer_update_transition(
+    modal_name, fallback_reason
+):
     service, components = build_live_service()
     components[2].visible_now = True
 
     def open_update():
-        service.dashboard.modal = "cannot_transact"
+        service.dashboard.modal = modal_name
 
     components[2].on_action = open_update
-    service.dashboard.read_cannot_transact_reason_if_present = Mock(return_value=None)
-    service.dashboard.dismiss_cannot_transact_modal = Mock()
+    setattr(
+        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=None)
+    )
+    setattr(service.dashboard, f"dismiss_{modal_name}_modal", Mock())
     assert (
         service.handle_pre_checks("3573051108720003", "start")
         is PrecheckAction.SKIP_REQUIRES_RECOVERY
     )
     assert components[1].calls == 0
-    assert service.reporter.skips[0][3]["reason"] == "Tidak Dapat Melakukan Transaksi"
+    assert service.reporter.skips[0][3]["reason"] == fallback_reason
     assert service.limiter.skip_calls == 1
 
 
