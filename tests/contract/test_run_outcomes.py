@@ -125,7 +125,7 @@ def run_scenarios(monkeypatch, tmp_path):
             run_context=context, account_configs=lambda: configs,
             max_concurrent_accounts=max_concurrent_accounts,
         ))
-        monkeypatch.setattr(taskbot_main, "load_dotenv", Mock())
+        monkeypatch.setattr(taskbot_main, "load_environment", Mock())
         monkeypatch.setattr(taskbot_main, "configure_logging", lambda **kwargs: {
             "run_id": context.run_id, "json_log_path": str(tmp_path / "application.jsonl"),
         })
@@ -323,7 +323,7 @@ context = SimpleNamespace(run_id="exit-test", started_at="2026-09-10", run_dir=r
                           settings=SimpleNamespace(mask_nik=True))
 config = SimpleNamespace(operator_id="operator_01", nik=["1000"])
 main.Config = lambda: SimpleNamespace(run_context=context, account_configs=lambda: [config])
-main.load_dotenv = Mock()
+main.load_environment = Mock()
 main.configure_logging = lambda **kwargs: {"run_id": context.run_id, "json_log_path": str(root / "app.jsonl")}
 main.logger = Mock()
 main._build_customer_update_rate_limiter = Mock()

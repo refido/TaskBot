@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
+from playwright.sync_api import Error as PlaywrightError
+
 from nik_parser import NIKValidationError, parse_nik
 from src.application.models.customer_workflow import (
     CustomerState,
@@ -80,6 +82,9 @@ class TransactionPrechecksService:
             CustomerState.NOT_REGISTERED,
             CustomerState.REGISTRATION_REQUEST_LIMITED,
             CustomerState.INVALID_REGISTERED_NIK,
+            CustomerState.NIK_MISMATCH,
+            CustomerState.CANNOT_TRANSACT,
+            CustomerState.FRAUD,
             CustomerState.CANNOT_TRANSACT_AT_BASE,
             CustomerState.UNUSUAL_TRANSACTION,
         }
@@ -165,6 +170,18 @@ class TransactionPrechecksService:
                 )
             if state is CustomerState.TRANSACTION_READY:
                 return PrecheckAction.CONTINUE
+            if state is CustomerState.CANNOT_TRANSACT:
+                return self._handle_cannot_transact(nik, started_at)
+            if state is CustomerState.FRAUD:
+                return self._handle_fraud(nik, started_at)
+            if state is CustomerState.NIK_MISMATCH:
+                self._raise_if_repeated(state, handled_states)
+                action = self._handle_nik_mismatch(nik, started_at)
+                if action is not PrecheckAction.CONTINUE:
+                    return action
+                handled_states.add(state)
+                state = self._resolve_after_action(nik, state)
+                continue
             if state is CustomerState.CUSTOMER_TYPE:
                 self._raise_if_repeated(state, handled_states)
                 self._record_workflow_event(nik, "customer_type_detected")
@@ -612,6 +629,73 @@ class TransactionPrechecksService:
         if modal_name == "unusual_transaction":
             return self._handle_unusual_transaction(nik, started_at)
         return False
+
+    def _handle_nik_mismatch(self, nik: str, started_at: str) -> PrecheckAction:
+        self._record_workflow_event(nik, "mismatch_detected")
+        self._log_customer_action(nik, CustomerState.NIK_MISMATCH, "continue_sale")
+        if self.dashboard.attempt_continue_nik_mismatch():
+            self._record_workflow_event(nik, "mismatch_proceeded")
+            return PrecheckAction.CONTINUE
+
+        reason = "NIK mismatch - unable to proceed with sale"
+        failure_url = self.page.url
+        try:
+            self.dashboard.dismiss_nik_mismatch_modal()
+            self.page.wait_for_timeout(self.post_skip_cooldown_ms)
+        except (PlaywrightError, AssertionError, SessionExpiredError) as exc:
+            self._record_workflow_event(
+                nik, "mismatch_skip_cleanup_failed", reason=str(exc)
+            )
+        self.limiter.record_skip()
+        self.reporter.skip(
+            nik, started_at, "nik_mismatch", url=failure_url, reason=reason
+        )
+        self._record_workflow_event(nik, "mismatch_skipped", reason=reason)
+        # Restore the dashboard outside the transaction retry boundary, so a
+        # recovery failure cannot replace this terminal skip or replay the NIK.
+        return PrecheckAction.SKIP_REQUIRES_RECOVERY
+
+    def _handle_cannot_transact(self, nik: str, started_at: str) -> PrecheckAction:
+        reason = self.dashboard.read_cannot_transact_reason_if_present(
+            detect_timeout=500
+        ) or "Tidak Dapat Melakukan Transaksi"
+        self._record_workflow_event(nik, "cannot_transact_detected", reason=reason)
+        self._log_customer_action(nik, CustomerState.CANNOT_TRANSACT, "close_and_skip")
+        # Persist the terminal skip before closing the modal can fail.
+        self.limiter.record_skip()
+        self.reporter.skip(
+            nik, started_at, "cannot_transact", url=self.page.url, reason=reason
+        )
+        self._record_workflow_event(nik, "cannot_transact_skipped", reason=reason)
+        try:
+            self.dashboard.dismiss_cannot_transact_modal()
+            self.page.wait_for_timeout(self.post_skip_cooldown_ms)
+        except Exception as exc:  # noqa: BLE001 - cleanup cannot undo a recorded skip.
+            self._record_workflow_event(
+                nik, "cannot_transact_skip_cleanup_failed", reason=str(exc)
+            )
+        return PrecheckAction.SKIP_REQUIRES_RECOVERY
+
+    def _handle_fraud(self, nik: str, started_at: str) -> PrecheckAction:
+        reason = self.dashboard.read_fraud_reason_if_present(
+            detect_timeout=500
+        ) or "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+        self._record_workflow_event(nik, "fraud_detected", reason=reason)
+        self._log_customer_action(nik, CustomerState.FRAUD, "close_and_skip")
+        # Persist the terminal skip before closing the modal can fail.
+        self.limiter.record_skip()
+        self.reporter.skip(
+            nik, started_at, "fraud", url=self.page.url, reason=reason
+        )
+        self._record_workflow_event(nik, "fraud_skipped", reason=reason)
+        try:
+            self.dashboard.dismiss_fraud_modal()
+            self.page.wait_for_timeout(self.post_skip_cooldown_ms)
+        except Exception as exc:  # noqa: BLE001 - cleanup cannot undo a recorded skip.
+            self._record_workflow_event(
+                nik, "fraud_skip_cleanup_failed", reason=str(exc)
+            )
+        return PrecheckAction.SKIP_REQUIRES_RECOVERY
 
     def _skip_nik_parsing_failure(
         self, nik: str, started_at: str, exc: NIKValidationError

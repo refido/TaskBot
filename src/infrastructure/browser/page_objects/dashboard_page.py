@@ -51,7 +51,8 @@ _NIB_TUTUP_BUTTON = re.compile(
     re.IGNORECASE,
 )
 _NIK_UNDER_17_VALIDATION_TEXT = "NIK belum 17 tahun"
-_INVALID_REGISTERED_NIK_MODAL_TITLE = "Tidak Dapat Melakukan Transaksi"
+_CANNOT_TRANSACT_MODAL_TITLE = "Tidak Dapat Melakukan Transaksi"
+_FRAUD_MODAL_TITLE = "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
 _INVALID_REGISTERED_NIK_MESSAGE = "NIK pelanggan yang didaftarkan tidak valid."
 _CANNOT_TRANSACT_AT_BASE_TITLE = "Pelanggan Tidak Dapat Transaksi di Pangkalan Ini"
 _UNUSUAL_TRANSACTION_MODAL_TITLE = "Tidak Dapat Melanjutkan Transaksi"
@@ -123,6 +124,9 @@ PrecheckModalName = Literal[
     "nib_reminder",
     "perbarui",
     "invalid_registered_nik",
+    "cannot_transact",
+    "fraud",
+    "nik_mismatch",
     "cannot_transact_at_base",
     "unusual_transaction",
 ]
@@ -179,6 +183,31 @@ class Dashboard(BasePage):
         )
 
         self.cek_pesanan_button = page.get_by_role("button", name="CEK PESANAN")
+
+        self.nik_mismatch_modal = (
+            page.locator("section")
+            .filter(
+                has=page.get_by_text("NIK Pelanggan Tidak Padan", exact=True).filter(
+                    visible=True
+                )
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.nik_mismatch_continue = (
+            self.nik_mismatch_modal.get_by_role(
+                "button", name="LANJUTKAN Penjualan", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.nik_mismatch_tutup = (
+            self.nik_mismatch_modal.get_by_role(
+                "button", name="Tutup", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
+        )
 
         self.transaction_blocker_alert = (
             page.locator(
@@ -352,7 +381,7 @@ class Dashboard(BasePage):
             )
             .filter(
                 has_text=re.compile(
-                    rf"^\s*{re.escape(_INVALID_REGISTERED_NIK_MODAL_TITLE)}\s*$",
+                    rf"^\s*{re.escape(_CANNOT_TRANSACT_MODAL_TITLE)}\s*$",
                     re.IGNORECASE,
                 )
             )
@@ -375,6 +404,46 @@ class Dashboard(BasePage):
                 "button",
                 name=re.compile(r"^\s*tutup\s*$", re.IGNORECASE),
             ).first
+        )
+
+        self.cannot_transact_modal = (
+            page.locator("section")
+            .filter(
+                has=page.locator("h6")
+                .filter(
+                    has_text=re.compile(
+                        rf"^\s*{re.escape(_CANNOT_TRANSACT_MODAL_TITLE)}\s*$"
+                    )
+                )
+                .filter(visible=True)
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.cannot_transact_modal_tutup = (
+            self.cannot_transact_modal.get_by_role(
+                "button", name="TUTUP", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
+        )
+
+        self.fraud_modal = (
+            page.locator("section")
+            .filter(
+                has=page.locator("h6")
+                .filter(has_text=re.compile(rf"^\s*{re.escape(_FRAUD_MODAL_TITLE)}\s*$"))
+                .filter(visible=True)
+            )
+            .filter(visible=True)
+            .first
+        )
+        self.fraud_modal_tutup = (
+            self.fraud_modal.get_by_role(
+                "button", name="TUTUP", exact=True, include_hidden=True
+            )
+            .filter(visible=True)
+            .first
         )
 
         self.cannot_transact_at_base_modal = (
@@ -607,6 +676,8 @@ class Dashboard(BasePage):
                 self.registration_request_limited_modal,
                 self.perbarui_data_pelanggan_modal,
                 self.invalid_registered_nik_modal,
+                self.cannot_transact_modal,
+                self.fraud_modal,
                 self.cannot_transact_at_base_modal,
                 self.unusual_transaction_modal,
             )
@@ -923,14 +994,81 @@ class Dashboard(BasePage):
                 self.registration_request_limited_modal,
             ),
             ("invalid_registered_nik", self.invalid_registered_nik_modal),
+            ("cannot_transact", self.cannot_transact_modal),
+            ("fraud", self.fraud_modal),
             ("cannot_transact_at_base", self.cannot_transact_at_base_modal),
             ("unusual_transaction", self.unusual_transaction_modal),
+            ("nik_mismatch", self.nik_mismatch_modal),
             ("nib_reminder", self.perbarui_data_nib_pelanggan_modal),
             ("perbarui", self.perbarui_data_pelanggan_modal),
         ]:
             if self._is_visible(modal):
                 return modal_name
         return None
+
+    def attempt_continue_nik_mismatch(self) -> bool:
+        try:
+            self.click_locator(
+                self.nik_mismatch_continue,
+                action_name="continuing sale after NIK mismatch",
+                expected_text="LANJUTKAN Penjualan",
+                timeout_ms=5000,
+                load_state=None,
+            )
+            self.nik_mismatch_modal.wait_for(state="hidden", timeout=7000)
+        except (PlaywrightError, AssertionError) as exc:
+            log_print(
+                "NIK mismatch sale continuation unavailable:",
+                str(exc),
+                event="nik.mismatch.proceed_unavailable",
+                reason=str(exc),
+            )
+            return False
+        return True
+
+    def dismiss_nik_mismatch_modal(self) -> None:
+        self._dismiss_simple_warning_modal(
+            modal=self.nik_mismatch_modal,
+            close_button=self.nik_mismatch_tutup,
+        )
+
+    def read_cannot_transact_reason_if_present(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._read_simple_warning_modal_reason_if_present(
+            modal=self.cannot_transact_modal,
+            detect_timeout=detect_timeout,
+            missing_log="Tidak Dapat Melakukan Transaksi modal not present.",
+            title_fallback=_CANNOT_TRANSACT_MODAL_TITLE,
+            message_locator=self.cannot_transact_modal.locator("div.mantine-Text-root")
+            .filter(visible=True)
+            .first,
+        )
+
+    def dismiss_cannot_transact_modal(self) -> None:
+        self._dismiss_simple_warning_modal(
+            modal=self.cannot_transact_modal,
+            close_button=self.cannot_transact_modal_tutup,
+        )
+
+    def read_fraud_reason_if_present(
+        self, detect_timeout: int = 6000
+    ) -> str | None:
+        return self._read_simple_warning_modal_reason_if_present(
+            modal=self.fraud_modal,
+            detect_timeout=detect_timeout,
+            missing_log="Fraud modal not present.",
+            title_locator=self.fraud_modal.get_by_text(_FRAUD_MODAL_TITLE, exact=True)
+            .filter(visible=True)
+            .first,
+            title_fallback=_FRAUD_MODAL_TITLE,
+        )
+
+    def dismiss_fraud_modal(self) -> None:
+        self._dismiss_simple_warning_modal(
+            modal=self.fraud_modal,
+            close_button=self.fraud_modal_tutup,
+        )
 
     def select_jenis_pelanggan_if_needed(
         self,
@@ -1355,7 +1493,7 @@ class Dashboard(BasePage):
             detect_timeout=detect_timeout,
             missing_log="Invalid registered-customer NIK modal not present; continuing.",
             title_locator=self.invalid_registered_nik_modal_title,
-            title_fallback=_INVALID_REGISTERED_NIK_MODAL_TITLE,
+            title_fallback=_CANNOT_TRANSACT_MODAL_TITLE,
             title_detect_log="Detected invalid NIK modal title",
             message_locator=self.invalid_registered_nik_modal_message,
             message_fallback=_INVALID_REGISTERED_NIK_MESSAGE,
@@ -1844,8 +1982,11 @@ class Dashboard(BasePage):
             .or_(self.perbarui_data_nib_pelanggan_modal)
             .or_(self.perbarui_data_pelanggan_modal)
             .or_(self.invalid_registered_nik_modal)
+            .or_(self.cannot_transact_modal)
+            .or_(self.fraud_modal)
             .or_(self.cannot_transact_at_base_modal)
             .or_(self.unusual_transaction_modal)
+            .or_(self.nik_mismatch_modal)
         )
 
     @staticmethod
@@ -1871,7 +2012,7 @@ class Dashboard(BasePage):
         At this stage any visible dialog blocks interaction with the transaction
         form until the central modal handler resolves it.
         """
-        return self._has_visible_dialog()
+        return self._is_visible(self.fraud_modal) or self._has_visible_dialog()
 
     # Temporary compatibility wrappers for older callers.
     def close_pelanggan_tidak_terdaftar_if_needed(
