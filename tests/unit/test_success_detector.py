@@ -64,3 +64,17 @@ def test_success_detector_does_not_treat_root_lookup_error_as_success():
     assert detector.check_success(page, root) is False
     assert page.wait_calls == []
     assert root.hidden_waits == 1
+
+
+def test_root_disappearance_only_reports_captcha_stage_completion(monkeypatch):
+    records = []
+    monkeypatch.setattr(
+        "src.pipelines.slider.success.log_print",
+        lambda message, **fields: records.append(fields),
+    )
+    assert SuccessDetector(SliderConfig()).check_success(FakePage(), FakeRoot()) is True
+    assert records == [{
+        "event": "captcha.stage.finished",
+        "evidence": "root_hidden",
+        "transaction_confirmed": False,
+    }]

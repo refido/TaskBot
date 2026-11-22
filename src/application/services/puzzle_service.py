@@ -12,6 +12,8 @@ from src.privacy import display_nik
 
 @dataclass(slots=True)
 class PuzzleSolveOutcome:
+    """CAPTCHA stage result only; solved does not confirm a transaction."""
+
     solved: bool
     attempts: int
     retry_count: int = 0
@@ -108,7 +110,7 @@ class PuzzleService:
                     dict(timing_metrics) if isinstance(timing_metrics, dict) else None
                 ),
             )
-            self.log_func(f"Slider solved on attempt {attempt_number}: {success}")
+            self.log_func(f"CAPTCHA stage finished on attempt {attempt_number}: {success}")
 
             if success:
                 return PuzzleSolveOutcome(

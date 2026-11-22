@@ -532,7 +532,7 @@ def test_main_delegates_account_fanout_to_process_accounts(monkeypatch, tmp_path
             ),
         }
 
-    def fake_load_dotenv(*, dotenv_path):
+    def fake_load_environment(*, dotenv_path):
         calls["order"].append("dotenv")
         calls["dotenv_path"] = dotenv_path
 
@@ -548,7 +548,7 @@ def test_main_delegates_account_fanout_to_process_accounts(monkeypatch, tmp_path
         return [("operator_01", True)]
 
     monkeypatch.setattr(taskbot_main, "configure_logging", fake_configure_logging)
-    monkeypatch.setattr(taskbot_main, "load_dotenv", fake_load_dotenv)
+    monkeypatch.setattr(taskbot_main, "load_environment", fake_load_environment)
     monkeypatch.setattr(taskbot_main, "logger", DummyLogger())
     monkeypatch.setattr(taskbot_main, "Config", FakeConfig)
     monkeypatch.setattr(taskbot_main, "process_accounts", fake_process_accounts)
@@ -595,7 +595,7 @@ def test_main_drains_queued_logs_when_startup_fails(monkeypatch, tmp_path):
         def __init__(self):
             raise RuntimeError("configuration failed")
 
-    monkeypatch.setattr(taskbot_main, "load_dotenv", lambda **_kwargs: None)
+    monkeypatch.setattr(taskbot_main, "load_environment", lambda **_kwargs: None)
     monkeypatch.setattr(
         taskbot_main,
         "configure_logging",

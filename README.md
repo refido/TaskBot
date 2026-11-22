@@ -261,6 +261,8 @@ CUSTOMER_UPDATE_JITTER_SECONDS=0.25
 
 `EMAIL`, `PIN`, `NIK`, and `OPERATOR_ID` remain available for one backward-compatible account. Numbered accounts are sorted numerically and run concurrently. If an explicit `OPERATOR_n_ID` is omitted, the intrinsic numeric suffix becomes `operator_01`, `operator_02`, and so on. IDs must be unique and cannot be an email, PIN, NIK, or path-like value.
 
+Configuration is read from the project-root `.env`. `NIK` and `NIK_n` values stay in Python memory; access the full strings through `load_environment()` in `src.infrastructure.config.environment`, or use the parsed lists in `Config`. Small non-NIK settings remain available through `os.getenv`, with existing process variables taking precedence. Values exceeding 32,767 UTF-16 code units are never exported to the process environment.
+
 The update interval and jitter are non-negative seconds. They pace only customer-update mutations and the same-NIK restart. The existing skipped-NIK circuit breaker remains separate.
 
 `MAX_CONCURRENT_ACCOUNTS` optionally caps active account runners per invocation,

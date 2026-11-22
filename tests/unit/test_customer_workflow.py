@@ -198,6 +198,160 @@ def test_direct_transaction_continues_without_optional_actions():
     assert service.limiter.skip_calls == 0
 
 
+def test_mismatch_proceeds_through_existing_state_resolution():
+    service, _ = build_live_service()
+    service.dashboard.modal = "nik_mismatch"
+    service.dashboard.entry = "transaction_ready"
+
+    def proceed():
+        service.dashboard.modal = None
+        return True
+
+    service.dashboard.attempt_continue_nik_mismatch = Mock(side_effect=proceed)
+    service.dashboard.dismiss_nik_mismatch_modal = Mock()
+
+    assert service.handle_pre_checks("3573051108720003", "start") is PrecheckAction.CONTINUE
+    service.dashboard.attempt_continue_nik_mismatch.assert_called_once_with()
+    service.dashboard.dismiss_nik_mismatch_modal.assert_not_called()
+    assert [payload["event"] for _, payload in service.reporter.events] == [
+        "mismatch_detected", "mismatch_proceeded"
+    ]
+    assert service.reporter.skips == []
+    assert service.limiter.skip_calls == 0
+
+
+@pytest.mark.parametrize("close_error", [None, "timeout", "session"])
+def test_mismatch_fallback_records_one_skip_and_requests_recovery(close_error):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    service, _ = build_live_service()
+    service.dashboard.modal = "nik_mismatch"
+    service.dashboard.entry = "transaction_ready"
+    service.dashboard.attempt_continue_nik_mismatch = Mock(return_value=False)
+    error = {
+        None: None,
+        "timeout": PlaywrightTimeoutError("Tutup unavailable"),
+        "session": SessionExpiredError("Session expired closing mismatch"),
+    }[close_error]
+    service.dashboard.dismiss_nik_mismatch_modal = Mock(side_effect=error)
+
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.SKIP_REQUIRES_RECOVERY
+    )
+    service.dashboard.attempt_continue_nik_mismatch.assert_called_once_with()
+    service.dashboard.dismiss_nik_mismatch_modal.assert_called_once_with()
+    assert service.reporter.skips == [
+        ("3573051108720003", "start", "nik_mismatch", {
+            "url": service.page.url,
+            "reason": "NIK mismatch - unable to proceed with sale",
+        })
+    ]
+    assert service.limiter.skip_calls == 1
+    events = [payload["event"] for _, payload in service.reporter.events]
+    assert events[0] == "mismatch_detected"
+    assert events[-1] == "mismatch_skipped"
+    assert "mismatch_proceeded" not in events
+    assert ("mismatch_skip_cleanup_failed" in events) == bool(close_error)
+
+
+@pytest.mark.parametrize("close_error", [None, "timeout", "session", "unexpected"])
+@pytest.mark.parametrize("modal_name", ["cannot_transact", "fraud"])
+def test_close_only_warning_persists_skip_before_close_and_requests_recovery(
+    close_error, modal_name
+):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    service, components = build_live_service()
+    service.dashboard.modal = modal_name
+    service.dashboard.entry = "transaction_ready"
+    components[4].visible_now = True  # A stale update screen must not beat the modal.
+    reason = (
+        "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+        if modal_name == "fraud"
+        else "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
+    )
+    setattr(
+        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=reason)
+    )
+    service.dashboard.attempt_continue_nik_mismatch = Mock()
+    error = {
+        None: None,
+        "timeout": PlaywrightTimeoutError("TUTUP unavailable"),
+        "session": SessionExpiredError("Session expired closing modal"),
+        "unexpected": RuntimeError("Cleanup failed"),
+    }[close_error]
+
+    def close():
+        assert len(service.reporter.skips) == 1
+        assert service.limiter.skip_calls == 1
+        if error is not None:
+            raise error
+
+    dismiss = Mock(side_effect=close)
+    setattr(service.dashboard, f"dismiss_{modal_name}_modal", dismiss)
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.SKIP_REQUIRES_RECOVERY
+    )
+    dismiss.assert_called_once_with()
+    service.dashboard.attempt_continue_nik_mismatch.assert_not_called()
+    assert service.reporter.skips == [
+        ("3573051108720003", "start", modal_name, {
+            "url": service.page.url, "reason": reason,
+        })
+    ]
+    assert service.limiter.skip_calls == 1
+    assert all(component.calls == 0 for component in components)
+    events = [payload["event"] for _, payload in service.reporter.events]
+    assert events[:2] == [f"{modal_name}_detected", f"{modal_name}_skipped"]
+    assert (f"{modal_name}_skip_cleanup_failed" in events) == bool(close_error)
+
+
+@pytest.mark.parametrize(
+    "modal_name,fallback_reason",
+    [
+        ("cannot_transact", "Tidak Dapat Melakukan Transaksi"),
+        ("fraud", "NIK pelanggan diblokir karena pelanggan terindikasi fraud"),
+    ],
+)
+def test_close_only_warning_interrupts_customer_update_transition(
+    modal_name, fallback_reason
+):
+    service, components = build_live_service()
+    components[2].visible_now = True
+
+    def open_update():
+        service.dashboard.modal = modal_name
+
+    components[2].on_action = open_update
+    setattr(
+        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=None)
+    )
+    setattr(service.dashboard, f"dismiss_{modal_name}_modal", Mock())
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.SKIP_REQUIRES_RECOVERY
+    )
+    assert components[1].calls == 0
+    assert service.reporter.skips[0][3]["reason"] == fallback_reason
+    assert service.limiter.skip_calls == 1
+
+
+def test_mismatch_proceed_does_not_bypass_missing_downstream_state():
+    service, _ = build_live_service()
+    service.dashboard.modal = "nik_mismatch"
+
+    def proceed():
+        service.dashboard.modal = None
+        return True
+
+    service.dashboard.attempt_continue_nik_mismatch = proceed
+    with pytest.raises(UnexpectedCustomerStateError):
+        service.handle_pre_checks("3573051108720003", "start")
+    assert service.reporter.skips == []
+
+
 def test_customer_type_and_consent_are_resolved_before_transaction():
     service, components = build_service(
         [
