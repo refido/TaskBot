@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import uuid
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def _make_private_directory(path: Path) -> None:
         return
     _make_private_directory(path.parent)
     path.mkdir(mode=0o700, exist_ok=True)
-    if os.name == "posix":
+    if sys.platform != "win32" and os.name == "posix":
         # Make the new directory entry durable on first use, before any sale.
         parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
@@ -126,7 +127,7 @@ class QuotaJournal:
                                  (json.dumps(payload), self.active_id))
         self.active_id = None
 
-    def open_item(self, event_id: str) -> dict:
+    def open_item(self, event_id: str | None) -> dict:
         row = self._db.execute("SELECT payload FROM events WHERE ready=0 AND id=?", (event_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown or already resolved quota event")

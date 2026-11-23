@@ -1,6 +1,7 @@
 import csv
 import json
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import Mock
 
 import pytest
@@ -363,7 +364,7 @@ def test_reporter_records_retry_report_without_bursting_rows(monkeypatch, tmp_pa
 
 def test_reporter_syncs_each_full_batch_and_flushes_the_final_remainder(
     monkeypatch, tmp_path
-):
+) -> None:
     monkeypatch.setattr(reporter_module, "log_print", lambda *args, **kwargs: None)
     reporter = reporter_module.TransactionReporter(
         out_dir=str(tmp_path),
@@ -421,7 +422,7 @@ def test_run_account_uses_configured_skip_rate_limiter(monkeypatch):
         def __enter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> bool:
+        def __exit__(self, exc_type, exc, tb) -> Literal[False]:
             return False
 
         def initialize_session(self) -> None:

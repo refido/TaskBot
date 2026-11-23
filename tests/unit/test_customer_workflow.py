@@ -7,6 +7,7 @@ import pytest
 from nik_parser import load_region_mapping, parse_nik
 from src.application.models.customer_workflow import (
     CustomerState,
+    CustomerUpdateData,
     CustomerUpdateFailedError,
     CustomerUpdateLoopError,
     PrecheckAction,
@@ -19,7 +20,7 @@ from src.web.session_state import SessionExpiredError
 class Component:
     def __init__(self) -> None:
         self.calls = 0
-        self.customers = []
+        self.customers: list[CustomerUpdateData] = []
         self.visible_now = False
         self.on_action = None
 
@@ -52,8 +53,8 @@ class Component:
 
 class Reporter:
     def __init__(self) -> None:
-        self.events = []
-        self.skips = []
+        self.events: list[tuple[str, dict[str, object]]] = []
+        self.skips: list[tuple[str, str, str, dict[str, object]]] = []
 
     def record_workflow_event(self, nik: str, **payload) -> None:
         self.events.append((nik, payload))
@@ -79,7 +80,7 @@ class Dashboard:
             "ini. Silakan coba lagi di hari berikutnya."
         )
         self.registration_request_limit_close_calls = 0
-        self.reset_calls = []
+        self.reset_calls: list[dict[str, object]] = []
 
     def ensure_on_dashboard(self) -> None:
         self.home_calls += 1
@@ -119,7 +120,7 @@ class Dashboard:
 class Page:
     def __init__(self) -> None:
         self.url = "https://app.test/customer"
-        self.timeouts = []
+        self.timeouts: list[int] = []
 
     def wait_for_timeout(self, timeout_ms: int) -> None:
         self.timeouts.append(timeout_ms)

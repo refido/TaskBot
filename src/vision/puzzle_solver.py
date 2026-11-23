@@ -30,6 +30,7 @@ from src.vision.puzzle.preprocessing import (
     crop_by_mask,
     ensure_output_dir,
     imread_any,
+    normalize_minmax,
     preprocess_for_matching,
     resize_gray,
     resize_mask,
@@ -159,9 +160,7 @@ class PuzzleSolver:
         if max_val - min_val < 1e-6:
             return np.zeros_like(res_map, dtype=np.float32)
 
-        return cv2.normalize(res_map, None, 0.0, 1.0, cv2.NORM_MINMAX).astype(
-            np.float32
-        )
+        return normalize_minmax(res_map, 0.0, 1.0).astype(np.float32)
 
     @staticmethod
     def _local_peak_score(res_map: np.ndarray, loc: Point, radius: int = 1) -> float:
@@ -281,9 +280,9 @@ class PuzzleSolver:
         res_sqdiff = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_SQDIFF_NORMED)
         res_sqdiff = 1.0 - res_sqdiff
 
-        res_corr = cv2.normalize(res_corr, None, 0, 1, cv2.NORM_MINMAX)
-        res_coef = cv2.normalize(res_coef, None, 0, 1, cv2.NORM_MINMAX)
-        res_sqdiff = cv2.normalize(res_sqdiff, None, 0, 1, cv2.NORM_MINMAX)
+        res_corr = normalize_minmax(res_corr, 0, 1)
+        res_coef = normalize_minmax(res_coef, 0, 1)
+        res_sqdiff = normalize_minmax(res_sqdiff, 0, 1)
 
         max_corr = float(res_corr.max())
         max_coef = float(res_coef.max())
@@ -461,14 +460,14 @@ class PuzzleSolver:
                 bg_grad[y0:y1, :], tpl_grad, edge_mask
             )
             res_dt = cv2.matchTemplate(dt_full[y0:y1, :], tpl_edges_f, cv2.TM_SQDIFF)
-            res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
+            res_dt = normalize_minmax(res_dt, 0, 1)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray[y0:y1, :]
         else:
             y0 = 0
             fused_map = self._legacy_match_maps_fused(bg_grad, tpl_grad, edge_mask)
             res_dt = cv2.matchTemplate(dt_full, tpl_edges_f, cv2.TM_SQDIFF)
-            res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
+            res_dt = normalize_minmax(res_dt, 0, 1)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray
 

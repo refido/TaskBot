@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 from src.application.services.session_recovery import SessionRecoveryService
+from src.web.rate_limiter import LoginRetryRateLimiter
 
 
 def test_dashboard_locator_failure_falls_back_to_hard_navigation():
@@ -47,7 +49,7 @@ def test_dashboard_locator_failure_falls_back_to_hard_navigation():
     ]
 
 
-def test_login_page_fallback_waits_via_retry_limiter_before_reauthentication():
+def test_login_page_fallback_waits_via_retry_limiter_before_reauthentication() -> None:
     events: list[object] = []
 
     class FakePage:
@@ -84,7 +86,7 @@ def test_login_page_fallback_waits_via_retry_limiter_before_reauthentication():
         logged_out_check_timeout_ms=500,
         session_probe_interval_ms=1_000,
         login_page_detector=lambda *_args, **_kwargs: True,
-        login_retry_rate_limiter=FakeLoginRetryRateLimiter(),
+        login_retry_rate_limiter=cast(LoginRetryRateLimiter, FakeLoginRetryRateLimiter()),
     )
 
     service.handle_session_recovery()

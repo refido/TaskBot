@@ -987,7 +987,7 @@ class Dashboard(BasePage):
         return "unknown"
 
     def get_visible_precheck_modal(self) -> PrecheckModalName | None:
-        for modal_name, modal in [
+        modals: list[tuple[PrecheckModalName, Locator]] = [
             ("not_registered", self.pelanggan_tidak_terdaftar_modal),
             (
                 "registration_request_limited",
@@ -1001,7 +1001,8 @@ class Dashboard(BasePage):
             ("nik_mismatch", self.nik_mismatch_modal),
             ("nib_reminder", self.perbarui_data_nib_pelanggan_modal),
             ("perbarui", self.perbarui_data_pelanggan_modal),
-        ]:
+        ]
+        for modal_name, modal in modals:
             if self._is_visible(modal):
                 return modal_name
         return None

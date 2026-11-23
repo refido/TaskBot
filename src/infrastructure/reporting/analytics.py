@@ -20,14 +20,14 @@ class MetricsCalculator:
         self.rows = rows
         self._incremental = incremental
         if incremental:
-            self._counts = defaultdict(int)
-            self._durations = {}
-            self._puzzles = defaultdict(int)
-            self._skip_reasons = defaultdict(int)
-            self._error_types = defaultdict(int)
-            self._error_order = {}
-            self._top_error_types = []
-            self._error_labels = defaultdict(int)
+            self._counts: defaultdict[str, int] = defaultdict(int)
+            self._durations: dict[str | tuple[str, str], list[float]] = {}
+            self._puzzles: defaultdict[str, int] = defaultdict(int)
+            self._skip_reasons: defaultdict[str, int] = defaultdict(int)
+            self._error_types: defaultdict[str, int] = defaultdict(int)
+            self._error_order: dict[str, int] = {}
+            self._top_error_types: list[str] = []
+            self._error_labels: defaultdict[str, int] = defaultdict(int)
             for row in rows:
                 self._accumulate(row)
 

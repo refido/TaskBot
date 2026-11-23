@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from src.vision.puzzle.preprocessing import build_match_mask
+from src.vision.puzzle.preprocessing import build_match_mask, normalize_minmax
 from src.vision.puzzle.types import (
     Candidate,
     FloatMap,
@@ -25,7 +25,7 @@ def _normalize_map(res_map: FloatMap) -> FloatMap:
     if max_val - min_val < 1e-6:
         return np.zeros_like(res_map, dtype=np.float32)
 
-    return cv2.normalize(res_map, None, 0.0, 1.0, cv2.NORM_MINMAX).astype(np.float32)
+    return normalize_minmax(res_map, 0.0, 1.0).astype(np.float32)
 
 
 def compute_structural_complexity(
@@ -386,7 +386,7 @@ def compute_orb_match(
     bg_gray: GrayImage, tpl_gray: GrayImage, tpl_mask: MaskImage | None = None
 ) -> OrbMatch | None:
     mask = build_match_mask(tpl_mask, erode_iterations=0)
-    orb = cv2.ORB_create(
+    orb = cv2.ORB_create(  # type: ignore[attr-defined]  # Legacy name provided by OpenCV.
         nfeatures=768,
         scaleFactor=1.2,
         nlevels=8,
@@ -414,15 +414,15 @@ def compute_orb_match(
     if len(good_matches) < 4:
         return None
 
-    src_pts = np.float32([kp_tpl[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-    dst_pts = np.float32([kp_bg[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    src_pts = np.asarray([kp_tpl[m.queryIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
+    dst_pts = np.asarray([kp_bg[m.trainIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
 
     homography, inlier_mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 4.0)
     if homography is not None and inlier_mask is not None:
         inliers = int(inlier_mask.ravel().sum())
         if inliers >= 4:
             th, tw = tpl_gray.shape[:2]
-            corners = np.float32([[0, 0], [tw, 0], [tw, th], [0, th]]).reshape(-1, 1, 2)
+            corners = np.asarray([[0, 0], [tw, 0], [tw, th], [0, th]], dtype=np.float32).reshape(-1, 1, 2)
             projected = cv2.perspectiveTransform(corners, homography).reshape(-1, 2)
             x, y, w, h = cv2.boundingRect(projected.astype(np.float32))
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from src.vision.puzzle.preprocessing import normalize_minmax
 from src.vision.puzzle.types import FloatMap, GrayImage, MaskImage
 
 
@@ -42,9 +43,7 @@ def multi_scale_gradient(gray: GrayImage) -> GrayImage:
     if max_val - min_val < 1e-6:
         texture_weight = np.ones_like(texture_var, dtype=np.float32)
     else:
-        texture_weight = cv2.normalize(
-            texture_var, None, 0.0, 1.0, cv2.NORM_MINMAX
-        ).astype(np.float32)
+        texture_weight = normalize_minmax(texture_var, 0.0, 1.0).astype(np.float32)
 
     texture_weight = np.nan_to_num(texture_weight, nan=0.0, posinf=1.0, neginf=0.0)
     texture_weight = np.clip(texture_weight, 0.0, 1.0)
@@ -66,7 +65,7 @@ def multi_scale_gradient(gray: GrayImage) -> GrayImage:
     combined = (0.5 * mag1 + 0.3 * mag2 + 0.2 * mag3).astype(np.float32)
     combined *= np.sqrt(texture_weight + 1e-6)
 
-    combined = cv2.normalize(combined, None, 0.0, 255.0, cv2.NORM_MINMAX)
+    combined = normalize_minmax(combined, 0.0, 255.0)
     combined = np.nan_to_num(combined, nan=0.0, posinf=255.0, neginf=0.0).astype(
         np.uint8
     )

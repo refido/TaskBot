@@ -167,7 +167,7 @@ def ecc_refine(
 
     patch = bg_gray[y : y + th, x : x + tw].astype(np.float32) / 255.0
     template = tpl_gray.astype(np.float32) / 255.0
-    warp = np.eye(2, 3, dtype=np.float32)
+    warp: cv2.typing.MatLike = np.eye(2, 3, dtype=np.float32)
     criteria = (
         cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
         40,
@@ -182,7 +182,7 @@ def ecc_refine(
             warp,
             cv2.MOTION_TRANSLATION,
             criteria,
-            inputMask=match_mask,
+            inputMask=match_mask,  # type: ignore[arg-type]  # OpenCV accepts None with an explicit filter size.
             gaussFiltSize=3,
         )
     except cv2.error:

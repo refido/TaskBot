@@ -16,7 +16,15 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=2.4.1",
     "pytest>=9.0.2",
     "pytest-base-url>=2.1.0",
     "pytest-playwright>=0.7.2",
 ]
+
+[tool.mypy]
+python_version = "3.14"
+
+[[tool.mypy.overrides]]
+module = ["psycopg2", "psycopg2.*"]
+follow_untyped_imports = true

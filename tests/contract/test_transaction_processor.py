@@ -3,9 +3,11 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
+from playwright.sync_api import Page
 
 from src.application.models.customer_workflow import (
     CustomerState,
@@ -14,10 +16,15 @@ from src.application.models.customer_workflow import (
 )
 from src.application.models.transaction_outcome import TransactionOutcome
 from src.application.services.puzzle_service import PuzzleService, PuzzleSolveOutcome
+from src.application.services.session_recovery import SessionRecoveryService
 from src.application.services.transaction_prechecks import TransactionPrechecksService
+from src.config import Config
+from src.infrastructure.browser.page_objects.dashboard_page import Dashboard
+from src.infrastructure.browser.page_objects.login_page import Login
 from src.logging_utils import configure_logging, logger
 from src.orchestration import transaction_processor
 from src.privacy import display_nik, set_nik_masking
+from src.web.rate_limiter import SkipRateLimiter
 from src.web.reporter import TransactionReporter
 from src.web.session_state import SessionExpiredError
 
@@ -115,8 +122,9 @@ class FakeDashboard:
         self.catat_penjualan_calls: list[str] = []
         self.stock_reads = 0
 
-    def catat_penjualan(self, nik: str) -> None:
+    def catat_penjualan(self, nik: str) -> str | None:
         self.catat_penjualan_calls.append(nik)
+        return None
 
     def get_current_stock(self) -> str:
         self.stock_reads += 1
@@ -211,24 +219,25 @@ def _build_processor(
     processor = transaction_processor.TransactionProcessor.__new__(
         transaction_processor.TransactionProcessor
     )
-    processor.config = SimpleNamespace(
+    config = SimpleNamespace(
         operator_id="operator_01",
         email_user="tester@example.com",
         pin_user="123456",
         url_application="https://app.test/",
     )
+    processor.config = cast(Config, config)
     processor.operator_id = "operator_01"
-    processor.page = page or FakePage()
-    processor.reporter = reporter or FakeReporter()
-    processor.limiter = limiter or FakeLimiter()
-    processor.dashboard = dashboard or FakeDashboard()
-    processor.login = login or FakeLogin()
+    processor.page = cast(Page, page or FakePage())
+    processor.reporter = cast(TransactionReporter, reporter or FakeReporter())
+    processor.limiter = cast(SkipRateLimiter, limiter or FakeLimiter())
+    processor.dashboard = cast(Dashboard, dashboard or FakeDashboard())
+    processor.login = cast(Login, login or FakeLogin())
     processor._precheck_service = precheck_service
     processor._puzzle_service = puzzle_service
     processor._confirmed_success_niks = set()
     processor._unconfirmed_transaction_niks = set()
-    processor._session_recovery_service = (
-        session_recovery_service or FakeSessionRecoveryService()
+    processor._session_recovery_service = cast(
+        SessionRecoveryService, session_recovery_service or FakeSessionRecoveryService()
     )
     return processor
 
@@ -1409,7 +1418,7 @@ def test_successful_update_restarts_same_nik_without_consuming_retry_budgets(
             self.actions = iter(
                 [PrecheckAction.RESTART_AFTER_UPDATE, PrecheckAction.CONTINUE]
             )
-            self.allow_flags = []
+            self.allow_flags: list[bool] = []
 
         def handle_pre_checks(
             self, nik: str, started_at: str, *, allow_customer_update: bool = True
@@ -1482,7 +1491,7 @@ def test_repeated_update_after_same_nik_restart_is_terminal_without_retry():
     class RepeatingUpdatePrechecks(FakePrecheckService):
         def __init__(self) -> None:
             super().__init__()
-            self.allow_flags = []
+            self.allow_flags: list[bool] = []
 
         def handle_pre_checks(
             self, nik: str, started_at: str, *, allow_customer_update: bool = True

@@ -1,5 +1,7 @@
 import sys
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -49,10 +51,10 @@ class BatchingFakeReporter(FakeReporter):
         super().__init__(operator=operator)
         self.rows: list[str] = []
         self._batch_size: int | None = None
-        self._sync_callback = None
+        self._sync_callback: Callable[[tuple[str, ...]], None] | None = None
         self._pending_rows: list[str] = []
 
-    def configure_batch_sync(self, sync_callback, *, batch_size: int) -> None:
+    def configure_batch_sync(self, sync_callback: Callable[[tuple[str, ...]], None], *, batch_size: int) -> None:
         self._sync_callback = sync_callback
         self._batch_size = batch_size
 
@@ -62,11 +64,13 @@ class BatchingFakeReporter(FakeReporter):
             self.rows.append(row)
             self._pending_rows.append(row)
             if len(self._pending_rows) == self._batch_size:
+                assert self._sync_callback is not None
                 self._sync_callback(tuple(self._pending_rows))
                 self._pending_rows.clear()
 
     def flush_pending_batches(self) -> None:
         if self._pending_rows:
+            assert self._sync_callback is not None
             self._sync_callback(tuple(self._pending_rows))
             self._pending_rows.clear()
 
@@ -83,7 +87,7 @@ class FakeSession:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         return False
 
     def initialize_session(self) -> None:
@@ -503,7 +507,7 @@ def test_browser_session_shim_reexports_infrastructure_session():
     assert OrchestrationBrowserSession is InfrastructureBrowserSession
 
 
-def test_account_runner_runs_single_account_and_writes_reports():
+def test_account_runner_runs_single_account_and_writes_reports() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     logger = FakeBoundLogger(log_sink)
     created_processors: list[FakeProcessor] = []
@@ -550,7 +554,7 @@ def test_account_runner_runs_single_account_and_writes_reports():
     assert log_sink[1][1]["event"] == "account.run.finished"
 
 
-def test_account_runner_logs_fatal_errors_and_returns_unsuccessful():
+def test_account_runner_logs_fatal_errors_and_returns_unsuccessful() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     logger = FakeBoundLogger(log_sink)
     created_reporters: list[FakeReporter] = []
@@ -583,7 +587,7 @@ def test_account_runner_logs_fatal_errors_and_returns_unsuccessful():
     assert log_sink[1][1]["event"] == "account.run.fatal_error"
 
 
-def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful():
+def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     logger = FakeBoundLogger(log_sink)
 
@@ -615,7 +619,7 @@ def test_account_runner_logs_report_sync_failure_and_returns_unsuccessful():
     assert log_sink[1][1]["event"] == "account.report_db_sync_error"
 
 
-def test_account_runner_syncs_each_terminal_row_before_processing_the_next():
+def test_account_runner_syncs_each_terminal_row_before_processing_the_next() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     synced_batches: list[tuple[str, tuple[str, ...]]] = []
     logger = FakeBoundLogger(log_sink)
@@ -648,7 +652,7 @@ def test_account_runner_syncs_each_terminal_row_before_processing_the_next():
     ]
 
 
-def test_account_runner_flushes_partial_batch_after_fatal_error():
+def test_account_runner_flushes_partial_batch_after_fatal_error() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     synced_batches: list[tuple[str, ...]] = []
     logger = FakeBoundLogger(log_sink)
@@ -680,7 +684,7 @@ def test_account_runner_flushes_partial_batch_after_fatal_error():
     assert log_sink[1][1]["event"] == "account.run.fatal_error"
 
 
-def test_process_account_delegates_to_account_runner():
+def test_process_account_delegates_to_account_runner() -> None:
     calls: list[object] = []
 
     class FakeRunner:
@@ -697,7 +701,7 @@ def test_process_account_delegates_to_account_runner():
     assert calls == [config]
 
 
-def test_process_accounts_runs_multiple_accounts_and_logs_thread_completion():
+def test_process_accounts_runs_multiple_accounts_and_logs_thread_completion() -> None:
     log_sink: list[tuple[str, dict, str]] = []
     logger = FakeBoundLogger(log_sink)
     accounts = [

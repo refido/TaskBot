@@ -1,9 +1,11 @@
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 
 import src.infrastructure.browser.playwright_session as playwright_session_module
+from src.config import Config
 
 
 @pytest.mark.parametrize("resource", ["interaction_diagnostics", "context", "browser", "playwright"])
@@ -195,7 +197,7 @@ def test_playwright_session_uses_configured_headless_mode(monkeypatch, headless:
     )
 
     session = playwright_session_module.PlaywrightSession(
-        SimpleNamespace(headless=headless)
+        cast(Config, SimpleNamespace(headless=headless))
     )
     with session:
         assert session.require_page() is not None
@@ -478,7 +480,7 @@ def test_initialize_session_failure_after_page_creation_still_cleans_up(
 def test_debug_trace_starts_after_login_and_stops_before_context_on_exception(
     monkeypatch,
     tmp_path,
-):
+) -> None:
     monkeypatch.setenv("TASKBOT_INTERACTION_DEBUG", "1")
     monkeypatch.setenv("TASKBOT_INTERACTION_PAUSE", "0")
     events: list[tuple] = []
@@ -516,7 +518,7 @@ def test_debug_trace_starts_after_login_and_stops_before_context_on_exception(
 def test_trace_stop_failure_does_not_mask_workflow_error_or_skip_cleanup(
     monkeypatch,
     tmp_path,
-):
+) -> None:
     monkeypatch.setenv("TASKBOT_INTERACTION_DEBUG", "1")
     monkeypatch.setenv("TASKBOT_INTERACTION_PAUSE", "0")
     events: list[tuple] = []
@@ -537,7 +539,7 @@ def test_trace_stop_failure_does_not_mask_workflow_error_or_skip_cleanup(
     assert "playwright.stop" in event_names
 
 
-def test_disabled_interaction_debug_does_not_start_trace(monkeypatch, tmp_path):
+def test_disabled_interaction_debug_does_not_start_trace(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("TASKBOT_INTERACTION_DEBUG", "0")
     monkeypatch.setenv("TASKBOT_INTERACTION_PAUSE", "0")
     events: list[tuple] = []

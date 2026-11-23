@@ -3,6 +3,7 @@ import json
 import math
 import re
 import sqlite3
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -105,7 +106,7 @@ def normalize_cookie_key(name: str, domain: str, path: str) -> tuple[str, str, s
 
 
 def cookie_key_from_mapping(
-    mapping: dict[str, Any], domain_key: str = "domain"
+    mapping: Mapping[str, Any], domain_key: str = "domain"
 ) -> tuple[str, str, str]:
     return normalize_cookie_key(
         str(mapping.get("name", "")),
@@ -232,7 +233,7 @@ def build_enriched_sqlite_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
 
 def build_enriched_cookies(
     *,
-    playwright_cookies: list[dict[str, Any]],
+    playwright_cookies: Sequence[Mapping[str, Any]],
     cdp_cookies: list[dict[str, Any]],
     sqlite_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -455,7 +456,10 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             page.context.set_default_timeout(10000)
 
             page_cdp = context.new_cdp_session(page)
-            browser_cdp = context.browser.new_browser_cdp_session()
+            browser = context.browser
+            if browser is None:
+                raise AttributeError("'NoneType' object has no attribute 'new_browser_cdp_session'")
+            browser_cdp = browser.new_browser_cdp_session()
             xhr_tracker = XHRTracker(page_cdp)
             xhr_tracker.enable()
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
@@ -176,6 +176,7 @@ class PuzzleService:
             "write_debug_artifacts": self.write_debug_artifacts,
         }
 
+        params: Mapping[str, Parameter]
         try:
             params = signature(self.slider_solver).parameters
         except TypeError, ValueError:

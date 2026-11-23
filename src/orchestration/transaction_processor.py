@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import Final
 
 from playwright.sync_api import Page
 
@@ -50,7 +52,7 @@ class PuzzleSolveFailedError(RuntimeError):
 class TransactionProcessor:
     """Handles processing of transactions with error handling and recovery."""
 
-    _LOAD_STATE: str = "load"
+    _LOAD_STATE: Final = "load"
     _MAX_KUOTA_TIMEOUT_MS: int = 1500
     _ZERO_STOCK_TIMEOUT_MS: int = 1500
     _PRE_CEK_PESANAN_BLOCKER_TIMEOUT_MS: int = 300
@@ -784,7 +786,7 @@ class TransactionProcessor:
     def _get_puzzle_service(self) -> PuzzleService:
         service = getattr(self, "_puzzle_service", None)
         if service is None:
-            helpers_factory = Helpers
+            helpers_factory: Callable[[Page], Helpers] = Helpers
             slider_solver = solve_slider_with_puzzle
             run_dir = getattr(
                 getattr(self.config, "run_context", None), "run_dir", None

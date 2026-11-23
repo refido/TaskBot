@@ -21,7 +21,7 @@ class FakeLocator:
         self.name = name
         self.page = page
         self.clicks = 0
-        self.fills = []
+        self.fills: list[str] = []
 
     def count(self) -> int:
         return 1
@@ -53,8 +53,8 @@ class FakeLocator:
 
 class FakePage:
     def __init__(self) -> None:
-        self.locators = {}
-        self.role_queries = []
+        self.locators: dict[tuple[object, ...], FakeLocator] = {}
+        self.role_queries: list[tuple[str, object, bool | None]] = []
 
     def _get(self, key):
         return self.locators.setdefault(key, FakeLocator(key, self))

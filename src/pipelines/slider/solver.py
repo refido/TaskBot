@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from inspect import Parameter, signature
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -138,7 +140,7 @@ class SliderSolver:
         ctrl_bb = elements.control.bounding_box()
         knob_bb = elements.knob.bounding_box()
 
-        if not all([bg_bb, ctrl_bb, knob_bb]):
+        if not bg_bb or not ctrl_bb or not knob_bb:
             raise RuntimeError("Slider elements not visible")
 
         return BoundingBoxes(bg=bg_bb, control=ctrl_bb, knob=knob_bb)
@@ -187,7 +189,7 @@ class SliderSolver:
 
 
 def solve_slider_with_puzzle(
-    page: Page, imgs: dict[str, Path], **kwargs: object
+    page: Page, imgs: dict[str, Path], **kwargs: Any
 ) -> bool:
     """
     Convenience function maintaining backward compatibility.
@@ -205,7 +207,7 @@ def solve_slider_with_puzzle(
     solver = SliderSolver(config)
     image_arrays = kwargs.get("image_arrays")
     solver_timing_ms = kwargs.get("solver_timing_ms")
-    optional_solve_kwargs: dict[str, object] = {
+    optional_solve_kwargs: dict[str, Any] = {
         "image_arrays": image_arrays if isinstance(image_arrays, dict) else None,
         "puzzle_result": puzzle_result if isinstance(puzzle_result, tuple) else None,
         "puzzle_result_path": puzzle_result_path,
@@ -214,6 +216,7 @@ def solve_slider_with_puzzle(
         ),
     }
 
+    solve_params: Mapping[str, Parameter]
     try:
         solve_params = signature(solver.solve).parameters
     except (TypeError, ValueError):

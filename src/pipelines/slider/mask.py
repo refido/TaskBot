@@ -52,7 +52,7 @@ class MaskProcessor:
     def _extract_alpha_mask(self, img: np.ndarray) -> np.ndarray:
         """Extract and process alpha channel mask."""
         alpha = img[:, :, 3]
-        mask = (alpha > self.alpha_threshold).astype(np.uint8) * 255
+        mask: np.ndarray = (alpha > self.alpha_threshold).astype(np.uint8) * 255
 
         mask = cv2.morphologyEx(
             mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1

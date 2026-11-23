@@ -610,7 +610,7 @@ class OperatorDatabaseManager:
 
         owns_connection = connection is None
         db_connection = (
-            self._connect(self.config.name) if owns_connection else connection
+            self._connect(self.config.name) if connection is None else connection
         )
 
         sync_completed = False

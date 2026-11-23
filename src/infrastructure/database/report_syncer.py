@@ -4,9 +4,13 @@ from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict
 from threading import Lock
-from typing import Any
+from typing import Any, cast
 
-from src.infrastructure.database.operator_store import OperatorDatabaseManager, counts_toward_quota
+from src.infrastructure.database.operator_store import (
+    OperatorDatabaseManager,
+    OperatorTargets,
+    counts_toward_quota,
+)
 from src.infrastructure.database.quota_journal import QuotaJournal, recovery_directory
 from src.logging_utils import logger
 from src.privacy import sanitize_text
@@ -21,9 +25,16 @@ class DatabaseReportSyncer:
     _journal: QuotaJournal | None = None
     _receipts_ready = False
 
+    def __init__(self) -> None:
+        self._manager: OperatorDatabaseManager | None = None
+        self._database_ready = False
+        self._configuration_error: str | None = None
+        self._connection: Any | None = None
+
     def open_journal(self, operator_id: str, manager: OperatorDatabaseManager) -> QuotaJournal:
         config = manager.config
-        target = manager.targets.resolve(operator_id)
+        # Both startup and manual recovery construct the manager with required targets.
+        target = cast(OperatorTargets, manager.targets).resolve(operator_id)
         self._manager = manager
         self._journal = QuotaJournal(
             recovery_directory(),
@@ -49,25 +60,20 @@ class DatabaseReportSyncer:
             self._journal.drain(self._deliver_event)
 
     def _stage_row(self, row, source: str) -> None:
+        # prepare_delivery registers this callback after open_journal sets the journal.
         if not counts_toward_quota(row.status):
             # Invalid customer IDs can be reportable skips. Keep zero-quota
             # rows on the ordinary sync path so they cannot block sale recovery.
-            self._journal.finish_without_quota(row.nik)
+            cast(QuotaJournal, self._journal).finish_without_quota(row.nik)
             return
         payload = _database_report_payload(row)
         # Only store fields consumed by OperatorDbRecord, never login or URL data.
         keys = ("operator_id", "nik", "status", "finished_at", "nama_pengguna",
                 "jenis_pengguna", "reason", "error_label", "error")
-        self._journal.stage({key: payload[key] for key in keys}, source)
+        cast(QuotaJournal, self._journal).stage({key: payload[key] for key in keys}, source)
 
     def _deliver_event(self, event_id, source, payload) -> None:
         self._sync(self._manager, source, [payload], event_id=event_id)
-
-    def __init__(self) -> None:
-        self._manager: OperatorDatabaseManager | None = None
-        self._database_ready = False
-        self._configuration_error: str | None = None
-        self._connection: Any | None = None
 
     def __call__(
         self,
