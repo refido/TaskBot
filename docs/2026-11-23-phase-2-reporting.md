@@ -41,6 +41,8 @@ The two application logs and the database event log met the Phase 1 rules for ev
 
 ## F88 · VERIFIED · Known risk and rollback
 
+**Follow-up repair.** A single interrupted write now recovers in the dummy shop. A lasting failure marks the run failed while the available database records the confirmed sale. The paragraph below records the original Phase 2 result. [Repair and test evidence](2026-11-23-terminal-file-recovery.md#f89--verified--what-the-operator-sees)
+
 In the forced JSONL failure, the shop recorded **one sale**, the CSV and snapshot contained **one completed row**, the JSONL contained **zero rows**, and the customer’s quota stayed at **2**. Both versions marked persistence successful. Checking only the run status would miss that partial write. The evidence is the `jsonl` row in `verify-final.log`, the shop ledger and the before/after database snapshots. A change to that outcome belongs in a separately approved repair. This acceptance covers the synthetic runs above. Live daily sales were outside this check.
 
 To roll back the code change, restore the two original dictionary expressions together and remove the helper. Rerun the tests and paired comparisons below. The production source diff touches only `src/web/reporter.py`.

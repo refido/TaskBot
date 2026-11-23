@@ -133,6 +133,8 @@ class TransactionReporter:
         self._batch_size: int | None = None
         self._batch_sync_callback: BatchSyncCallback | None = None
         self._pending_batch_rows: list[TransactionRow] = []
+        self._unqueued_file_error_rows: list[TransactionRow] = []
+        self._terminal_file_failures = 0
         self._batch_sync_failed = False
 
         self._setup_directories(out_dir, run_name, per_run_subdir)
@@ -626,6 +628,7 @@ class TransactionReporter:
 
     def write_files(self, run_name: str | None = None) -> None:
         """Write final snapshot files and update operator summary."""
+        self._stage_file_error_rows_for_sync()
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
@@ -672,6 +675,11 @@ class TransactionReporter:
         )
 
         self._write_meta()
+        if self._terminal_file_failures:
+            raise OSError(
+                f"Terminal file persistence failed for {self._terminal_file_failures} row(s). "
+                "See items_snapshot.json for the recorded outcomes."
+            )
         logger.bind(
             event="report.files_written",
             operator_id=self.operator_id,
@@ -1099,10 +1107,14 @@ class TransactionReporter:
         self.rows.append(row)
         try:
             self.file_writer.append_row(row)
-        except BaseException:
+        except BaseException as exc:
             # Memory-first history/error semantics are unchanged. Do not count
             # a failed persistence attempt as an accepted cached terminal row.
             self._meta_cache_valid = False
+            if isinstance(exc, Exception):
+                self._terminal_file_failures += 1
+                if self._batch_sync_callback is not None:
+                    self._unqueued_file_error_rows.append(row)
             raise
         try:
             self._queue_row_for_batch_sync(row)
@@ -1144,10 +1156,16 @@ class TransactionReporter:
             reason=row.reason,
         ).info("Transaction row recorded")
 
+    def _stage_file_error_rows_for_sync(self) -> None:
+        # Preserve event order even if a later customer's file write succeeds.
+        self._pending_batch_rows.extend(self._unqueued_file_error_rows)
+        self._unqueued_file_error_rows.clear()
+
     def _queue_row_for_batch_sync(self, row: TransactionRow) -> None:
         if self._batch_sync_callback is None:
             return
 
+        self._stage_file_error_rows_for_sync()
         self._pending_batch_rows.append(row)
         self._sync_complete_batches()
 
