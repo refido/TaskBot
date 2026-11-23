@@ -135,6 +135,11 @@ class TransactionReporter:
         self._pending_batch_rows: list[TransactionRow] = []
         self._unqueued_file_error_rows: list[TransactionRow] = []
         self._terminal_file_failures = 0
+        self._begin_quota_item = None
+        self._confirm_quota_item = None
+        self._quota_start_failed = False
+        self._stage_quota_row = None
+        self._check_quota_items = None
         self._batch_sync_failed = False
 
         self._setup_directories(out_dir, run_name, per_run_subdir)
@@ -154,7 +159,24 @@ class TransactionReporter:
     # Public methods (external API)
     def start_item(self, nik: str) -> str:
         """Start timing for a new item."""
-        return now_iso()
+        started_at = now_iso()
+        if self._begin_quota_item is not None:
+            try:
+                self._begin_quota_item(nik, started_at, str(self.jsonl_path))
+            except Exception:
+                self._quota_start_failed = True
+                raise
+        return started_at
+
+    def configure_quota_journal(self, *, begin, confirm, stage, check) -> None:
+        self._begin_quota_item = begin
+        self._confirm_quota_item = confirm
+        self._stage_quota_row = stage
+        self._check_quota_items = check
+
+    def checkpoint_confirmed_sale(self, nik: str, name: str, customer_type: str) -> None:
+        if self._confirm_quota_item is not None:
+            self._confirm_quota_item(nik, now_iso(), name, customer_type)
 
     def configure_batch_sync(
         self,
@@ -675,6 +697,10 @@ class TransactionReporter:
         )
 
         self._write_meta()
+        if self._check_quota_items is not None:
+            self._check_quota_items()
+        if self._quota_start_failed:
+            raise OSError("An item could not start with a durable quota journal")
         if self._terminal_file_failures:
             raise OSError(
                 f"Terminal file persistence failed for {self._terminal_file_failures} row(s). "
@@ -1106,6 +1132,8 @@ class TransactionReporter:
     def _record_row(self, row: TransactionRow) -> None:
         self.rows.append(row)
         try:
+            if self._stage_quota_row is not None:
+                self._stage_quota_row(row, str(self.jsonl_path))
             self.file_writer.append_row(row)
         except BaseException as exc:
             # Memory-first history/error semantics are unchanged. Do not count

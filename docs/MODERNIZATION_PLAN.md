@@ -386,6 +386,8 @@ Effort and risk are estimates. Recommendations apply to the current compatibilit
 
 **F88 follow-up.** The confirmed-sale reporting repair runs before Phase 3. F89–F91 record the one-time and persistent file failure cases, including shop receipts and quota. [Repair evidence](2026-11-23-terminal-file-recovery.md)
 
+**Crash recovery for pending quota.** F92–F94 cover the private journal, the PostgreSQL receipt and recovery after a hard stop. The operator guide includes the commands for confirmed and uncertain sales. [Quota recovery](2026-11-23-quota-crash-recovery.md)
+
 **Phase 2 passed the local acceptance checks.** F84–F88 record the code change, test results, database and file comparisons, and one known partial-write risk. The reader guide’s README corrections (F16) belong in the documentation phase. [Phase 2 closeout](2026-11-23-phase-2-reporting.md)
 
 For each implementation phase, capture the full suite before and after, including the exact command, named relevant tests, output, and exit status. Compare the baseline and candidate DB rows and report files, and include `git diff --stat`. Record pre-existing failures against their revision. An unexplained or unapproved difference blocks acceptance. Apply the owner-approved rule below to each comparison. [Phase 1 closeout](2026-11-23-phase-1-behavior-baseline.md#12-phase-1-acceptance)

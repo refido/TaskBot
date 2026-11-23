@@ -428,6 +428,15 @@ class TransactionProcessor:
             self._confirmed_success_niks.add(str(nik))
             # Success is terminal even when any post-transaction operation fails.
             try:
+                checkpoint = getattr(self.reporter, "checkpoint_confirmed_sale", None)
+                if callable(checkpoint):
+                    try:
+                        checkpoint(nik, customer_information.nama_pengguna, customer_information.jenis_pengguna)
+                    except Exception:
+                        # Keep the durable open marker and still attempt the terminal write.
+                        logger.bind(event="report.quota_checkpoint_failed", operator_id=self.operator_id).exception(
+                            "Could not checkpoint the confirmed sale"
+                        )
                 self._log_transaction_outcome(nik, outcome)
                 self._log_transaction_stage(
                     nik,

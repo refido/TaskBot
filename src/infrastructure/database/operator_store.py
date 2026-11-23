@@ -292,7 +292,7 @@ class OperatorDbRecord:
         target: OperatorTarget,
     ) -> OperatorDbRecord:
         status = _normalize_status(payload.get("status"))
-        is_successful = status in _SUCCESS_STATUSES
+        is_successful = counts_toward_quota(status)
         status_mapping = _map_report_status(status)
         problem = "" if is_successful else _build_problem(payload)
         event_time = _parse_report_datetime(
@@ -555,6 +555,27 @@ class OperatorDatabaseManager:
             connection=connection,
         )
 
+    def ensure_delivery_receipts(self, connection) -> None:
+        with connection, connection.cursor() as cursor:
+            cursor.execute("SHOW fsync")
+            if cursor.fetchone() != ("on",):
+                raise RuntimeError("Quota delivery needs PostgreSQL fsync enabled")
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('taskbot_quota_receipts'))")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS public.taskbot_quota_receipts (
+                    event_id uuid PRIMARY KEY, operator_table text NOT NULL,
+                    nik bigint NOT NULL, event_time timestamptz NOT NULL, status text NOT NULL
+                )
+            """)
+            for relation in ("public.taskbot_quota_receipts", *(
+                f'"{table}"' for table in self._operator_table_names()
+            )):
+                cursor.execute(
+                    "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid=to_regclass(%s)", (relation,)
+                )
+                if cursor.fetchone() != ("p",):
+                    raise RuntimeError(f"Quota delivery requires a permanent logged table: {relation}")
+
     def sync_report_payloads(
         self,
         payloads: Iterable[Mapping[str, Any]],
@@ -562,6 +583,7 @@ class OperatorDatabaseManager:
         source: str,
         table_name: str | None = None,
         connection: Any | None = None,
+        delivery_id: str | None = None,
     ) -> SyncSummary:
         """
         Synchronize one ordered batch of report payloads.
@@ -603,17 +625,24 @@ class OperatorDatabaseManager:
             #
             # It does NOT close a caller-owned persistent connection.
             with db_connection, db_connection.cursor() as cursor:
+                if delivery_id is not None:
+                    cursor.execute("SET LOCAL synchronous_commit = on")
                 for payload in payloads:
                     processed += 1
+                    if delivery_id is not None and processed != 1:
+                        raise ValueError("A quota delivery must contain exactly one event")
 
                     try:
                         previous_transaction = self.upsert_report_payload(
                             payload,
                             cursor=cursor,
                             table_name=table_name,
+                            **({"delivery_id": delivery_id} if delivery_id is not None else {}),
                         )
 
                     except ValueError as exc:
+                        if delivery_id is not None:
+                            raise  # Roll back the receipt together with an invalid row.
                         skipped += 1
 
                         logger.bind(
@@ -636,6 +665,8 @@ class OperatorDatabaseManager:
                         previous_transactions.append(previous_transaction)
 
                     changed += 1
+                if delivery_id is not None and not processed:
+                    raise ValueError("An empty quota delivery cannot be acknowledged")
 
             sync_completed = True
         except Exception:
@@ -705,18 +736,45 @@ class OperatorDatabaseManager:
         *,
         cursor,
         table_name: str | None = None,
+        delivery_id: str | None = None,
     ) -> PreviousTransactionReport | None:
         if self.targets is None:
             raise ValueError("Operator targets are required to sync report payloads.")
 
         target = self._resolve_payload_target(payload, table_name=table_name)
         record = OperatorDbRecord.from_report_payload(payload, target)
-        return self.upsert_record(
+        if delivery_id is not None:
+            receipt_time = datetime.fromisoformat(payload["finished_at"])
+            if receipt_time.utcoffset() is None:
+                raise ValueError("Quota delivery requires a timestamp with a time zone")
+            identity = (target.table_name, record.nik, receipt_time, str(payload["status"]))
+            cursor.execute("""
+                INSERT INTO public.taskbot_quota_receipts(event_id, operator_table, nik, event_time, status)
+                VALUES (%s, %s, %s, %s, %s) ON CONFLICT (event_id) DO NOTHING RETURNING event_id
+            """, (delivery_id, *identity))
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    SELECT operator_table, nik, event_time, status
+                    FROM public.taskbot_quota_receipts WHERE event_id=%s
+                """, (delivery_id,))
+                if cursor.fetchone() != identity:
+                    raise ValueError("Quota receipt does not match this delivery")
+                return None
+        result = self.upsert_record(
             target.table_name,
             record,
             cursor=cursor,
             operator_id=target.operator_id,
+            **({"distinct_sale": True} if delivery_id and record.kuota_delta else {}),
         )
+        # A delayed sale belongs to its sale month, even when recovered after reset.
+        if delivery_id and record.kuota_delta:
+            month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if record.event_time < month_start:
+                cursor.execute(sql.SQL(
+                    'UPDATE {} SET "KUOTA"=0 WHERE "NIK"=%s AND "UPDATED_TIME"<%s'
+                ).format(sql.Identifier(target.table_name)), (record.nik, month_start))
+        return result
 
     def _resolve_payload_target(
         self,
@@ -777,6 +835,7 @@ class OperatorDatabaseManager:
         *,
         cursor,
         operator_id: str | None = None,
+        distinct_sale: bool = False,
     ) -> PreviousTransactionReport | None:
         normalized_table = _normalize_table_name(table_name)
         event_time = _normalize_datetime(record.event_time)
@@ -793,7 +852,7 @@ class OperatorDatabaseManager:
             else None
         )
         cursor.execute(
-            self._upsert_sql(normalized_table),
+            self._upsert_sql(normalized_table, distinct_sale=distinct_sale),
             (
                 record.operator,
                 record.nik,
@@ -1093,7 +1152,7 @@ class OperatorDatabaseManager:
             )
 
     @staticmethod
-    def _upsert_sql(table_name: str):
+    def _upsert_sql(table_name: str, *, distinct_sale: bool = False):
         table = sql.Identifier(_normalize_table_name(table_name))
         operator = sql.Identifier("OPERATOR")
         nik = sql.Identifier("NIK")
@@ -1142,6 +1201,17 @@ class OperatorDatabaseManager:
             next_kuota=next_kuota,
         )
 
+        if distinct_sale:
+            # The receipt already removed replays. Separate confirmed sales may
+            # share a timestamp, or reach us behind a newer row in the same month.
+            same_month = sql.SQL(
+                "date_trunc('month', EXCLUDED.{t}) = date_trunc('month', target.{t})"
+            ).format(t=updated_time)
+            next_kuota = sql.SQL("CASE WHEN {} THEN target.{} + EXCLUDED.{} ELSE {} END").format(
+                same_month, kuota, kuota, next_kuota
+            )
+            next_max_kuota = sql.SQL("GREATEST(target.{}, {})").format(max_kuota, next_kuota)
+
         next_last_transaction_time = sql.SQL(
             """
             CASE
@@ -1180,6 +1250,21 @@ class OperatorDatabaseManager:
             last_transaction_time=last_transaction_time,
             previous_transaction_time=previous_transaction_time,
         )
+
+        if distinct_sale:
+            # A late receipt may fall between the two stored sales. Preserve
+            # the latest status while retaining the two latest sale times.
+            next_last_transaction_time = sql.SQL("GREATEST(target.{t}, EXCLUDED.{t})").format(
+                t=last_transaction_time
+            )
+            next_previous_transaction_time = sql.SQL("""
+                CASE WHEN EXCLUDED.{last} >= target.{last} THEN target.{last}
+                     WHEN target.{last} IS NOT NULL THEN GREATEST(target.{prev}, EXCLUDED.{last})
+                     WHEN target.{quota} > 0 AND target.{updated} < EXCLUDED.{last}
+                         THEN target.{updated}
+                     ELSE target.{prev} END
+            """).format(last=last_transaction_time, prev=previous_transaction_time,
+                        quota=kuota, updated=updated_time)
 
         return sql.SQL(
             """
@@ -1321,6 +1406,10 @@ def _read_json_report(path: Path) -> Iterable[Mapping[str, Any]]:
 
 def format_db_datetime(value: datetime) -> str:
     return _normalize_datetime(value).strftime(TIMESTAMP_FORMAT)
+
+
+def counts_toward_quota(status: Any) -> bool:
+    return _normalize_status(status) in _SUCCESS_STATUSES
 
 
 def _normalize_status(value: Any) -> str:
