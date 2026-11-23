@@ -631,12 +631,7 @@ class TransactionReporter:
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
         mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
-        retry_report = {
-            **self._compact_retry_report(),
-            "operator": self.operator_id,
-            "operator_id": self.operator_id,
-            "run_id": self.run_id,
-        }
+        retry_report = self._retry_report_for_file()
         workflow_summary = self.get_workflow_event_report()
         payload = {
             "run_id": self.run_id,
@@ -796,6 +791,15 @@ class TransactionReporter:
             "retried_niks": list(index["niks"]),
             "by_process": {key: list(niks) for key, niks in index["process"].items()},
             "by_trigger": {key: list(niks) for key, niks in index["trigger"].items()},
+        }
+
+    def _retry_report_for_file(self) -> dict[str, Any]:
+        """Use the stable operator ID in both operator fields of saved reports."""
+        return {
+            **self._compact_retry_report(),
+            "operator": self.operator_id,
+            "operator_id": self.operator_id,
+            "run_id": self.run_id,
         }
 
     def get_error_niks_by_reason(self) -> dict[str, list[str]]:
@@ -1309,12 +1313,7 @@ class TransactionReporter:
             if cached
             else self.get_mapping_failed_puzzle_report()
         )
-        retry_report = {
-            **self._compact_retry_report(),
-            "operator": self.operator_id,
-            "operator_id": self.operator_id,
-            "run_id": self.run_id,
-        }
+        retry_report = self._retry_report_for_file()
         counts = calculator.get_summary()
         workflow_summary = self._meta_workflow_report()
         ended_at = now_iso()

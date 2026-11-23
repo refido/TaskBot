@@ -156,6 +156,26 @@ def test_two_operator_event_outputs(frozen_reports, tmp_path):
     assert actual == json.loads(GOLDEN.read_text(encoding="utf-8"))[key]
 
 
+def test_saved_retry_reports_use_operator_id_when_legacy_alias_differs(
+    frozen_reports, tmp_path
+):
+    reporter = make_reporter(tmp_path)
+    reporter.operator = "fixture alias"
+    reporter.record_retry(
+        "fixture", process="lookup", trigger="timeout",
+        attempt_number=2, retry_number=1, max_retries=3,
+    )
+
+    summary = json.loads(reporter.meta_path.read_bytes())["retry_report"]
+    reporter.write_files()
+    snapshot = json.loads(reporter.final_json_path.read_bytes())["retry_report"]
+
+    assert reporter.get_retry_report()["operator"] == "fixture alias"
+    assert summary["operator"] == summary["operator_id"] == reporter.operator_id
+    assert summary["total_retry_events"] == 1
+    assert snapshot == summary
+
+
 @pytest.mark.parametrize("count", [8, 32, 128])
 def test_terminal_history_visits(frozen_reports, tmp_path, monkeypatch, count):
     reporter = make_reporter(tmp_path)
