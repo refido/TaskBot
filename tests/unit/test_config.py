@@ -8,6 +8,44 @@ from src.config import AccountConfig, Config
 from src.infrastructure.config.settings import AppSettings
 
 
+def test_numbered_input_preserves_each_operators_queue_and_ignores_single_input():
+    settings = AppSettings.from_env(
+        {
+            "NIK": "fallback-only",
+            "EMAIL_10": "ten@example.invalid",
+            "PIN_10": "fixture-ten",
+            "NIK_10": " , ",
+            "EMAIL_2": "two@example.invalid",
+            "PIN_2": "fixture-two",
+            "NIK_2": " 001 , , 001, needs-check, 002, ",
+        },
+        load_env_file=False,
+    )
+    expected = ("001", "001", "needs-check", "002")
+    assert [(a.operator_id, a.nik) for a in settings.accounts] == [
+        ("operator_02", expected),
+        ("operator_10", ()),
+    ]
+
+    config = Config(settings=settings)
+    first, second = config.account_configs()
+    assert first.nik == list(expected)
+    assert second.nik == []
+    first.nik.pop()
+    assert config.nik == list(expected)
+    assert config.account_run_contexts()[0].nik == expected
+
+
+def test_empty_numbered_slots_fall_back_to_the_single_input_list():
+    settings = AppSettings.from_env(
+        {"NIK": " 005, 005,,006 ", "NIK_3": ", ", "OPERATOR_3_ID": "unused"},
+        load_env_file=False,
+    )
+    (account,) = settings.accounts
+    assert account.operator_id == "operator_01"
+    assert account.nik == ("005", "005", "006")
+
+
 @pytest.mark.parametrize(
     "raw,expected", [("", None), ("  ", None), ("1", 1), (" 2 ", 2), ("100", 100)]
 )
