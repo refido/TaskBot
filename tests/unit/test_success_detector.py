@@ -73,8 +73,10 @@ def test_root_disappearance_only_reports_captcha_stage_completion(monkeypatch):
         lambda message, **fields: records.append(fields),
     )
     assert SuccessDetector(SliderConfig()).check_success(FakePage(), FakeRoot()) is True
-    assert records == [{
-        "event": "captcha.stage.finished",
-        "evidence": "root_hidden",
-        "transaction_confirmed": False,
-    }]
+    assert records == [
+        {
+            "event": "captcha.stage.finished",
+            "evidence": "root_hidden",
+            "transaction_confirmed": False,
+        }
+    ]

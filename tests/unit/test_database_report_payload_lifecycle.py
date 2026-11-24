@@ -8,7 +8,9 @@ import pytest
 from src.infrastructure.database import operator_store
 
 
-@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize(
+    "primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit]
+)
 @pytest.mark.parametrize("log_stage", ["bind", "exception"])
 def test_cleanup_logging_failure_preserves_sync_result(case, primary_type, log_stage):
     primary = primary_type("sync failed") if primary_type else None

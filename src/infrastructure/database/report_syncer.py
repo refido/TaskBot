@@ -31,14 +31,22 @@ class DatabaseReportSyncer:
         self._configuration_error: str | None = None
         self._connection: Any | None = None
 
-    def open_journal(self, operator_id: str, manager: OperatorDatabaseManager) -> QuotaJournal:
+    def open_journal(
+        self, operator_id: str, manager: OperatorDatabaseManager
+    ) -> QuotaJournal:
         config = manager.config
         # Both startup and manual recovery construct the manager with required targets.
         target = cast(OperatorTargets, manager.targets).resolve(operator_id)
         self._manager = manager
         self._journal = QuotaJournal(
             recovery_directory(),
-            (config.host.casefold(), config.port, config.name, target.table_name, target.operator_id),
+            (
+                config.host.casefold(),
+                config.port,
+                config.name,
+                target.table_name,
+                target.operator_id,
+            ),
             target.operator_id,
         )
         return self._journal
@@ -51,7 +59,10 @@ class DatabaseReportSyncer:
         recovered = journal.drain(self._deliver_event)
         journal.require_resolved()
         reporter.configure_quota_journal(
-            begin=journal.begin, confirm=journal.confirm, stage=self._stage_row, check=journal.require_resolved
+            begin=journal.begin,
+            confirm=journal.confirm,
+            stage=self._stage_row,
+            check=journal.require_resolved,
         )
         return recovered > 0
 
@@ -68,9 +79,20 @@ class DatabaseReportSyncer:
             return
         payload = _database_report_payload(row)
         # Only store fields consumed by OperatorDbRecord, never login or URL data.
-        keys = ("operator_id", "nik", "status", "finished_at", "nama_pengguna",
-                "jenis_pengguna", "reason", "error_label", "error")
-        cast(QuotaJournal, self._journal).stage({key: payload[key] for key in keys}, source)
+        keys = (
+            "operator_id",
+            "nik",
+            "status",
+            "finished_at",
+            "nama_pengguna",
+            "jenis_pengguna",
+            "reason",
+            "error_label",
+            "error",
+        )
+        cast(QuotaJournal, self._journal).stage(
+            {key: payload[key] for key in keys}, source
+        )
 
     def _deliver_event(self, event_id, source, payload) -> None:
         self._sync(self._manager, source, [payload], event_id=event_id)
@@ -130,7 +152,11 @@ class DatabaseReportSyncer:
                 if event_id is not None and not self._receipts_ready:
                     manager.ensure_delivery_receipts(connection)
                     self._receipts_ready = True
-                payloads = rows if event_id is not None else (_database_report_payload(row) for row in rows)
+                payloads = (
+                    rows
+                    if event_id is not None
+                    else (_database_report_payload(row) for row in rows)
+                )
                 summary = manager.sync_report_payloads(
                     payloads,
                     source=str(report_path),

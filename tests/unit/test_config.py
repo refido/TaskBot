@@ -8,7 +8,9 @@ from src.config import AccountConfig, Config
 from src.infrastructure.config.settings import AppSettings
 
 
-@pytest.mark.parametrize("raw,expected", [("", None), ("  ", None), ("1", 1), (" 2 ", 2), ("100", 100)])
+@pytest.mark.parametrize(
+    "raw,expected", [("", None), ("  ", None), ("1", 1), (" 2 ", 2), ("100", 100)]
+)
 def test_max_concurrent_accounts_environment(raw, expected):
     settings = AppSettings.from_env(
         {"MAX_CONCURRENT_ACCOUNTS": raw}, load_env_file=False
@@ -34,18 +36,26 @@ def test_max_concurrent_accounts_rejects_invalid_settings_object(value):
 
 
 def test_max_concurrent_accounts_propagates_without_changing_account_order():
-    settings = AppSettings.from_env({
-        "MAX_CONCURRENT_ACCOUNTS": "2",
-        "EMAIL_10": "ten@example.com", "PIN_10": "pin-ten",
-        "EMAIL_2": "two@example.com", "PIN_2": "pin-two",
-        "EMAIL_1": "one@example.com", "PIN_1": "pin-one",
-    }, load_env_file=False)
+    settings = AppSettings.from_env(
+        {
+            "MAX_CONCURRENT_ACCOUNTS": "2",
+            "EMAIL_10": "ten@example.com",
+            "PIN_10": "pin-ten",
+            "EMAIL_2": "two@example.com",
+            "PIN_2": "pin-two",
+            "EMAIL_1": "one@example.com",
+            "PIN_1": "pin-one",
+        },
+        load_env_file=False,
+    )
     config = Config(settings=settings)
     accounts = config.account_configs()
     assert config.max_concurrent_accounts == 2
     assert config.run_context.settings.max_concurrent_accounts == 2
     assert [account.operator_id for account in accounts] == [
-        "operator_01", "operator_02", "operator_10"
+        "operator_01",
+        "operator_02",
+        "operator_10",
     ]
     assert all(account.max_concurrent_accounts == 2 for account in accounts)
     assert all(account.settings.max_concurrent_accounts == 2 for account in accounts)

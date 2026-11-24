@@ -50,7 +50,7 @@ def _apply_ascii_level_icons() -> None:
         )
 
 
-def _inject_default_event(record: "Record") -> None:
+def _inject_default_event(record: Record) -> None:
     record["message"] = sanitize_text(record["message"])
     exception = record.get("exception")
     if exception is not None:
@@ -67,7 +67,7 @@ def _inject_default_event(record: "Record") -> None:
                     exception_traceback,
                 )
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             formatted_traceback = f"{exception_name}: {exception_value}"
         record["message"] = sanitize_text(
             f"{record['message']} | {exception_name}: {sanitized_exception}"
@@ -94,12 +94,12 @@ def _inject_default_event(record: "Record") -> None:
     )
 
 
-def _is_db_log_record(record: "Record") -> bool:
+def _is_db_log_record(record: Record) -> bool:
     event = str(record["extra"].get("event", ""))
     return event in _DB_LOG_EVENTS or event.startswith(_DB_LOG_EVENT_PREFIXES)
 
 
-def _is_application_log_record(record: "Record") -> bool:
+def _is_application_log_record(record: Record) -> bool:
     return not _is_db_log_record(record)
 
 
@@ -132,9 +132,7 @@ def configure_logging(
     now_local = datetime.now().astimezone()
     context_run_id = str(getattr(run_context, "run_id", "") or "")
     resolved_run_id = (
-        run_id
-        or context_run_id
-        or f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
+        run_id or context_run_id or f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
     )
 
     context_run_dir = getattr(run_context, "run_dir", None)

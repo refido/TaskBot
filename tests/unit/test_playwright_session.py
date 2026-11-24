@@ -8,10 +8,14 @@ import src.infrastructure.browser.playwright_session as playwright_session_modul
 from src.config import Config
 
 
-@pytest.mark.parametrize("resource", ["interaction_diagnostics", "context", "browser", "playwright"])
+@pytest.mark.parametrize(
+    "resource", ["interaction_diagnostics", "context", "browser", "playwright"]
+)
 @pytest.mark.parametrize("primary", [False, True])
 @pytest.mark.parametrize("log_stage", ["bind", "debug"])
-def test_cleanup_logging_does_not_mask_body_or_stop_teardown(startup_case, resource, primary, log_stage):
+def test_cleanup_logging_does_not_mask_body_or_stop_teardown(
+    startup_case, resource, primary, log_stage
+):
     case = startup_case(cleanup_failures=(resource,))
     failure = RuntimeError("body failed")
     diagnostics = Mock()
@@ -45,7 +49,9 @@ def test_cleanup_logging_does_not_mask_body_or_stop_teardown(startup_case, resou
 @pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
 @pytest.mark.parametrize("source", ["cleanup", "logger"])
 @pytest.mark.parametrize("primary", [False, True])
-def test_fatal_teardown_interruptions_keep_existing_precedence(startup_case, fatal_type, source, primary):
+def test_fatal_teardown_interruptions_keep_existing_precedence(
+    startup_case, fatal_type, source, primary
+):
     case = startup_case(cleanup_failures=("context",))
     interruption = fatal_type("teardown interrupted")
     if source == "cleanup":
@@ -100,12 +106,18 @@ def startup_case(monkeypatch):
             ),
             stop=Mock(side_effect=lambda: release("playwright")),
         )
-        starter = SimpleNamespace(start=Mock(side_effect=lambda: acquire("start", playwright)))
-        monkeypatch.setattr(playwright_session_module, "sync_playwright", lambda: starter)
+        starter = SimpleNamespace(
+            start=Mock(side_effect=lambda: acquire("start", playwright))
+        )
+        monkeypatch.setattr(
+            playwright_session_module, "sync_playwright", lambda: starter
+        )
         logger = Mock()
         monkeypatch.setattr(playwright_session_module, "logger", logger)
         return SimpleNamespace(
-            session=playwright_session_module.BrowserSession(SimpleNamespace(headless=True)),
+            session=playwright_session_module.BrowserSession(
+                SimpleNamespace(headless=True)
+            ),
             starter=starter,
             playwright=playwright,
             browser=browser,
@@ -134,7 +146,9 @@ def test_startup_failure_releases_only_acquired_resources(
 ):
     case = startup_case(startup_failure=failure_stage)
     exit_spy = Mock()
-    monkeypatch.setattr(playwright_session_module.PlaywrightSession, "__exit__", exit_spy)
+    monkeypatch.setattr(
+        playwright_session_module.PlaywrightSession, "__exit__", exit_spy
+    )
 
     with pytest.raises(ValueError) as caught, case.session:
         pytest.fail("startup failure must not enter the with body")
@@ -216,7 +230,8 @@ def test_playwright_session_uses_configured_headless_mode(monkeypatch, headless:
         ("page", ("browser",), ["context", "browser", "playwright"]),
         ("page", ("playwright",), ["context", "browser", "playwright"]),
         (
-            "page", ("context", "browser", "playwright"),
+            "page",
+            ("context", "browser", "playwright"),
             ["context", "browser", "playwright"],
         ),
     ],
@@ -224,7 +239,9 @@ def test_playwright_session_uses_configured_headless_mode(monkeypatch, headless:
 def test_startup_error_remains_primary_when_cleanup_fails(
     startup_case, failure_stage, cleanup_failures, expected_cleanup
 ):
-    case = startup_case(startup_failure=failure_stage, cleanup_failures=cleanup_failures)
+    case = startup_case(
+        startup_failure=failure_stage, cleanup_failures=cleanup_failures
+    )
 
     with pytest.raises(ValueError) as caught:
         case.session.__enter__()
@@ -287,9 +304,14 @@ def test_normal_exit_preserves_ownership_order_and_is_idempotent(
         run()
 
     assert case.events == [
-        "start", "launch", "context", "page",
-        "cleanup.interaction_diagnostics", "cleanup.context",
-        "cleanup.browser", "cleanup.playwright",
+        "start",
+        "launch",
+        "context",
+        "page",
+        "cleanup.interaction_diagnostics",
+        "cleanup.context",
+        "cleanup.browser",
+        "cleanup.playwright",
     ]
     events_after_exit = list(case.events)
     case.session.__exit__(None, None, None)
@@ -304,7 +326,13 @@ def test_normal_exit_preserves_ownership_order_and_is_idempotent(
     case.playwright.firefox.launch.assert_called_once_with(headless=True)
     case.browser.new_context.assert_called_once_with()
     case.context.new_page.assert_called_once_with()
-    for resource in ("interaction_diagnostics", "page", "context", "browser", "playwright"):
+    for resource in (
+        "interaction_diagnostics",
+        "page",
+        "context",
+        "browser",
+        "playwright",
+    ):
         assert getattr(case.session, resource) is None
     with pytest.raises(RuntimeError, match="not initialized"):
         case.session.require_page()
@@ -445,7 +473,9 @@ def _debug_config(tmp_path, *, headless: bool = False):
     )
 
 
-@pytest.mark.parametrize("failure_stage", ["navigation", "login", "load_state", "stock"])
+@pytest.mark.parametrize(
+    "failure_stage", ["navigation", "login", "load_state", "stock"]
+)
 def test_initialize_session_failure_after_page_creation_still_cleans_up(
     monkeypatch, tmp_path, failure_stage
 ):

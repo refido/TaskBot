@@ -458,7 +458,9 @@ def export_account_session(config: Config, output_dir: Path) -> SessionArtifacts
             page_cdp = context.new_cdp_session(page)
             browser = context.browser
             if browser is None:
-                raise AttributeError("'NoneType' object has no attribute 'new_browser_cdp_session'")
+                raise AttributeError(
+                    "'NoneType' object has no attribute 'new_browser_cdp_session'"
+                )
             browser_cdp = browser.new_browser_cdp_session()
             xhr_tracker = XHRTracker(page_cdp)
             xhr_tracker.enable()

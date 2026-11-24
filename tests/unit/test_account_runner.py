@@ -54,7 +54,9 @@ class BatchingFakeReporter(FakeReporter):
         self._sync_callback: Callable[[tuple[str, ...]], None] | None = None
         self._pending_rows: list[str] = []
 
-    def configure_batch_sync(self, sync_callback: Callable[[tuple[str, ...]], None], *, batch_size: int) -> None:
+    def configure_batch_sync(
+        self, sync_callback: Callable[[tuple[str, ...]], None], *, batch_size: int
+    ) -> None:
         self._sync_callback = sync_callback
         self._batch_size = batch_size
 
@@ -127,16 +129,29 @@ class PartiallyFailingProcessor(FakeProcessor):
         raise RuntimeError("browser session lost")
 
 
-@pytest.mark.parametrize("stage,prior", [
-    ("write", None), ("write", "process"), ("sync", None), ("sync", "write"),
-    ("close", None), ("close", "write"), ("summary", None), ("summary", "write"),
-])
+@pytest.mark.parametrize(
+    "stage,prior",
+    [
+        ("write", None),
+        ("write", "process"),
+        ("sync", None),
+        ("sync", "write"),
+        ("close", None),
+        ("close", "write"),
+        ("summary", None),
+        ("summary", "write"),
+    ],
+)
 @pytest.mark.parametrize("log_stage", ["bind", "exception"])
-def test_finalization_logging_keeps_outcome_and_cleanup(finalization_case, monkeypatch, stage, prior, log_stage):
+def test_finalization_logging_keeps_outcome_and_cleanup(
+    finalization_case, monkeypatch, stage, prior, log_stage
+):
     case = finalization_case(failures=tuple(s for s in (prior, stage) if s))
     event = {
-        "write": "account.report_write_error", "sync": "account.report_db_sync_error",
-        "close": "account.report_db_close_error", "summary": "account.report_summary_error",
+        "write": "account.report_write_error",
+        "sync": "account.report_db_sync_error",
+        "close": "account.report_db_close_error",
+        "summary": "account.report_summary_error",
     }[stage]
     log = case.runner.logger
     original_bind, original_exception = log.bind, log.exception
@@ -154,20 +169,29 @@ def test_finalization_logging_keeps_outcome_and_cleanup(finalization_case, monke
 
     monkeypatch.setattr(log, "bind", bind)
     monkeypatch.setattr(log, "exception", exception)
-    expected = None if prior == "process" or (stage == "sync" and prior is None) else case.errors[prior or stage]
+    expected = (
+        None
+        if prior == "process" or (stage == "sync" and prior is None)
+        else case.errors[prior or stage]
+    )
     if expected:
         with pytest.raises(type(expected)) as caught:
             case.runner._run_with_context(case.config, "operator_01")
         assert caught.value is expected
     else:
-        assert case.runner._run_with_context(case.config, "operator_01") == ("operator_01", False)
+        assert case.runner._run_with_context(case.config, "operator_01") == (
+            "operator_01",
+            False,
+        )
     assert case.events[-5:] == ["write", "flush", "sync", "close", "summary"]
     case.syncer.close.assert_called_once_with()
     assert case.runner.outcome["persistence_status"] == "failed"
 
 
 @pytest.mark.parametrize("fatal_type", [KeyboardInterrupt, SystemExit])
-def test_finalization_logger_fatal_interruption_still_propagates(finalization_case, monkeypatch, fatal_type):
+def test_finalization_logger_fatal_interruption_still_propagates(
+    finalization_case, monkeypatch, fatal_type
+):
     case = finalization_case(failures=("write",))
     interruption = fatal_type("logging interrupted")
     monkeypatch.setattr(case.runner.logger, "exception", Mock(side_effect=interruption))
@@ -253,8 +277,14 @@ def test_write_files_failure_still_final_syncs_and_closes(finalization_case, mod
     assert caught.value is case.errors["write"]
     # The original implementation stopped at write, skipping both sync and close.
     assert case.events == [
-        "initialize", "process", "browser_exit", "write",
-        *(["flush"] if mode == "batch" else []), "sync", "close", "summary",
+        "initialize",
+        "process",
+        "browser_exit",
+        "write",
+        *(["flush"] if mode == "batch" else []),
+        "sync",
+        "close",
+        "summary",
     ]
     assert case.syncer.call_count == 1
     case.syncer.close.assert_called_once_with()
@@ -293,8 +323,14 @@ def test_finalization_order_and_first_failure_contract(
         assert case.runner.run(case.config) == ("operator_01", not failures)
 
     assert case.events == [
-        "initialize", "process", "browser_exit", "write",
-        *(["flush"] if mode == "batch" else []), "sync", "close", "summary",
+        "initialize",
+        "process",
+        "browser_exit",
+        "write",
+        *(["flush"] if mode == "batch" else []),
+        "sync",
+        "close",
+        "summary",
     ]
     case.reporter.write_files.assert_called_once_with()
     case.reporter.print_summary.assert_called_once_with()
@@ -323,7 +359,9 @@ def test_finalization_order_and_first_failure_contract(
         "status": "failed" if failures else "completed",
         "execution_status": "failed" if "process" in failures else "completed",
         "persistence_status": (
-            "failed" if set(failures) & {"write", "sync", "close", "summary"} else "successful"
+            "failed"
+            if set(failures) & {"write", "sync", "close", "summary"}
+            else "successful"
         ),
         "transaction_status": None,  # This legacy test double exposes no terminal rows.
     }
@@ -358,7 +396,8 @@ def test_account_level_failure_remains_primary_through_finalization(
     assert case.runner.run(case.config) == ("operator_01", False)
 
     assert case.logged_errors[0] == (
-        "account.run.fatal_error", case.errors[failure_stage]
+        "account.run.fatal_error",
+        case.errors[failure_stage],
     )
     assert len(case.logged_errors) == 4
     case.reporter.write_files.assert_called_once_with()
@@ -436,7 +475,9 @@ def test_finalization_flushes_real_reporter_pending_row_after_write_failure(
         reporter_factory=lambda **kwargs: reporter,
         limiter_factory=FakeLimiter,
         browser_session_factory=FakeSession,
-        transaction_processor_factory=lambda *args: SimpleNamespace(process_all_niks=process),
+        transaction_processor_factory=lambda *args: SimpleNamespace(
+            process_all_niks=process
+        ),
         report_syncer=syncer,
         logger=FakeBoundLogger([]),
     )
@@ -457,7 +498,8 @@ def test_finalization_flushes_real_reporter_pending_row_after_write_failure(
     assert reporter.rows[0].status == "completed"
     assert reporter._pending_batch_rows == []
     assert [call.args for call in syncer.call_args_list] == [
-        (reporter, (reporter.rows[0],)), (reporter, (reporter.rows[0],)),
+        (reporter, (reporter.rows[0],)),
+        (reporter, (reporter.rows[0],)),
     ]
     assert len(reporter.jsonl_path.read_text(encoding="utf-8").splitlines()) == 1
 
@@ -472,9 +514,13 @@ def test_finalization_flushes_real_reporter_pending_row_after_write_failure(
         ([], False),
     ],
 )
-def test_account_return_remains_a_tuple_with_clean_success_semantics(finalization_case, statuses, clean):
+def test_account_return_remains_a_tuple_with_clean_success_semantics(
+    finalization_case, statuses, clean
+):
     case = finalization_case()
-    case.reporter.rows = [SimpleNamespace(nik="3174", status=status) for status in statuses]
+    case.reporter.rows = [
+        SimpleNamespace(nik="3174", status=status) for status in statuses
+    ]
 
     result = case.runner.run(case.config)
 
@@ -482,12 +528,16 @@ def test_account_return_remains_a_tuple_with_clean_success_semantics(finalizatio
     assert result == ("operator_01", clean)
     assert case.runner.outcome["execution_status"] == "completed"
     assert case.runner.outcome["persistence_status"] == "successful"
-    assert case.runner.outcome["status"] == ("completed" if clean else "completed_with_errors")
+    assert case.runner.outcome["status"] == (
+        "completed" if clean else "completed_with_errors"
+    )
     case.reporter.flush_pending_batches.assert_called_once_with()
     case.syncer.close.assert_called_once_with()
 
 
-def test_transaction_error_does_not_suppress_primary_finalization_exception(finalization_case):
+def test_transaction_error_does_not_suppress_primary_finalization_exception(
+    finalization_case,
+):
     case = finalization_case(failures=("write", "sync", "close"))
     case.reporter.rows = [SimpleNamespace(nik="3174", status="error")]
 
@@ -692,9 +742,7 @@ def test_process_account_delegates_to_account_runner() -> None:
             calls.append(config)
             return ("operator_01", True)
 
-    config = SimpleNamespace(
-        operator_id="operator_01", email_user="tester@example.com"
-    )
+    config = SimpleNamespace(operator_id="operator_01", email_user="tester@example.com")
     result = process_account(config, account_runner=FakeRunner())
 
     assert result == ("operator_01", True)

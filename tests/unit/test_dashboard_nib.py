@@ -16,9 +16,18 @@ from src.infrastructure.browser.page_objects import dashboard_page as module
 @pytest.fixture
 def nib_case(monkeypatch):
     case = SimpleNamespace(
-        state="continue", elapsed=0, scheduled=[], clicks=[], waits=[], sleeps=[],
-        events=[], close_locators=[], on_continue=None, on_close=None,
-        click_error=None, close_error=None,
+        state="continue",
+        elapsed=0,
+        scheduled=[],
+        clicks=[],
+        waits=[],
+        sleeps=[],
+        events=[],
+        close_locators=[],
+        on_continue=None,
+        on_close=None,
+        click_error=None,
+        close_error=None,
     )
 
     def advance(milliseconds):
@@ -87,9 +96,13 @@ def nib_case(monkeypatch):
     dashboard.perbarui_data_nib_pelanggan_lanjut_nanti = Locator("continue")
     dashboard.perbarui_data_nib_pelanggan_tutup = Locator("close")
     dashboard.click_locator = click
-    dashboard._debug_interaction_checkpoint = lambda label, **_kw: case.events.append(("checkpoint", label))
+    dashboard._debug_interaction_checkpoint = lambda label, **_kw: case.events.append(
+        ("checkpoint", label)
+    )
     dashboard._debug_pause = lambda label: case.events.append(("pause", label))
-    dashboard._debug_poll_interaction_states = lambda label: case.events.append(("poll", label))
+    dashboard._debug_poll_interaction_states = lambda label: case.events.append(
+        ("poll", label)
+    )
     monkeypatch.setattr(module, "expect", lambda locator: locator)
     monkeypatch.setattr(module, "log_print", lambda *_args, **_kwargs: None)
     case.dashboard = dashboard
@@ -99,22 +112,32 @@ def nib_case(monkeypatch):
 def test_nib_not_present_does_not_click(nib_case):
     case = nib_case
     case.state = "gone"
-    assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "not_present"
+    assert (
+        case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "not_present"
+    )
     assert case.clicks == []
     assert case.waits == [("modal", "visible", 6000)]
 
 
-def test_nib_live_path_instruments_detection_click_and_twenty_second_observation(nib_case):
+def test_nib_live_path_instruments_detection_click_and_twenty_second_observation(
+    nib_case,
+):
     """Migrated from the legacy primitive: assert the active success contract."""
     case = nib_case
     case.on_continue = lambda: setattr(case, "state", "gone")
     assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "continued"
     assert case.state == "gone"
     assert case.sleeps == []
-    assert case.clicks == [("continue", {
-        "action_name": "continuing transaction past 'Segera Lengkapi NIB' modal",
-        "timeout_ms": 10000, "load_state": None,
-    })]
+    assert case.clicks == [
+        (
+            "continue",
+            {
+                "action_name": "continuing transaction past 'Segera Lengkapi NIB' modal",
+                "timeout_ms": 10000,
+                "load_state": None,
+            },
+        )
+    ]
     assert case.events == [
         ("checkpoint", "nib_modal_detected"),
         ("pause", "nib_modal_detected"),
@@ -125,8 +148,12 @@ def test_nib_live_path_instruments_detection_click_and_twenty_second_observation
     ]
 
 
-@pytest.mark.parametrize("error_type", [PlaywrightError, PlaywrightTimeoutError, AssertionError])
-def test_nib_live_path_captures_after_state_even_when_click_raises(nib_case, error_type):
+@pytest.mark.parametrize(
+    "error_type", [PlaywrightError, PlaywrightTimeoutError, AssertionError]
+)
+def test_nib_live_path_captures_after_state_even_when_click_raises(
+    nib_case, error_type
+):
     """Migrated coverage: recoverable click errors still observe the outcome."""
     case = nib_case
     case.click_error = error_type("click response failed")
@@ -173,10 +200,14 @@ def test_nib_tutup_outcome_is_confirmed(nib_case, when):
     case.on_close = lambda: setattr(case, "state", "gone")
     assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "close"
     assert case.state == "gone"
-    assert [kind for kind, _ in case.clicks] == (["close"] if when == "initial" else ["continue", "close"])
+    assert [kind for kind, _ in case.clicks] == (
+        ["close"] if when == "initial" else ["continue", "close"]
+    )
     assert case.clicks[-1][1] == {
         "action_name": "closing 'Segera Lengkapi NIB' blocker",
-        "expected_text": "Tutup", "timeout_ms": 10000, "load_state": None,
+        "expected_text": "Tutup",
+        "timeout_ms": 10000,
+        "load_state": None,
     }
     assert ("modal", "hidden", 7000) in case.waits
 
@@ -184,9 +215,11 @@ def test_nib_tutup_outcome_is_confirmed(nib_case, when):
 @pytest.mark.parametrize("success_on_second", [False, True])
 def test_nib_continue_is_bounded_to_two_attempts(nib_case, success_on_second):
     case = nib_case
+
     def continued():
         if success_on_second and len(case.clicks) == 2:
             case.state = "gone"
+
     case.on_continue = continued
     expected = "continued" if success_on_second else "cannot_continue"
     assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == expected
@@ -201,9 +234,11 @@ def test_nib_continue_is_bounded_to_two_attempts(nib_case, success_on_second):
 def test_initial_tutup_is_bounded_to_three_attempts(nib_case, succeed):
     case = nib_case
     case.state = "close"
+
     def closed():
         if succeed and len(case.clicks) == 3:
             case.state = "gone"
+
     case.on_close = closed
     assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == (
         "close" if succeed else "cannot_continue"
@@ -216,7 +251,10 @@ def test_initial_tutup_is_bounded_to_three_attempts(nib_case, succeed):
 def test_post_click_tutup_total_attempt_bound(nib_case):
     case = nib_case
     case.on_continue = lambda: setattr(case, "state", "close")
-    assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "cannot_continue"
+    assert (
+        case.dashboard.attempt_continue_perbarui_data_nib_pelanggan()
+        == "cannot_continue"
+    )
     assert sum(kind == "close" for kind, _ in case.clicks) <= 3
     assert [kind for kind, _ in case.clicks] == ["continue"] + ["close"] * 3
 
@@ -233,7 +271,10 @@ def test_tutup_after_second_continue_shares_budget_with_final_check(nib_case, de
                 case.state = "close"
 
     case.on_continue = continued
-    assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "cannot_continue"
+    assert (
+        case.dashboard.attempt_continue_perbarui_data_nib_pelanggan()
+        == "cannot_continue"
+    )
     assert [kind for kind, _ in case.clicks] == ["continue"] * 2 + ["close"] * 3
 
 
@@ -241,7 +282,10 @@ def test_tutup_while_continue_button_is_rendering_uses_invocation_budget(nib_cas
     case = nib_case
     case.state = "rendering"
     case.scheduled.append((750, "close"))
-    assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "cannot_continue"
+    assert (
+        case.dashboard.attempt_continue_perbarui_data_nib_pelanggan()
+        == "cannot_continue"
+    )
     assert [kind for kind, _ in case.clicks] == ["close"] * 3
 
 
@@ -264,14 +308,22 @@ def test_reentered_tutup_helper_uses_only_remaining_attempts(nib_case, succeed):
         "close" if succeed else "cannot_continue"
     )
     assert [kind for kind, _ in case.clicks] == [
-        "continue", "close", "continue", "close", "close",
+        "continue",
+        "close",
+        "continue",
+        "close",
+        "close",
     ]
 
 
-@pytest.mark.parametrize("error_type", [PlaywrightError, PlaywrightTimeoutError, AssertionError])
+@pytest.mark.parametrize(
+    "error_type", [PlaywrightError, PlaywrightTimeoutError, AssertionError]
+)
 @pytest.mark.parametrize("succeed", [False, True])
 def test_recoverable_tutup_click_error_consumes_attempt_and_observes_ui(
-    nib_case, error_type, succeed,
+    nib_case,
+    error_type,
+    succeed,
 ):
     case = nib_case
     case.on_continue = lambda: setattr(case, "state", "close")
@@ -283,8 +335,12 @@ def test_recoverable_tutup_click_error_consumes_attempt_and_observes_ui(
         "close" if succeed else "cannot_continue"
     )
     expected_attempts = 1 if succeed else 3
-    assert [kind for kind, _ in case.clicks] == ["continue"] + ["close"] * expected_attempts
-    assert case.events.count(("checkpoint", "nib_tutup_after_click")) == expected_attempts
+    assert [kind for kind, _ in case.clicks] == ["continue"] + [
+        "close"
+    ] * expected_attempts
+    assert (
+        case.events.count(("checkpoint", "nib_tutup_after_click")) == expected_attempts
+    )
     assert case.waits.count(("modal", "hidden", 7000)) == expected_attempts
 
 
@@ -308,5 +364,8 @@ def test_tutup_budget_is_fresh_for_each_invocation_on_same_dashboard(nib_case):
     for _ in range(2):
         case.state = "close"
         previous_clicks = len(case.clicks)
-        assert case.dashboard.attempt_continue_perbarui_data_nib_pelanggan() == "cannot_continue"
+        assert (
+            case.dashboard.attempt_continue_perbarui_data_nib_pelanggan()
+            == "cannot_continue"
+        )
         assert [kind for kind, _ in case.clicks[previous_clicks:]] == ["close"] * 3

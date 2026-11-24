@@ -169,7 +169,9 @@ def compute_template_similarity_map(
 
     if mask is not None:
         try:
-            res_corr = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_CCORR_NORMED, mask=mask)
+            res_corr = cv2.matchTemplate(
+                bg_gray, tpl_gray, cv2.TM_CCORR_NORMED, mask=mask
+            )
             res_sqdiff = cv2.matchTemplate(
                 bg_gray, tpl_gray, cv2.TM_SQDIFF_NORMED, mask=mask
             )
@@ -203,9 +205,9 @@ def compute_template_similarity_map(
     w_coef /= total_w
     w_sqdiff /= total_w
 
-    return (
-        w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff
-    ).astype(np.float32)
+    return (w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff).astype(
+        np.float32
+    )
 
 
 def match_maps_fused(
@@ -243,7 +245,9 @@ def compute_fused_and_chamfer_maps(
     return fused_map, chamfer_sim.astype(np.float32), bg_gray_for_rank
 
 
-def _candidate_box(loc: Point, template_shape: tuple[int, int]) -> tuple[int, int, int, int]:
+def _candidate_box(
+    loc: Point, template_shape: tuple[int, int]
+) -> tuple[int, int, int, int]:
     th, tw = template_shape
     return int(loc[0]), int(loc[1]), int(tw), int(th)
 
@@ -288,7 +292,9 @@ def extract_top_peak_candidates(
         x = int(max_loc[0])
         y = int(max_loc[1])
         candidates.append(
-            Candidate(loc=(x, y), match_score=float(max_val), combined_score=float(max_val))
+            Candidate(
+                loc=(x, y), match_score=float(max_val), combined_score=float(max_val)
+            )
         )
 
         x0 = max(0, x - suppression_radius)
@@ -311,7 +317,9 @@ def non_max_suppress_candidates(
         key=lambda c: float(
             c.final_score
             if c.final_score is not None
-            else c.combined_score if c.combined_score else c.match_score
+            else c.combined_score
+            if c.combined_score
+            else c.match_score
         ),
         reverse=True,
     )
@@ -353,12 +361,7 @@ def compute_edge_iou(
     th, tw = tpl_edges.shape[:2]
     x, y = int(loc[0]), int(loc[1])
 
-    if (
-        x < 0
-        or y < 0
-        or x + tw > bg_edges.shape[1]
-        or y + th > bg_edges.shape[0]
-    ):
+    if x < 0 or y < 0 or x + tw > bg_edges.shape[1] or y + th > bg_edges.shape[0]:
         return 0.0
 
     roi = bg_edges[y : y + th, x : x + tw]
@@ -368,7 +371,9 @@ def compute_edge_iou(
 
     if tpl_mask is not None:
         valid = build_match_mask(tpl_mask, erode_iterations=0)
-        valid_mask = valid > 0 if valid is not None else np.ones_like(tpl_eval, dtype=bool)
+        valid_mask = (
+            valid > 0 if valid is not None else np.ones_like(tpl_eval, dtype=bool)
+        )
     else:
         valid_mask = np.ones_like(tpl_eval, dtype=bool)
 
@@ -414,15 +419,21 @@ def compute_orb_match(
     if len(good_matches) < 4:
         return None
 
-    src_pts = np.asarray([kp_tpl[m.queryIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
-    dst_pts = np.asarray([kp_bg[m.trainIdx].pt for m in good_matches], dtype=np.float32).reshape(-1, 1, 2)
+    src_pts = np.asarray(
+        [kp_tpl[m.queryIdx].pt for m in good_matches], dtype=np.float32
+    ).reshape(-1, 1, 2)
+    dst_pts = np.asarray(
+        [kp_bg[m.trainIdx].pt for m in good_matches], dtype=np.float32
+    ).reshape(-1, 1, 2)
 
     homography, inlier_mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 4.0)
     if homography is not None and inlier_mask is not None:
         inliers = int(inlier_mask.ravel().sum())
         if inliers >= 4:
             th, tw = tpl_gray.shape[:2]
-            corners = np.asarray([[0, 0], [tw, 0], [tw, th], [0, th]], dtype=np.float32).reshape(-1, 1, 2)
+            corners = np.asarray(
+                [[0, 0], [tw, 0], [tw, th], [0, th]], dtype=np.float32
+            ).reshape(-1, 1, 2)
             projected = cv2.perspectiveTransform(corners, homography).reshape(-1, 2)
             x, y, w, h = cv2.boundingRect(projected.astype(np.float32))
 
@@ -510,13 +521,15 @@ def rescore_candidate(
     if orb_match is not None:
         orb_iou = compute_box_iou(_candidate_box(refined_loc, (th, tw)), orb_match.bbox)
         orb_support = min(1.0, orb_match.inliers / 12.0)
-        orb_score = float(np.clip(0.5 * orb_iou + 0.5 * max(orb_match.score, orb_support), 0.0, 1.0))
+        orb_score = float(
+            np.clip(0.5 * orb_iou + 0.5 * max(orb_match.score, orb_support), 0.0, 1.0)
+        )
 
     low_texture_mode = distinctiveness < 0.35
     weights: dict[str, float] = {
         "template": 0.50 if low_texture_mode else 0.45,
         "gradient": 0.10 if low_texture_mode else 0.15,
-        "chamfer": 0.22 if low_texture_mode else 0.22,
+        "chamfer": 0.22 if low_texture_mode else 0.22,  # noqa: RUF034 - keep both modes' weights side by side.
         "edge": 0.08 if low_texture_mode else 0.10,
         "complexity": 0.10 if low_texture_mode else 0.08,
     }
@@ -532,7 +545,9 @@ def rescore_candidate(
         score_parts["orb"] = orb_score
 
     total_weight = sum(weights.values()) + 1e-7
-    weighted_score = sum(weights[name] * score_parts[name] for name in score_parts) / total_weight
+    weighted_score = (
+        sum(weights[name] * score_parts[name] for name in score_parts) / total_weight
+    )
 
     cue_values = list(score_parts.values())
     cue_agreement = float(np.clip(1.0 - (np.std(cue_values) / 0.25), 0.0, 1.0))

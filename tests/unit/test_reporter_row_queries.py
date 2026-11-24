@@ -75,24 +75,36 @@ def mixed_rows():
 
 EXPECTED = {
     "get_mapping_error_report": {
-        "beta": [N2, N2], "alpha": [N1], "unknown_error": [N3, N1],
+        "beta": [N2, N2],
+        "alpha": [N1],
+        "unknown_error": [N3, N1],
     },
     "get_error_niks_by_reason": {
-        "beta": [N2, N2], "alpha": [N1], "unknown_error": [N3, N1],
+        "beta": [N2, N2],
+        "alpha": [N1],
+        "unknown_error": [N3, N1],
     },
     "get_error_niks_by_label": {
-        "Network": [N2, N2], "application_level_error": [N1, N3], " ": [N1],
+        "Network": [N2, N2],
+        "application_level_error": [N1, N3],
+        " ": [N1],
     },
     "get_mapping_failed_puzzle_report": {
-        "CAPTCHA solving failed": [N1, N1], "": [N2], "full\ntrace": [N1],
+        "CAPTCHA solving failed": [N1, N1],
+        "": [N2],
+        "full\ntrace": [N1],
     },
     "get_other_status_niks_by_status": {
-        "pending": [N2, N2], "custom": [N1], "": [N3],
+        "pending": [N2, N2],
+        "custom": [N1],
+        "": [N3],
     },
     "get_nik_parsing_failure_report": {
         "total": 5,
         "by_reason": {
-            "bad region": [N1, N3], "bad date": [N2], "Gagal parsing NIK": [N2],
+            "bad region": [N1, N3],
+            "bad date": [N2],
+            "Gagal parsing NIK": [N2],
         },
     },
 }
@@ -118,7 +130,9 @@ def test_single_error_and_fallbacks(query, name):
         QUERIES[0]: {"unknown_error": [N1]},
         QUERIES[1]: {"unknown_error": [N1]},
         QUERIES[2]: {"application_level_error": [N1]},
-        QUERIES[3]: {}, QUERIES[4]: {}, QUERIES[5]: {"total": 0, "by_reason": {}},
+        QUERIES[3]: {},
+        QUERIES[4]: {},
+        QUERIES[5]: {"total": 0, "by_reason": {}},
     }
     assert_ordered_equal(query(name, [TransactionRow(N1, "error")]), expected[name])
 
@@ -161,7 +175,9 @@ def test_privacy_is_projected_at_query_time(query, name):
     groups = expected["by_reason"] if name == QUERIES[-1] else expected
     for key, values in groups.items():
         projected = [public[value] for value in values]
-        groups[key] = list(dict.fromkeys(projected)) if name == QUERIES[-1] else projected
+        groups[key] = (
+            list(dict.fromkeys(projected)) if name == QUERIES[-1] else projected
+        )
     assert_ordered_equal(masked, expected)
     assert_ordered_equal(raw, EXPECTED[name])
     set_nik_masking(False)
@@ -175,12 +191,14 @@ def test_parsing_reason_sanitization_at_query_time(query, monkeypatch):
     reason = f"bad {N1} query-secret"
     rows = [TransactionRow(N1, "skipped_nik_parsing_failed", reason=reason)]
     assert query(QUERIES[-1], rows) == {
-        "total": 1, "by_reason": {f"bad {N1} <redacted>": [N1]},
+        "total": 1,
+        "by_reason": {f"bad {N1} <redacted>": [N1]},
     }
     set_nik_masking(True)
     public = "111111****222222"
     assert query(QUERIES[-1], rows) == {
-        "total": 1, "by_reason": {f"bad {public} <redacted>": [public]},
+        "total": 1,
+        "by_reason": {f"bad {public} <redacted>": [public]},
     }
     assert rows[0].reason == reason
 

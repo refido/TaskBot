@@ -82,12 +82,10 @@ def test_export_configured_sessions_limits_accounts_and_applies_cooldown() -> No
         for call in log_print_calls
     )
     assert any(
-        call[1].get("event") == "user_sessions.cooldown"
-        for call in log_print_calls
+        call[1].get("event") == "user_sessions.cooldown" for call in log_print_calls
     )
     assert any(
-        call[1].get("event") == "user_sessions.summary.row"
-        for call in log_print_calls
+        call[1].get("event") == "user_sessions.summary.row" for call in log_print_calls
     )
 
 

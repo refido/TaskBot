@@ -17,10 +17,16 @@ from src.infrastructure.config.environment import load_environment
 
 # Compatibility exports retain canonical identity and composition patch points.
 from src.infrastructure.database.report_syncer import (
-    _DATABASE_SETUP_LOCK as _DATABASE_SETUP_LOCK,
+    _DATABASE_SETUP_LOCK as _DATABASE_SETUP_LOCK,  # noqa: PLC0414 - compatibility re-export.
+)
+from src.infrastructure.database.report_syncer import (
     DatabaseReportSyncer,
-    OperatorDatabaseManager as OperatorDatabaseManager,
-    _database_report_payload as _database_report_payload,
+)
+from src.infrastructure.database.report_syncer import (
+    OperatorDatabaseManager as OperatorDatabaseManager,  # noqa: PLC0414 - compatibility re-export.
+)
+from src.infrastructure.database.report_syncer import (
+    _database_report_payload as _database_report_payload,  # noqa: PLC0414 - compatibility re-export.
 )
 from src.logging_utils import configure_logging, log_print, logger
 from src.orchestration.transaction_processor import TransactionProcessor

@@ -68,7 +68,9 @@ class AccountRunner:
             if recovered:
                 execution_status = "not_started"
                 is_successful = False
-                self.logger.bind(event="account.previous_quota_recovered", operator_id=operator_id).warning(
+                self.logger.bind(
+                    event="account.previous_quota_recovered", operator_id=operator_id
+                ).warning(
                     "Recovered the previous quota updates. Review the customer list before starting new sales."
                 )
             else:
@@ -135,7 +137,9 @@ class AccountRunner:
                         if is_successful:
                             finalization_error = exc
                         is_successful = False
-                        with suppress(Exception):  # Cleanup error reporting is best-effort.
+                        with suppress(
+                            Exception
+                        ):  # Cleanup error reporting is best-effort.
                             self.logger.bind(
                                 event="account.report_db_close_error",
                                 operator_id=operator_id,
@@ -157,7 +161,8 @@ class AccountRunner:
         transactions = self._transaction_outcome(reporter, config)
         status = (
             (transactions["transaction_status"] or "completed")
-            if is_successful else "failed"
+            if is_successful
+            else "failed"
         )
         self.outcome.update(
             **transactions,

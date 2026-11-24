@@ -14,9 +14,13 @@ import main as taskbot_main
 from src.infrastructure.database import operator_store
 
 
-@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize(
+    "primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit]
+)
 @pytest.mark.parametrize("log_stage", ["bind", "exception"])
-def test_cleanup_logging_failure_preserves_operation(setup_case, primary_type, log_stage):
+def test_cleanup_logging_failure_preserves_operation(
+    setup_case, primary_type, log_stage
+):
     case = setup_case
     primary = primary_type("operation failed") if primary_type else None
     if primary:
@@ -44,7 +48,10 @@ def test_cleanup_logging_failure_preserves_operation(setup_case, primary_type, l
 @pytest.fixture
 def setup_case(monkeypatch):
     case = SimpleNamespace(
-        connections=[], events=[], errors={}, existing=False,
+        connections=[],
+        events=[],
+        errors={},
+        existing=False,
     )
 
     def step(name):
@@ -72,7 +79,11 @@ def setup_case(monkeypatch):
 
         def fetchall(self):
             step("fetch")
-            return [(name,) for name in operator_store._COLUMN_NAMES] if case.existing else []
+            return (
+                [(name,) for name in operator_store._COLUMN_NAMES]
+                if case.existing
+                else []
+            )
 
     class Connection:
         def __init__(self):
@@ -114,7 +125,11 @@ def setup_case(monkeypatch):
     monkeypatch.setattr(operator_store, "logger", case.log)
     case.manager = operator_store.OperatorDatabaseManager(
         operator_store.DatabaseConfig(
-            host="localhost", port=5432, name="taskbot", user="taskbot", password="test",
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="test",
         ),
     )
     return case
@@ -125,22 +140,31 @@ def assert_setup_connection_released(connection):
     assert connection.closed
 
 
-@pytest.mark.parametrize("existing", [False, True], ids=["new-tables", "existing-tables"])
+@pytest.mark.parametrize(
+    "existing", [False, True], ids=["new-tables", "existing-tables"]
+)
 def test_setup_success_transaction_and_resource_lifecycle(setup_case, existing):
     case = setup_case
     case.existing = existing
     assert case.manager.ensure_tables_exist() is None
     case.connect.assert_called_once_with(
-        host="localhost", port=5432, dbname="taskbot", user="taskbot", password="test",
+        host="localhost",
+        port=5432,
+        dbname="taskbot",
+        user="taskbot",
+        password="test",
     )
-    connection, = case.connections
+    (connection,) = case.connections
     connection.commit.assert_called_once_with()
     connection.rollback.assert_not_called()
     assert connection.cursor_instance.closed
     assert case.events.index("cursor.close") < case.events.index("commit")
     statements = connection.cursor_instance.statements
     assert sum("CREATE TABLE IF NOT EXISTS" in str(sql) for sql, _ in statements) == 2
-    assert [params for _, params in statements if params] == [("OPERATOR_1",), ("OPERATOR_2",)]
+    assert [params for _, params in statements if params] == [
+        ("OPERATOR_1",),
+        ("OPERATOR_2",),
+    ]
     assert_setup_connection_released(connection)
     assert case.events[-2:] == ["commit", "connection.close"]
     assert not any(
@@ -149,9 +173,18 @@ def test_setup_success_transaction_and_resource_lifecycle(setup_case, existing):
     )
 
 
-@pytest.mark.parametrize("stage", [
-    "transaction.enter", "cursor.open", "cursor.enter", "sql", "fetch", "cursor.close", "commit",
-])
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "transaction.enter",
+        "cursor.open",
+        "cursor.enter",
+        "sql",
+        "fetch",
+        "cursor.close",
+        "commit",
+    ],
+)
 def test_setup_failure_preserves_error_and_transaction_behavior(setup_case, stage):
     case = setup_case
     error = RuntimeError(stage)
@@ -159,9 +192,11 @@ def test_setup_failure_preserves_error_and_transaction_behavior(setup_case, stag
     with pytest.raises(RuntimeError) as caught:
         case.manager.ensure_tables_exist()
     assert caught.value is error
-    connection, = case.connections
+    (connection,) = case.connections
     assert connection.commit.call_count == int(stage == "commit")
-    assert connection.rollback.call_count == int(stage not in ("transaction.enter", "commit"))
+    assert connection.rollback.call_count == int(
+        stage not in ("transaction.enter", "commit")
+    )
     if stage in ("sql", "fetch", "cursor.close", "commit"):
         assert connection.cursor_instance.closed
     assert_setup_connection_released(connection)
@@ -197,13 +232,16 @@ def test_repeated_setup_owns_distinct_connections(setup_case):
 
 def test_rollback_failure_keeps_existing_psycopg2_exception_semantics(setup_case):
     case = setup_case
-    sql_error, rollback_error = RuntimeError("SQL failed"), RuntimeError("rollback failed")
+    sql_error, rollback_error = (
+        RuntimeError("SQL failed"),
+        RuntimeError("rollback failed"),
+    )
     case.errors.update(sql=sql_error, rollback=rollback_error)
     with pytest.raises(RuntimeError) as caught:
         case.manager.ensure_tables_exist()
     assert caught.value is rollback_error
     assert caught.value.__context__ is sql_error
-    connection, = case.connections
+    (connection,) = case.connections
     connection.rollback.assert_called_once_with()
     connection.commit.assert_not_called()
     assert_setup_connection_released(connection)
@@ -227,7 +265,7 @@ def test_close_failure_precedence_and_observability(setup_case, stage, close_typ
         assert caught.value is expected
     else:
         assert case.manager.ensure_tables_exist() is None
-    connection, = case.connections
+    (connection,) = case.connections
     connection.close.assert_called_once_with()
     assert not connection.closed  # A failed close cannot guarantee release.
     assert case.events[-1] == "connection.close"
@@ -246,7 +284,7 @@ def test_interrupted_setup_still_closes_and_preserves_primary(setup_case):
     with pytest.raises(KeyboardInterrupt) as caught:
         case.manager.ensure_tables_exist()
     assert caught.value is error
-    connection, = case.connections
+    (connection,) = case.connections
     connection.rollback.assert_called_once_with()
     assert_setup_connection_released(connection)
 
@@ -273,7 +311,7 @@ def test_setup_and_persistent_syncer_own_separate_connections(setup_case):
     case.manager.reset_monthly_quotas = Mock()
     syncer = taskbot_main.DatabaseReportSyncer()
     syncer._ensure_database(case.manager)
-    temporary, = case.connections
+    (temporary,) = case.connections
     assert_setup_connection_released(temporary)
     persistent = syncer._get_connection(case.manager)
     assert persistent is not temporary

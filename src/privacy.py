@@ -29,9 +29,7 @@ def nik_masking_enabled() -> bool:
 
 def register_private_values(*values: object) -> None:
     """Register runtime credentials that must never appear in public output."""
-    normalized = {
-        str(value) for value in values if value is not None and str(value)
-    }
+    normalized = {str(value) for value in values if value is not None and str(value)}
     if not normalized:
         return
     with _private_values_lock:

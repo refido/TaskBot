@@ -6,10 +6,7 @@ env_path = Path(__file__).resolve().with_name(".env")
 values = dotenv_values(env_path)
 
 items = sorted(
-    (
-        (key, len(value) if value else 0)
-        for key, value in values.items()
-    ),
+    ((key, len(value) if value else 0) for key, value in values.items()),
     key=lambda x: x[1],
     reverse=True,
 )

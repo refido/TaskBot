@@ -3,9 +3,7 @@ import re
 from playwright.sync_api import Page
 
 _LOGIN_BUTTON_NAME = re.compile(r"^\s*masuk\s*$", re.IGNORECASE)
-_EMAIL_INPUT_SELECTOR = (
-    'div.mantine-TextInput-root:has(label:has-text("Email")) input'
-)
+_EMAIL_INPUT_SELECTOR = 'div.mantine-TextInput-root:has(label:has-text("Email")) input'
 _PIN_INPUT_SELECTOR = 'div.mantine-TextInput-root:has(label:has-text("PIN")) input'
 
 
@@ -18,7 +16,7 @@ def is_login_page(page: Page, *, timeout_ms: int = 500) -> bool:
     try:
         if "login" in page.url.lower():
             return True
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 - login detection is best effort.
         pass
 
     probes = (
@@ -31,7 +29,7 @@ def is_login_page(page: Page, *, timeout_ms: int = 500) -> bool:
         try:
             if probe.is_visible(timeout=timeout_ms):
                 return True
-        except Exception:
+        except Exception:  # noqa: BLE001, S112 - try the next login probe.
             continue
 
     return False

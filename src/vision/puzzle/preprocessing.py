@@ -68,7 +68,9 @@ def preprocess_for_matching(gray: GrayImage) -> GrayImage:
     The pipeline intentionally stays lightweight because this runs per scale:
     mild denoising, local contrast equalization, then a small unsharp pass.
     """
-    denoised = cv2.fastNlMeansDenoising(gray, None, h=5, templateWindowSize=7, searchWindowSize=21)
+    denoised = cv2.fastNlMeansDenoising(
+        gray, None, h=5, templateWindowSize=7, searchWindowSize=21
+    )
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     equalized = clahe.apply(denoised)
 
@@ -77,7 +79,9 @@ def preprocess_for_matching(gray: GrayImage) -> GrayImage:
     return np.clip(sharpened, 0, 255).astype(np.uint8)
 
 
-def build_match_mask(mask: MaskImage | None, erode_iterations: int = 1) -> MaskImage | None:
+def build_match_mask(
+    mask: MaskImage | None, erode_iterations: int = 1
+) -> MaskImage | None:
     if mask is None:
         return None
 
@@ -148,7 +152,9 @@ def crop_by_mask(
         kernel = np.ones((5, 5), np.uint8)
         edges = cv2.dilate(edges, kernel, iterations=2)
 
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         mask = np.zeros(gray.shape, dtype=np.uint8)
 
         if contours:

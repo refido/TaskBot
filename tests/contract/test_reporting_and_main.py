@@ -47,8 +47,7 @@ def test_summary_failure_preserves_terminal_row_and_db_queue(
     # Originally both failures left this queue empty despite persisted files.
     assert reporter._pending_batch_rows == [reporter.rows[0]]
     assert any(
-        record["extra"].get("event") == "report.summary_failed"
-        for record in records
+        record["extra"].get("event") == "report.summary_failed" for record in records
     )
     reporter.flush_pending_batches()
     reporter.flush_pending_batches()
@@ -112,7 +111,9 @@ def test_terminal_row_persists_then_syncs_before_summary(
 
 
 @pytest.mark.parametrize("summary_fails", [False, True])
-def test_terminal_reporting_without_db_sync(monkeypatch, durable_reporter, summary_fails):
+def test_terminal_reporting_without_db_sync(
+    monkeypatch, durable_reporter, summary_fails
+):
     reporter = durable_reporter
     summary = Mock(
         wraps=reporter._write_meta,
@@ -130,7 +131,10 @@ def test_terminal_reporting_without_db_sync(monkeypatch, durable_reporter, summa
     assert reporter._batch_sync_callback is None
     assert reporter._pending_batch_rows == []
     assert len(reporter.rows) == 1
-    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"] == "completed"
+    assert (
+        json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"]
+        == "completed"
+    )
 
 
 @pytest.mark.parametrize("summary_fails", [False, True])
@@ -163,8 +167,13 @@ def test_enqueue_failure_propagates_without_reenqueue_and_still_attempts_summary
     enqueue.assert_called_once_with(reporter.rows[0])
     summary.assert_called_once()
     assert len(reporter.rows) == 1
-    assert json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"] == "completed"
-    assert reporter._pending_batch_rows == (reporter.rows if enqueue_before_failure else [])
+    assert (
+        json.loads(reporter.jsonl_path.read_text(encoding="utf-8"))["status"]
+        == "completed"
+    )
+    assert reporter._pending_batch_rows == (
+        reporter.rows if enqueue_before_failure else []
+    )
     reporter.flush_pending_batches()
     reporter.flush_pending_batches()
     assert batches == ([(reporter.rows[0],)] if enqueue_before_failure else [])
@@ -189,7 +198,9 @@ def test_db_callback_failure_retains_queue_even_when_summary_also_fails(
     reporter.flush_pending_batches()
     reporter.flush_pending_batches()
     assert [call.args[0] for call in sync.call_args_list] == [
-        (reporter.rows[0],), (reporter.rows[0],), (reporter.rows[1],),
+        (reporter.rows[0],),
+        (reporter.rows[0],),
+        (reporter.rows[1],),
     ]
     assert reporter._pending_batch_rows == []
     assert reporter._batch_sync_failed is False
@@ -266,11 +277,18 @@ def test_sequential_terminal_rows_rebuild_summary_without_duplicate_enqueue(
         json.loads(line)
         for line in reporter.jsonl_path.read_text(encoding="utf-8").splitlines()
     ]
-    assert persisted == [reporter.file_writer.public_row_payload(row) for row in reporter.rows]
+    assert persisted == [
+        reporter.file_writer.public_row_payload(row) for row in reporter.rows
+    ]
     with reporter.csv_path.open(newline="", encoding="utf-8") as stream:
         assert len(list(csv.DictReader(stream))) == 3
     summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
-    assert summary["counts"] == {"completed": 1, "skipped_quota": 1, "error": 1, "total": 3}
+    assert summary["counts"] == {
+        "completed": 1,
+        "skipped_quota": 1,
+        "error": 1,
+        "total": 3,
+    }
     assert summary["analytics"]["summary"]["total_transactions"] == 3
 
 
@@ -538,7 +556,12 @@ def test_main_delegates_account_fanout_to_process_accounts(monkeypatch, tmp_path
         calls["dotenv_path"] = dotenv_path
 
     def fake_process_accounts(
-        account_configs, *, run_account, log, outcomes=None, max_concurrent_accounts=None
+        account_configs,
+        *,
+        run_account,
+        log,
+        outcomes=None,
+        max_concurrent_accounts=None,
     ):
         calls["account_configs"] = account_configs
         calls["run_account"] = run_account

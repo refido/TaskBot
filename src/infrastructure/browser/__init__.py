@@ -5,7 +5,10 @@ from src.infrastructure.browser.page_objects import (
     Login,
     Penjualan,
 )
-from src.infrastructure.browser.playwright_session import BrowserSession, PlaywrightSession
+from src.infrastructure.browser.playwright_session import (
+    BrowserSession,
+    PlaywrightSession,
+)
 
 __all__ = [
     "BasePage",

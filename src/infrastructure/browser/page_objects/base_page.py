@@ -118,9 +118,7 @@ class BasePage:
         if allow_login_page:
             return
 
-        if not is_login_page(
-            self.page, timeout_ms=self._LOGIN_PAGE_CHECK_TIMEOUT_MS
-        ):
+        if not is_login_page(self.page, timeout_ms=self._LOGIN_PAGE_CHECK_TIMEOUT_MS):
             return
 
         message = f"Session expired while {action_name}; app is on the login page."
@@ -132,5 +130,5 @@ class BasePage:
     def _safe_inner_text(locator: Locator) -> str:
         try:
             return locator.inner_text().strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - text lookup is best effort.
             return ""

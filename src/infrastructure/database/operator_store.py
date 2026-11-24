@@ -74,7 +74,9 @@ _STATUS_MAPPINGS = {
     "successful": ReportStatusMapping(200, "Transaction successful"),
     "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
     "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
-    "skipped_cannot_transact": ReportStatusMapping(409, "Unable to perform transaction"),
+    "skipped_cannot_transact": ReportStatusMapping(
+        409, "Unable to perform transaction"
+    ),
     "skipped_fraud": ReportStatusMapping(409, "NIK blocked due to suspected fraud"),
     "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
     "skipped_registration_request_limited": ReportStatusMapping(
@@ -531,7 +533,9 @@ class OperatorDatabaseManager:
                     logger.bind(
                         event="database.monthly_quota_reset.connection.close_failed",
                         **self._log_context(connection_database=self.config.name),
-                    ).exception("Failed to close monthly quota reset database connection")
+                    ).exception(
+                        "Failed to close monthly quota reset database connection"
+                    )
         logger.bind(
             event="database.monthly_quota_reset.finished",
             row_counts=row_counts,
@@ -560,21 +564,27 @@ class OperatorDatabaseManager:
             cursor.execute("SHOW fsync")
             if cursor.fetchone() != ("on",):
                 raise RuntimeError("Quota delivery needs PostgreSQL fsync enabled")
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('taskbot_quota_receipts'))")
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('taskbot_quota_receipts'))"
+            )
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS public.taskbot_quota_receipts (
                     event_id uuid PRIMARY KEY, operator_table text NOT NULL,
                     nik bigint NOT NULL, event_time timestamptz NOT NULL, status text NOT NULL
                 )
             """)
-            for relation in ("public.taskbot_quota_receipts", *(
-                f'"{table}"' for table in self._operator_table_names()
-            )):
+            for relation in (
+                "public.taskbot_quota_receipts",
+                *(f'"{table}"' for table in self._operator_table_names()),
+            ):
                 cursor.execute(
-                    "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid=to_regclass(%s)", (relation,)
+                    "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid=to_regclass(%s)",
+                    (relation,),
                 )
                 if cursor.fetchone() != ("p",):
-                    raise RuntimeError(f"Quota delivery requires a permanent logged table: {relation}")
+                    raise RuntimeError(
+                        f"Quota delivery requires a permanent logged table: {relation}"
+                    )
 
     def sync_report_payloads(
         self,
@@ -630,14 +640,20 @@ class OperatorDatabaseManager:
                 for payload in payloads:
                     processed += 1
                     if delivery_id is not None and processed != 1:
-                        raise ValueError("A quota delivery must contain exactly one event")
+                        raise ValueError(
+                            "A quota delivery must contain exactly one event"
+                        )
 
                     try:
                         previous_transaction = self.upsert_report_payload(
                             payload,
                             cursor=cursor,
                             table_name=table_name,
-                            **({"delivery_id": delivery_id} if delivery_id is not None else {}),
+                            **(
+                                {"delivery_id": delivery_id}
+                                if delivery_id is not None
+                                else {}
+                            ),
                         )
 
                     except ValueError as exc:
@@ -747,16 +763,27 @@ class OperatorDatabaseManager:
             receipt_time = datetime.fromisoformat(payload["finished_at"])
             if receipt_time.utcoffset() is None:
                 raise ValueError("Quota delivery requires a timestamp with a time zone")
-            identity = (target.table_name, record.nik, receipt_time, str(payload["status"]))
-            cursor.execute("""
+            identity = (
+                target.table_name,
+                record.nik,
+                receipt_time,
+                str(payload["status"]),
+            )
+            cursor.execute(
+                """
                 INSERT INTO public.taskbot_quota_receipts(event_id, operator_table, nik, event_time, status)
                 VALUES (%s, %s, %s, %s, %s) ON CONFLICT (event_id) DO NOTHING RETURNING event_id
-            """, (delivery_id, *identity))
+            """,
+                (delivery_id, *identity),
+            )
             if cursor.fetchone() is None:
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT operator_table, nik, event_time, status
                     FROM public.taskbot_quota_receipts WHERE event_id=%s
-                """, (delivery_id,))
+                """,
+                    (delivery_id,),
+                )
                 if cursor.fetchone() != identity:
                     raise ValueError("Quota receipt does not match this delivery")
                 return None
@@ -769,11 +796,16 @@ class OperatorDatabaseManager:
         )
         # A delayed sale belongs to its sale month, even when recovered after reset.
         if delivery_id and record.kuota_delta:
-            month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            month_start = datetime.now().replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
             if record.event_time < month_start:
-                cursor.execute(sql.SQL(
-                    'UPDATE {} SET "KUOTA"=0 WHERE "NIK"=%s AND "UPDATED_TIME"<%s'
-                ).format(sql.Identifier(target.table_name)), (record.nik, month_start))
+                cursor.execute(
+                    sql.SQL(
+                        'UPDATE {} SET "KUOTA"=0 WHERE "NIK"=%s AND "UPDATED_TIME"<%s'
+                    ).format(sql.Identifier(target.table_name)),
+                    (record.nik, month_start),
+                )
         return result
 
     def _resolve_payload_target(
@@ -1207,10 +1239,12 @@ class OperatorDatabaseManager:
             same_month = sql.SQL(
                 "date_trunc('month', EXCLUDED.{t}) = date_trunc('month', target.{t})"
             ).format(t=updated_time)
-            next_kuota = sql.SQL("CASE WHEN {} THEN target.{} + EXCLUDED.{} ELSE {} END").format(
-                same_month, kuota, kuota, next_kuota
+            next_kuota = sql.SQL(
+                "CASE WHEN {} THEN target.{} + EXCLUDED.{} ELSE {} END"
+            ).format(same_month, kuota, kuota, next_kuota)
+            next_max_kuota = sql.SQL("GREATEST(target.{}, {})").format(
+                max_kuota, next_kuota
             )
-            next_max_kuota = sql.SQL("GREATEST(target.{}, {})").format(max_kuota, next_kuota)
 
         next_last_transaction_time = sql.SQL(
             """
@@ -1254,17 +1288,21 @@ class OperatorDatabaseManager:
         if distinct_sale:
             # A late receipt may fall between the two stored sales. Preserve
             # the latest status while retaining the two latest sale times.
-            next_last_transaction_time = sql.SQL("GREATEST(target.{t}, EXCLUDED.{t})").format(
-                t=last_transaction_time
-            )
+            next_last_transaction_time = sql.SQL(
+                "GREATEST(target.{t}, EXCLUDED.{t})"
+            ).format(t=last_transaction_time)
             next_previous_transaction_time = sql.SQL("""
                 CASE WHEN EXCLUDED.{last} >= target.{last} THEN target.{last}
                      WHEN target.{last} IS NOT NULL THEN GREATEST(target.{prev}, EXCLUDED.{last})
                      WHEN target.{quota} > 0 AND target.{updated} < EXCLUDED.{last}
                          THEN target.{updated}
                      ELSE target.{prev} END
-            """).format(last=last_transaction_time, prev=previous_transaction_time,
-                        quota=kuota, updated=updated_time)
+            """).format(
+                last=last_transaction_time,
+                prev=previous_transaction_time,
+                quota=kuota,
+                updated=updated_time,
+            )
 
         return sql.SQL(
             """

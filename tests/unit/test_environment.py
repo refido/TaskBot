@@ -19,7 +19,9 @@ def env_file(monkeypatch, tmp_path):
         def setdefault(self, key, value):
             assert not key.startswith("NIK")
             if len(value.encode("utf-16-le")) // 2 > 32_767:
-                raise ValueError("the environment variable is longer than 32767 characters")
+                raise ValueError(
+                    "the environment variable is longer than 32767 characters"
+                )
             return super().setdefault(key, value)
 
     monkeypatch.setattr(os, "environ", GuardedEnvironment())
@@ -77,7 +79,7 @@ def test_environment_precedence_and_dotenv_syntax_are_preserved(env_file):
     env_file.write_text(
         "BASE=file\nEXPANDED=${BASE}/suffix\nEMPTY=file\nBARE\n"
         "NIK_1=file-nik\nNIK_2='  001, 002  '\n"
-        "NIK=single\nNIK_10=numbered\nMULTILINE=\"first\nsecond\"\n",
+        'NIK=single\nNIK_10=numbered\nMULTILINE="first\nsecond"\n',
         encoding="utf-8",
     )
     values = environment.load_environment()

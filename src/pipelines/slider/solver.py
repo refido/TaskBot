@@ -188,9 +188,7 @@ class SliderSolver:
             )
 
 
-def solve_slider_with_puzzle(
-    page: Page, imgs: dict[str, Path], **kwargs: Any
-) -> bool:
+def solve_slider_with_puzzle(page: Page, imgs: dict[str, Path], **kwargs: Any) -> bool:
     """
     Convenience function maintaining backward compatibility.
 
@@ -219,7 +217,7 @@ def solve_slider_with_puzzle(
     solve_params: Mapping[str, Parameter]
     try:
         solve_params = signature(solver.solve).parameters
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         solve_params = {}
     accepts_kwargs = any(
         param.kind == Parameter.VAR_KEYWORD for param in solve_params.values()

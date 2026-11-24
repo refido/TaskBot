@@ -9,10 +9,14 @@ from src.infrastructure.browser.page_objects.penjualan_page import (
     TRANSACTION_BLOCKER_ALERT_RE,
     classify_transaction_blocker_text,
 )
-from src.infrastructure.browser.page_objects.update_success_modal import UpdateSuccessModal
+from src.infrastructure.browser.page_objects.update_success_modal import (
+    UpdateSuccessModal,
+)
 from src.logging_utils import log_print
 
-_CUSTOMER_DATA_REQUIRED_TITLE = re.compile(r"Terlalu\s+banyak\s+permintaan", re.IGNORECASE)
+_CUSTOMER_DATA_REQUIRED_TITLE = re.compile(
+    r"Terlalu\s+banyak\s+permintaan", re.IGNORECASE
+)
 _CUSTOMER_DATA_REQUIRED_MESSAGE = re.compile(
     r"Terdapat\s+beberapa\s+data\s+yang\s+belum\s+lengkap\.\s*"
     r"Lengkapi\s+data\s+dahulu\s+untuk\s+melanjutkan\s+transaksi\.?",
@@ -52,14 +56,17 @@ class CekPenjualan(BasePage):
         )
         self.customer_update_success = UpdateSuccessModal(page)
 
-    def wait_for_transaction_outcome(self, timeout_ms: int = 10_000) -> TransactionOutcome:
+    def wait_for_transaction_outcome(
+        self, timeout_ms: int = 10_000
+    ) -> TransactionOutcome:
         """Wait for positive sale evidence or a known rejection; never submit."""
         deadline = monotonic() + timeout_ms / 1000
         while True:
             # Blockers take precedence over any stale success element underneath.
             if self.customer_data_required_modal.is_visible():
                 return TransactionOutcome(
-                    "blocked", "customer_data_required",
+                    "blocked",
+                    "customer_data_required",
                     self.customer_data_required_modal.inner_text(timeout=1000).strip(),
                 )
             if self.zero_stock_modal.is_visible():

@@ -1,5 +1,3 @@
-# ruff: noqa: DTZ001
-
 from datetime import datetime
 
 import pytest

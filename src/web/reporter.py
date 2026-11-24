@@ -174,7 +174,9 @@ class TransactionReporter:
         self._stage_quota_row = stage
         self._check_quota_items = check
 
-    def checkpoint_confirmed_sale(self, nik: str, name: str, customer_type: str) -> None:
+    def checkpoint_confirmed_sale(
+        self, nik: str, name: str, customer_type: str
+    ) -> None:
         if self._confirm_quota_item is not None:
             self._confirm_quota_item(nik, now_iso(), name, customer_type)
 
@@ -1350,9 +1352,13 @@ class TransactionReporter:
         )
         reports = self._meta_row_reports() if cached else None
         calculator = self._meta_calculator if cached else MetricsCalculator(self.rows)
-        mapping_report = reports["mapping"] if reports is not None else self.get_mapping_report()
+        mapping_report = (
+            reports["mapping"] if reports is not None else self.get_mapping_report()
+        )
         mapping_error_report = (
-            reports["errors"] if reports is not None else self.get_mapping_error_report()
+            reports["errors"]
+            if reports is not None
+            else self.get_mapping_error_report()
         )
         mapping_failed_puzzle_report = (
             reports["puzzle_errors"]
@@ -1384,16 +1390,22 @@ class TransactionReporter:
             retry_report=retry_report,
             workflow_summary=workflow_summary,
             nik_parsing_failures=(
-                reports["parsing"] if reports is not None else self.get_nik_parsing_failure_report()
+                reports["parsing"]
+                if reports is not None
+                else self.get_nik_parsing_failure_report()
             ),
             mapping_report=mapping_report,
             mapping_error_report=mapping_error_report,
             mapping_failed_puzzle_report=mapping_failed_puzzle_report,
             errors_by_label=(
-                reports["labels"] if reports is not None else self.get_error_niks_by_label()
+                reports["labels"]
+                if reports is not None
+                else self.get_error_niks_by_label()
             ),
             other_statuses=(
-                reports["other"] if reports is not None else self.get_other_status_niks_by_status()
+                reports["other"]
+                if reports is not None
+                else self.get_other_status_niks_by_status()
             ),
             retried_niks=retry_report["retried_niks"],
             files={

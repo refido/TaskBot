@@ -19,19 +19,29 @@ def make_writer(folder):
 
 @pytest.mark.parametrize("file_format", ["csv", "jsonl"])
 @pytest.mark.parametrize("interruption", ["before", "partial", "after"])
-def test_interrupted_append_matches_clean_bytes(tmp_path, monkeypatch, file_format, interruption):
+def test_interrupted_append_matches_clean_bytes(
+    tmp_path, monkeypatch, file_format, interruption
+):
     reference = make_writer(tmp_path / "reference")
     current = make_writer(tmp_path / "current")
     first = TransactionRow("fixture-a", "completed")
-    second = TransactionRow("fixture-b", "completed", reason='café, "quoted"\nnext line')
+    second = TransactionRow(
+        "fixture-b", "completed", reason='café, "quoted"\nnext line'
+    )
     for writer in (reference, current):
         writer.append_row(first)
     reference.append_row(second)
 
     path = getattr(current, f"{file_format}_path")
-    expected = getattr(reference, f"{file_format}_path").read_bytes()[path.stat().st_size:]
+    expected = getattr(reference, f"{file_format}_path").read_bytes()[
+        path.stat().st_size :
+    ]
     # Split a UTF-8 character, not just a Python string or line.
-    cut = {"before": 0, "partial": expected.index("é".encode()) + 1, "after": len(expected)}
+    cut = {
+        "before": 0,
+        "partial": expected.index("é".encode()) + 1,
+        "after": len(expected),
+    }
     method = f"_append_to_{file_format}"
     original = getattr(current, method)
     attempts = 0
@@ -42,7 +52,7 @@ def test_interrupted_append_matches_clean_bytes(tmp_path, monkeypatch, file_form
         if attempts > 1:
             return original(row)
         with path.open("ab") as stream:
-            stream.write(expected[:cut[interruption]])
+            stream.write(expected[: cut[interruption]])
         raise OSError("injected append interruption")
 
     monkeypatch.setattr(current, method, interrupted)
@@ -78,7 +88,11 @@ def test_unwritable_report_preserves_quota_order_and_fails_finalization(
     batches = []
     reporter.configure_batch_sync(batches.append, batch_size=1)
     with monkeypatch.context() as patch:
-        patch.setattr(reporter.file_writer, "_append_to_jsonl", Mock(side_effect=OSError("disk full")))
+        patch.setattr(
+            reporter.file_writer,
+            "_append_to_jsonl",
+            Mock(side_effect=OSError("disk full")),
+        )
         with pytest.raises(OSError, match="disk full"):
             reporter.complete("fixture", reporter.start_item("fixture"))
     if following_row:
@@ -95,7 +109,9 @@ def test_unwritable_report_preserves_quota_order_and_fails_finalization(
 
 
 @pytest.mark.parametrize("persistent", [False, True])
-def test_fsync_failure_must_be_resolved_before_reporting_success(tmp_path, monkeypatch, persistent):
+def test_fsync_failure_must_be_resolved_before_reporting_success(
+    tmp_path, monkeypatch, persistent
+):
     reporter = TransactionReporter(out_dir=str(tmp_path), operator_id="operator_01")
     healthy_sync = os.fsync
     calls = 0

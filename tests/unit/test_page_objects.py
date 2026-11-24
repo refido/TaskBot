@@ -257,6 +257,7 @@ def test_dashboard_legacy_wrapper_preserves_perbarui_close_reason(
     dashboard.detect_perbarui_data_pelanggan_if_needed = lambda detect_timeout=6000: (
         True
     )
+
     class CustomerModal:
         def get_by_role(self, *_args, **_kwargs):
             return object()
@@ -492,7 +493,11 @@ def test_supplied_unhappy_flow_markers_use_semantic_locator_wiring():
 
     class RecordingPage(RecordingLocator):
         def __init__(self) -> None:
-            recorder: dict[str, list[object]] = {"selectors": [], "filters": [], "roles": []}
+            recorder: dict[str, list[object]] = {
+                "selectors": [],
+                "filters": [],
+                "roles": [],
+            }
             super().__init__(recorder)
 
         def get_by_text(self, *_args, **_kwargs):
@@ -677,6 +682,7 @@ def test_registration_request_limit_close_uses_scoped_tutup_once():
 
 def test_nib_reminder_continue_uses_renamed_locator_once():
     """Preserve the legacy primitive's single-click compatibility contract."""
+
     class Modal:
         def __init__(self) -> None:
             self.waits: list[dict[str, object]] = []
@@ -718,17 +724,25 @@ def test_customer_type_pause_is_after_confirmed_selection_and_before_continue(
     monkeypatch.setattr(dashboard, "jenis_pelanggan_modal", object(), raising=False)
     choice = object()
     events: list[tuple] = []
-    monkeypatch.setattr(dashboard, "_find_customer_type_choice", lambda: ("Rumah Tangga", choice))
     monkeypatch.setattr(
-        dashboard, "_select_customer_type_with_confirmation",
+        dashboard, "_find_customer_type_choice", lambda: ("Rumah Tangga", choice)
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "_select_customer_type_with_confirmation",
         lambda option, locator: events.append(("selected", option, locator)),
     )
     monkeypatch.setattr(
-        dashboard, "_debug_interaction_checkpoint", lambda label: events.append(("checkpoint", label))
+        dashboard,
+        "_debug_interaction_checkpoint",
+        lambda label: events.append(("checkpoint", label)),
     )
-    monkeypatch.setattr(dashboard, "_debug_pause", lambda label: events.append(("pause", label)))
     monkeypatch.setattr(
-        dashboard, "_continue_jenis_pelanggan_with_confirmation",
+        dashboard, "_debug_pause", lambda label: events.append(("pause", label))
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "_continue_jenis_pelanggan_with_confirmation",
         lambda option: events.append(("continue", option)),
     )
     monkeypatch.setattr(dashboard_module, "expect", lambda _locator: Expectation())

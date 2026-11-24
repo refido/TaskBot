@@ -86,7 +86,9 @@ def test_login_page_fallback_waits_via_retry_limiter_before_reauthentication() -
         logged_out_check_timeout_ms=500,
         session_probe_interval_ms=1_000,
         login_page_detector=lambda *_args, **_kwargs: True,
-        login_retry_rate_limiter=cast(LoginRetryRateLimiter, FakeLoginRetryRateLimiter()),
+        login_retry_rate_limiter=cast(
+            LoginRetryRateLimiter, FakeLoginRetryRateLimiter()
+        ),
     )
 
     service.handle_session_recovery()

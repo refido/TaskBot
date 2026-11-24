@@ -43,7 +43,9 @@ class QuotaJournal:
             self._lease.execute("BEGIN EXCLUSIVE")
         except sqlite3.OperationalError as exc:
             self._lease.close()
-            raise RuntimeError("Quota journal is locked or unavailable for this operator") from exc
+            raise RuntimeError(
+                "Quota journal is locked or unavailable for this operator"
+            ) from exc
         try:
             self._db = sqlite3.connect(folder / "pending.sqlite3")
             self._db.row_factory = sqlite3.Row
@@ -74,7 +76,11 @@ class QuotaJournal:
     def begin(self, nik: str, started_at: str, source: str) -> None:
         self.require_resolved()
         event_id = str(uuid.uuid4())
-        payload = {"nik": nik, "operator_id": self.operator_id, "started_at": started_at}
+        payload = {
+            "nik": nik,
+            "operator_id": self.operator_id,
+            "started_at": started_at,
+        }
         with self._db:
             self._db.execute(
                 "INSERT INTO events(id, ready, source, payload) VALUES (?, 0, ?, ?)",
@@ -90,15 +96,25 @@ class QuotaJournal:
                 "Check the shop receipt and use the quota recovery command."
             )
 
-    def confirm(self, nik: str, finished_at: str, name: str, customer_type: str) -> None:
+    def confirm(
+        self, nik: str, finished_at: str, name: str, customer_type: str
+    ) -> None:
         with self._db:
             payload = self.open_item(self.active_id)
             if payload["nik"] != nik:
-                raise ValueError("Shop confirmation does not match the open quota event")
-            payload.update(status="completed", finished_at=finished_at,
-                           nama_pengguna=name, jenis_pengguna=customer_type)
-            self._db.execute("UPDATE events SET ready=2, payload=? WHERE id=?",
-                             (json.dumps(payload), self.active_id))
+                raise ValueError(
+                    "Shop confirmation does not match the open quota event"
+                )
+            payload.update(
+                status="completed",
+                finished_at=finished_at,
+                nama_pengguna=name,
+                jenis_pengguna=customer_type,
+            )
+            self._db.execute(
+                "UPDATE events SET ready=2, payload=? WHERE id=?",
+                (json.dumps(payload), self.active_id),
+            )
 
     def stage(self, payload: dict, source: str) -> None:
         if payload["operator_id"] != self.operator_id:
@@ -123,12 +139,16 @@ class QuotaJournal:
                     raise ValueError("A confirmed quota event must stay completed")
                 # Keep the full terminal row's timestamp identical to the public
                 # report. The earlier confirmation covers a crash before this point.
-                self._db.execute("UPDATE events SET ready=1, payload=? WHERE id=?",
-                                 (json.dumps(payload), self.active_id))
+                self._db.execute(
+                    "UPDATE events SET ready=1, payload=? WHERE id=?",
+                    (json.dumps(payload), self.active_id),
+                )
         self.active_id = None
 
     def open_item(self, event_id: str | None) -> dict:
-        row = self._db.execute("SELECT payload FROM events WHERE ready=0 AND id=?", (event_id,)).fetchone()
+        row = self._db.execute(
+            "SELECT payload FROM events WHERE ready=0 AND id=?", (event_id,)
+        ).fetchone()
         if row is None:
             raise ValueError("Unknown or already resolved quota event")
         return json.loads(row["payload"])
@@ -138,21 +158,29 @@ class QuotaJournal:
             with self._db:
                 if self.open_item(self.active_id)["nik"] != nik:
                     raise ValueError("Terminal row does not match the open quota event")
-                self._db.execute("DELETE FROM events WHERE id=? AND ready=0", (self.active_id,))
+                self._db.execute(
+                    "DELETE FROM events WHERE id=? AND ready=0", (self.active_id,)
+                )
             self.active_id = None
 
     def reconcile(self, event_id: str, *, confirmed_at: str | None) -> None:
         with self._db:
             payload = self.open_item(event_id)
             if confirmed_at is None:
-                self._db.execute("DELETE FROM events WHERE id=? AND ready=0", (event_id,))
+                self._db.execute(
+                    "DELETE FROM events WHERE id=? AND ready=0", (event_id,)
+                )
             else:
                 payload.update(finished_at=confirmed_at, status="completed")
-                self._db.execute("UPDATE events SET ready=1, payload=? WHERE id=?",
-                                 (json.dumps(payload), event_id))
+                self._db.execute(
+                    "UPDATE events SET ready=1, payload=? WHERE id=?",
+                    (json.dumps(payload), event_id),
+                )
 
     def entries(self):
-        return self._db.execute("SELECT id, ready, source, payload FROM events ORDER BY sequence")
+        return self._db.execute(
+            "SELECT id, ready, source, payload FROM events ORDER BY sequence"
+        )
 
     def drain(self, deliver) -> int:
         delivered = 0

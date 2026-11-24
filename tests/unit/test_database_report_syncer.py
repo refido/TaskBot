@@ -72,12 +72,16 @@ def case(monkeypatch):
         assert connection is case.connections[-1]
         case.payloads.append(list(payloads))
         step("batch")
-        return SimpleNamespace(source=source, processed=1, inserted_or_updated=1, skipped=0)
+        return SimpleNamespace(
+            source=source, processed=1, inserted_or_updated=1, skipped=0
+        )
 
     def sync_file(path, *, connection):
         assert connection is case.connections[-1]
         step("file")
-        return SimpleNamespace(source=str(path), processed=0, inserted_or_updated=0, skipped=0)
+        return SimpleNamespace(
+            source=str(path), processed=0, inserted_or_updated=0, skipped=0
+        )
 
     case.manager = SimpleNamespace(
         ensure_database_and_tables=Mock(side_effect=lambda: step("setup")),
@@ -108,12 +112,20 @@ def test_main_import_constructor_and_shared_setup_lock(case):
 
     assert type(case.syncer) is DatabaseReportSyncer
     assert vars(case.syncer) == {
-        "_manager": None, "_database_ready": False,
-        "_configuration_error": None, "_connection": None,
+        "_manager": None,
+        "_database_ready": False,
+        "_configuration_error": None,
+        "_connection": None,
     }
     assert case.trace == []
-    assert DatabaseReportSyncer._ensure_database.__globals__["_DATABASE_SETUP_LOCK"] is main._DATABASE_SETUP_LOCK
-    assert DatabaseReportSyncer()._ensure_database.__globals__["_DATABASE_SETUP_LOCK"] is main._DATABASE_SETUP_LOCK
+    assert (
+        DatabaseReportSyncer._ensure_database.__globals__["_DATABASE_SETUP_LOCK"]
+        is main._DATABASE_SETUP_LOCK
+    )
+    assert (
+        DatabaseReportSyncer()._ensure_database.__globals__["_DATABASE_SETUP_LOCK"]
+        is main._DATABASE_SETUP_LOCK
+    )
 
 
 def test_lazy_reuse_file_batch_and_idempotent_close(case):
@@ -140,7 +152,9 @@ def test_early_skip_does_not_initialize(case, mode):
     assert case.trace == []
 
 
-@pytest.mark.parametrize("message", ["Missing database environment variables: DB_HOST", "invalid config"])
+@pytest.mark.parametrize(
+    "message", ["Missing database environment variables: DB_HOST", "invalid config"]
+)
 def test_configuration_result_is_cached(case, message):
     case.errors["manager"] = ValueError(message)
     for _ in range(2):
@@ -168,7 +182,9 @@ def test_failure_recovery_and_setup_scope(case, stage):
     case.errors.clear()
     case.syncer(case.reporter, case.rows)
     assert case.factory.call_count == 1
-    assert case.manager.ensure_database_and_tables.call_count == (2 if stage == "setup" else 1)
+    assert case.manager.ensure_database_and_tables.call_count == (
+        2 if stage == "setup" else 1
+    )
     case.syncer.close()
 
 
@@ -199,9 +215,11 @@ def test_main_syncer_factory_remains_patchable_for_composition(monkeypatch):
     factory.assert_called_once_with()
 
 
-@pytest.mark.parametrize("field,value", [("processed", 0), ("inserted_or_updated", 0), ("skipped", 1)])
+@pytest.mark.parametrize(
+    "field,value", [("processed", 0), ("inserted_or_updated", 0), ("skipped", 1)]
+)
 def test_incomplete_batch_is_failure_and_discards(case, field, value):
-    result = dict(source="batch", processed=1, inserted_or_updated=1, skipped=0)
+    result = {"source": "batch", "processed": 1, "inserted_or_updated": 1, "skipped": 0}
     result[field] = value
     case.manager.sync_report_payloads.side_effect = None
     case.manager.sync_report_payloads.return_value = SimpleNamespace(**result)
@@ -211,17 +229,20 @@ def test_incomplete_batch_is_failure_and_discards(case, field, value):
     assert case.syncer._connection is None
 
 
-@pytest.mark.parametrize("first_import", [
-    "import src.infrastructure.database.report_syncer",
-    "import main",
-    "from main import DatabaseReportSyncer",
-    "from src.infrastructure.database.operator_store import OperatorDatabaseManager",
-    "from src.web.reporter import TransactionReporter",
-    "from src.application.services.account_runner import AccountRunner",
-    "import src.application",
-])
+@pytest.mark.parametrize(
+    "first_import",
+    [
+        "import src.infrastructure.database.report_syncer",
+        "import main",
+        "from main import DatabaseReportSyncer",
+        "from src.infrastructure.database.operator_store import OperatorDatabaseManager",
+        "from src.web.reporter import TransactionReporter",
+        "from src.application.services.account_runner import AccountRunner",
+        "import src.application",
+    ],
+)
 def test_fresh_import_identity_and_no_database_initialization(first_import):
-    code = textwrap.dedent('''
+    code = textwrap.dedent("""
         import sys
         from unittest.mock import patch
         import psycopg2
@@ -244,9 +265,13 @@ def test_fresh_import_identity_and_no_database_initialization(first_import):
             connect.assert_not_called()
             configure.assert_not_called()
             setup.assert_not_called()
-    ''').replace("FIRST_IMPORT", repr(first_import))
+    """).replace("FIRST_IMPORT", repr(first_import))
     result = subprocess.run(
-        [sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[2],
-        capture_output=True, text=True, timeout=30,
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr

@@ -20,17 +20,25 @@ from src.infrastructure.database.operator_store import (
 def pg_delivery():
     database = os.getenv("TASKBOT_QUOTA_TEST_DB")
     if not database:
-        pytest.skip("Set TASKBOT_QUOTA_TEST_DB to opt in to the isolated PostgreSQL tests")
+        pytest.skip(
+            "Set TASKBOT_QUOTA_TEST_DB to opt in to the isolated PostgreSQL tests"
+        )
     if not database.startswith("taskbot_quota_test_"):
         pytest.fail("Expected a disposable taskbot_quota_test_ database")
-    with closing(psycopg2.connect(host="127.0.0.1", port=55432, dbname=database, connect_timeout=3)) as conn:
+    with closing(
+        psycopg2.connect(
+            host="127.0.0.1", port=55432, dbname=database, connect_timeout=3
+        )
+    ) as conn:
         with conn, conn.cursor() as cursor:
             cursor.execute("SELECT current_setting('cluster_name'), current_database()")
             assert cursor.fetchone() == ("taskbot_phase1", database)
             cursor.execute(OperatorDatabaseManager._create_table_sql("OPERATOR_1"))
         manager = OperatorDatabaseManager(
             DatabaseConfig("127.0.0.1", 55432, database, "fixture", ""),
-            OperatorTargets((OperatorTarget("OPERATOR_1", "Fixture", operator_id="operator_01"),)),
+            OperatorTargets(
+                (OperatorTarget("OPERATOR_1", "Fixture", operator_id="operator_01"),)
+            ),
         )
         manager.ensure_delivery_receipts(conn)
         yield conn, manager
@@ -39,17 +47,31 @@ def pg_delivery():
 def record(pg_delivery, event, nik, when):
     conn, manager = pg_delivery
     manager.sync_report_payloads(
-        [{"nik": nik, "operator_id": "operator_01", "status": "completed", "finished_at": when.isoformat()}],
-        source="dummy-report", connection=conn, delivery_id=event,
+        [
+            {
+                "nik": nik,
+                "operator_id": "operator_01",
+                "status": "completed",
+                "finished_at": when.isoformat(),
+            }
+        ],
+        source="dummy-report",
+        connection=conn,
+        delivery_id=event,
     )
 
 
 def stored(pg_delivery, nik):
     conn, _ = pg_delivery
     with conn, conn.cursor() as cursor:
-        cursor.execute('SELECT "KUOTA", "MAX_KUOTA" FROM public."OPERATOR_1" WHERE "NIK"=%s', (nik,))
+        cursor.execute(
+            'SELECT "KUOTA", "MAX_KUOTA" FROM public."OPERATOR_1" WHERE "NIK"=%s',
+            (nik,),
+        )
         quota = cursor.fetchone()
-        cursor.execute("SELECT count(*) FROM public.taskbot_quota_receipts WHERE nik=%s", (nik,))
+        cursor.execute(
+            "SELECT count(*) FROM public.taskbot_quota_receipts WHERE nik=%s", (nik,)
+        )
         return quota, cursor.fetchone()[0]
 
 
@@ -100,8 +122,12 @@ def test_recovered_prior_month_sale_does_not_consume_this_months_quota(pg_delive
 def test_unlogged_table_cannot_acknowledge_quota(pg_delivery):
     conn, manager = pg_delivery
     with conn, conn.cursor() as cursor:
-        cursor.execute('CREATE UNLOGGED TABLE IF NOT EXISTS public."OPERATOR_99" (id bigint)')
-    targets = OperatorTargets((OperatorTarget("OPERATOR_99", "Fixture", operator_id="operator_99"),))
+        cursor.execute(
+            'CREATE UNLOGGED TABLE IF NOT EXISTS public."OPERATOR_99" (id bigint)'
+        )
+    targets = OperatorTargets(
+        (OperatorTarget("OPERATOR_99", "Fixture", operator_id="operator_99"),)
+    )
     with pytest.raises(RuntimeError, match="permanent logged table"):
         OperatorDatabaseManager(manager.config, targets).ensure_delivery_receipts(conn)
 
@@ -112,7 +138,15 @@ def test_legacy_report_reimport_keeps_the_already_delivered_quota(pg_delivery):
     when = datetime.now().astimezone()
     record(pg_delivery, str(uuid4()), nik, when)
     manager.sync_report_payloads(
-        [{"nik": nik, "operator_id": "operator_01", "status": "completed", "finished_at": when.isoformat()}],
-        source="dummy-items.jsonl", connection=conn,
+        [
+            {
+                "nik": nik,
+                "operator_id": "operator_01",
+                "status": "completed",
+                "finished_at": when.isoformat(),
+            }
+        ],
+        source="dummy-items.jsonl",
+        connection=conn,
     )
     assert stored(pg_delivery, nik) == ((1, 1), 1)

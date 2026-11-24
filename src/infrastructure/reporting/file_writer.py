@@ -111,8 +111,13 @@ class FileWriter:
             writer(buffer, row)
             expected = buffer.getvalue().encode("utf-8")
             stream.seek(offset)
-            if not 0 < length <= len(expected) or stream.read(length) != expected[:length]:
-                raise OSError(f"{path.name} has unexpected bytes after the last complete row")
+            if (
+                not 0 < length <= len(expected)
+                or stream.read(length) != expected[:length]
+            ):
+                raise OSError(
+                    f"{path.name} has unexpected bytes after the last complete row"
+                )
             if stream.seek(0, os.SEEK_END) != offset + length:
                 raise OSError(f"{path.name} changed during recovery")
             if length < len(expected):
@@ -143,10 +148,14 @@ class FileWriter:
             self._flush_file(file_handle)
 
     def _write_csv_row(self, stream, row: TransactionRow) -> None:
-        csv.DictWriter(stream, fieldnames=self.fieldnames).writerow(self.public_row_payload(row))
+        csv.DictWriter(stream, fieldnames=self.fieldnames).writerow(
+            self.public_row_payload(row)
+        )
 
     def _write_jsonl_row(self, stream, row: TransactionRow) -> None:
-        stream.write(json.dumps(self.public_row_payload(row), ensure_ascii=False) + "\n")
+        stream.write(
+            json.dumps(self.public_row_payload(row), ensure_ascii=False) + "\n"
+        )
 
     @staticmethod
     def _flush_file(file_handle, *, require_sync: bool = True) -> None:

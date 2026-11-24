@@ -410,11 +410,14 @@ class TransactionProcessor:
                 outcome = cek_penjualan.wait_for_transaction_outcome()
                 if not isinstance(outcome, TransactionOutcome):
                     raise TransactionConfirmationError("Invalid transaction outcome")
-            except Exception as exc:  # Observation failure must be reported, never retried.
+            except Exception as exc:  # noqa: BLE001 - observation failure must be reported, never retried.
                 self._record_unconfirmed_transaction(
-                    nik, started_at,
+                    nik,
+                    started_at,
                     TransactionOutcome("unknown", "confirmation_error"),
-                    puzzle_outcome, customer_information, observation_error=exc,
+                    puzzle_outcome,
+                    customer_information,
+                    observation_error=exc,
                 )
                 return
 
@@ -433,12 +436,17 @@ class TransactionProcessor:
                 checkpoint = getattr(self.reporter, "checkpoint_confirmed_sale", None)
                 if callable(checkpoint):
                     try:
-                        checkpoint(nik, customer_information.nama_pengguna, customer_information.jenis_pengguna)
-                    except Exception:
-                        # Keep the durable open marker and still attempt the terminal write.
-                        logger.bind(event="report.quota_checkpoint_failed", operator_id=self.operator_id).exception(
-                            "Could not checkpoint the confirmed sale"
+                        checkpoint(
+                            nik,
+                            customer_information.nama_pengguna,
+                            customer_information.jenis_pengguna,
                         )
+                    except Exception:  # noqa: BLE001 - still attempt the terminal write.
+                        # Keep the durable open marker and still attempt the terminal write.
+                        logger.bind(
+                            event="report.quota_checkpoint_failed",
+                            operator_id=self.operator_id,
+                        ).exception("Could not checkpoint the confirmed sale")
                 self._log_transaction_outcome(nik, outcome)
                 self._log_transaction_stage(
                     nik,
@@ -544,7 +552,9 @@ class TransactionProcessor:
                     reason=outcome.reason,
                 ).exception("Transaction result could not be confirmed")
                 self.reporter.error(
-                    nik, started_at, exc=exc,
+                    nik,
+                    started_at,
+                    exc=exc,
                     puzzle_solved=True,
                     puzzle_attempts=puzzle.attempts,
                     puzzle_retry_count=puzzle.retry_count,

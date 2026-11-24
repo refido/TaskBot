@@ -759,7 +759,9 @@ def test_confirmed_sale_dashboard_failure_does_not_repeat_submission(monkeypatch
 
     # The original implementation repeated all three events via general retry.
     assert events == [
-        "sale_submitted", "puzzle_succeeded", "return_to_dashboard",
+        "sale_submitted",
+        "puzzle_succeeded",
+        "return_to_dashboard",
     ]
     assert processor.dashboard.catat_penjualan_calls == ["3174"]
     assert processor.reporter.retry_calls == []
@@ -772,13 +774,17 @@ def test_confirmed_sale_dashboard_failure_does_not_repeat_submission(monkeypatch
 @pytest.fixture
 def confirmed_sale_processor(monkeypatch):
     sale_page = SimpleNamespace(
-        proses_penjualan=Mock(), kembali_ke_dashboard=Mock(),
-        wait_for_transaction_outcome=Mock(return_value=TransactionOutcome(
-            "completed", evidence="KEMBALI KE HALAMAN UTAMA"
-        )),
+        proses_penjualan=Mock(),
+        kembali_ke_dashboard=Mock(),
+        wait_for_transaction_outcome=Mock(
+            return_value=TransactionOutcome(
+                "completed", evidence="KEMBALI KE HALAMAN UTAMA"
+            )
+        ),
     )
     monkeypatch.setattr(
-        transaction_processor, "Penjualan",
+        transaction_processor,
+        "Penjualan",
         lambda page: SimpleNamespace(cek_pesanan=Mock()),
     )
     monkeypatch.setattr(transaction_processor, "CekPenjualan", lambda page: sale_page)
@@ -793,7 +799,11 @@ def confirmed_sale_processor(monkeypatch):
 def test_customer_data_blockers_are_retained_but_not_counted_as_completed(
     confirmed_sale_processor, tmp_path, monkeypatch, blocked_count, request
 ):
-    from src.infrastructure.database.operator_store import OperatorDbRecord, OperatorTarget
+    from src.infrastructure.database.operator_store import (
+        OperatorDbRecord,
+        OperatorTarget,
+    )
+
     processor, sale_page = confirmed_sale_processor
     set_nik_masking(False)
     request.addfinalizer(lambda: set_nik_masking(True))
@@ -804,7 +814,9 @@ def test_customer_data_blockers_are_retained_but_not_counted_as_completed(
     )
     sale_page.wait_for_transaction_outcome.side_effect = [
         TransactionOutcome("completed", evidence="KEMBALI KE HALAMAN UTAMA")
-    ] * 100 + [TransactionOutcome("blocked", "customer_data_required", reason)] * blocked_count
+    ] * 100 + [
+        TransactionOutcome("blocked", "customer_data_required", reason)
+    ] * blocked_count
     processor.config.nik = [f"{i:016d}" for i in range(100 + blocked_count)]
     monkeypatch.setattr(processor, "_capture_failure_artifact", Mock())
 
@@ -829,12 +841,17 @@ def test_customer_data_blockers_are_retained_but_not_counted_as_completed(
     assert record.status_code == 422
 
 
-@pytest.mark.parametrize("outcome", [
-    TransactionOutcome("unknown", "confirmation_timeout"),
-    TransactionOutcome("completed"),
-    TransactionOutcome("completed", evidence="  "),
-    TransactionOutcome("unknown", "customer_update_result", "Data Pelanggan berhasil"),
-])
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        TransactionOutcome("unknown", "confirmation_timeout"),
+        TransactionOutcome("completed"),
+        TransactionOutcome("completed", evidence="  "),
+        TransactionOutcome(
+            "unknown", "customer_update_result", "Data Pelanggan berhasil"
+        ),
+    ],
+)
 def test_unconfirmed_sale_never_completes_or_retries(confirmed_sale_processor, outcome):
     processor, sale_page = confirmed_sale_processor
     sale_page.wait_for_transaction_outcome.return_value = outcome
@@ -852,8 +869,12 @@ def test_unconfirmed_sale_never_completes_or_retries(confirmed_sale_processor, o
     assert processor._session_recovery_service.recovery_calls == 1
 
 
-@pytest.mark.parametrize("error", [RuntimeError("observation failed"), SessionExpiredError("expired")])
-def test_confirmation_error_is_recorded_without_resubmission(confirmed_sale_processor, error):
+@pytest.mark.parametrize(
+    "error", [RuntimeError("observation failed"), SessionExpiredError("expired")]
+)
+def test_confirmation_error_is_recorded_without_resubmission(
+    confirmed_sale_processor, error
+):
     processor, sale_page = confirmed_sale_processor
     sale_page.wait_for_transaction_outcome.side_effect = error
     processor.process_single_nik("3174")
@@ -880,7 +901,9 @@ def test_blocked_row_survives_recovery_failure(confirmed_sale_processor):
     sale_page.proses_penjualan.assert_called_once()
 
 
-def test_stock_empty_after_captcha_still_stops_remaining_accounts_niks(confirmed_sale_processor):
+def test_stock_empty_after_captcha_still_stops_remaining_accounts_niks(
+    confirmed_sale_processor,
+):
     processor, sale_page = confirmed_sale_processor
     processor.config.nik = ["3174", "3275"]
     sale_page.wait_for_transaction_outcome.return_value = TransactionOutcome(
@@ -892,7 +915,9 @@ def test_stock_empty_after_captcha_still_stops_remaining_accounts_niks(confirmed
     sale_page.proses_penjualan.assert_called_once()
 
 
-def test_confirmed_sale_is_logged_with_positive_evidence(confirmed_sale_processor, request):
+def test_confirmed_sale_is_logged_with_positive_evidence(
+    confirmed_sale_processor, request
+):
     processor, sale_page = confirmed_sale_processor
     records = []
     sink = logger.add(lambda message: records.append(message.record))
@@ -900,7 +925,9 @@ def test_confirmed_sale_is_logged_with_positive_evidence(confirmed_sale_processo
     processor.process_single_nik("3174")
     sale_page.wait_for_transaction_outcome.assert_called_once()
     assert len(processor.reporter.complete_calls) == 1
-    event = next(r["extra"] for r in records if r["extra"].get("event") == "transaction.outcome")
+    event = next(
+        r["extra"] for r in records if r["extra"].get("event") == "transaction.outcome"
+    )
     assert event["transaction_outcome"] == "completed"
     assert event["transaction_confirmed"] is True
     assert event["evidence"] == "KEMBALI KE HALAMAN UTAMA"
@@ -910,8 +937,14 @@ def test_confirmed_sale_is_logged_with_positive_evidence(confirmed_sale_processo
 @pytest.mark.parametrize(
     "failure_stage",
     [
-        "puzzle_finished", "dashboard", "load_state", "stock_read",
-        "report_before_write", "report_after_write", "limiter", "completed",
+        "puzzle_finished",
+        "dashboard",
+        "load_state",
+        "stock_read",
+        "report_before_write",
+        "report_after_write",
+        "limiter",
+        "completed",
     ],
 )
 def test_post_success_failures_never_retry_transaction(
@@ -972,13 +1005,20 @@ def test_post_success_failures_never_retry_transaction(
         for record in log_records
     )
     if failure_stage in (
-        "dashboard", "load_state", "stock_read", "report_after_write", "limiter", "completed"
+        "dashboard",
+        "load_state",
+        "stock_read",
+        "report_after_write",
+        "limiter",
+        "completed",
     ):
         assert len(processor.reporter.complete_calls) == 1
         assert processor.reporter.complete_calls[0][2]["puzzle_solved"] is True
 
 
-@pytest.mark.parametrize("cleanup_failure", ["workflow", "screenshot", "recovery", "all"])
+@pytest.mark.parametrize(
+    "cleanup_failure", ["workflow", "screenshot", "recovery", "all"]
+)
 def test_post_success_cleanup_failures_preserve_invariant_and_continue_next_nik(
     monkeypatch, tmp_path, confirmed_sale_processor, cleanup_failure
 ):
@@ -996,7 +1036,9 @@ def test_post_success_cleanup_failures_preserve_invariant_and_continue_next_nik(
     ):
         if cleanup_failure in (stage, "all"):
             monkeypatch.setattr(
-                target, attribute, Mock(side_effect=RuntimeError(f"{stage} unavailable"))
+                target,
+                attribute,
+                Mock(side_effect=RuntimeError(f"{stage} unavailable")),
             )
 
     processor.process_all_niks()
@@ -1023,7 +1065,9 @@ def test_confirmed_nik_guard_is_scoped_to_processor_execution(
     assert processor.reporter.started == ["3174", "3275"]
     assert [call[0] for call in processor.reporter.complete_calls] == ["3174", "3275"]
 
-    monkeypatch.setattr(transaction_processor, "Dashboard", lambda page: FakeDashboard())
+    monkeypatch.setattr(
+        transaction_processor, "Dashboard", lambda page: FakeDashboard()
+    )
     monkeypatch.setattr(transaction_processor, "Login", lambda page: FakeLogin())
     next_execution = transaction_processor.TransactionProcessor(
         processor.config, processor.page, FakeReporter(), FakeLimiter()
@@ -1175,19 +1219,36 @@ def test_process_single_nik_stops_when_prechecks_skip(monkeypatch):
         ("fraud", False, True, False, True),
     ],
     ids=[
-        "proceed", "puzzle-failure", "skip", "close-failure", "recovery-failure",
-        "cannot-transact", "cannot-transact-close-failure", "cannot-transact-recovery-failure",
-        "fraud", "fraud-close-failure", "fraud-recovery-failure",
+        "proceed",
+        "puzzle-failure",
+        "skip",
+        "close-failure",
+        "recovery-failure",
+        "cannot-transact",
+        "cannot-transact-close-failure",
+        "cannot-transact-recovery-failure",
+        "fraud",
+        "fraud-close-failure",
+        "fraud-recovery-failure",
     ],
 )
 def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
-    monkeypatch, tmp_path, request, modal_name, proceed, puzzle_solved, close_failed,
-    recovery_failed
+    monkeypatch,
+    tmp_path,
+    request,
+    modal_name,
+    proceed,
+    puzzle_solved,
+    close_failed,
+    recovery_failed,
 ):
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
     import main as taskbot_main
-    from src.infrastructure.database.operator_store import OperatorDbRecord, OperatorTargets
+    from src.infrastructure.database.operator_store import (
+        OperatorDbRecord,
+        OperatorTargets,
+    )
 
     request.addfinalizer(logger.remove)
     metadata = configure_logging(log_dir=str(tmp_path), run_id="mismatch-run")
@@ -1276,27 +1337,44 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     limiter = FakeLimiter()
     component = SimpleNamespace(is_visible=lambda: False)
     prechecks = TransactionPrechecksService(
-        page=page, dashboard=dashboard, reporter=reporter, limiter=limiter,
-        post_skip_cooldown_ms=0, max_kuota_timeout_ms=0, zero_stock_timeout_ms=0,
-        consent_page=component, customer_update_page=component,
-        update_required_modal=component, update_confirmation_modal=component,
-        update_success_modal=component, login_page_detector=lambda *a, **kw: False,
+        page=page,
+        dashboard=dashboard,
+        reporter=reporter,
+        limiter=limiter,
+        post_skip_cooldown_ms=0,
+        max_kuota_timeout_ms=0,
+        zero_stock_timeout_ms=0,
+        consent_page=component,
+        customer_update_page=component,
+        update_required_modal=component,
+        update_confirmation_modal=component,
+        update_success_modal=component,
+        login_page_detector=lambda *a, **kw: False,
     )
     puzzle = FakePuzzleService(PuzzleSolveOutcome(solved=puzzle_solved, attempts=1))
     recovery = Recovery()
     processor = _build_processor(
-        reporter=reporter, limiter=limiter, dashboard=dashboard, page=page,
-        precheck_service=prechecks, puzzle_service=puzzle,
+        reporter=reporter,
+        limiter=limiter,
+        dashboard=dashboard,
+        page=page,
+        precheck_service=prechecks,
+        puzzle_service=puzzle,
         session_recovery_service=recovery,
     )
     processor.config.nik = niks
     processor.process_all_niks()
 
     downstream_status = "completed" if puzzle_solved else "failed_puzzle_solve"
-    statuses = [downstream_status if proceed else f"skipped_{modal_name}", downstream_status]
+    statuses = [
+        downstream_status if proceed else f"skipped_{modal_name}",
+        downstream_status,
+    ]
     assert [row.status for row in reporter.rows] == statuses
     assert puzzle.calls == (niks if proceed else niks[1:])
-    assert transaction_calls == ["order_checked", "sale_submitted"] * (2 if proceed else 1)
+    assert transaction_calls == ["order_checked", "sale_submitted"] * (
+        2 if proceed else 1
+    )
     assert dashboard.catat_penjualan_calls == niks
     assert dashboard.close_calls == (0 if proceed else 1)
     assert limiter.skip_calls == (0 if proceed else 1)
@@ -1308,19 +1386,35 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
         csv_items = list(csv.DictReader(stream))
     assert [item["status"] for item in items] == statuses
     assert [item["status"] for item in csv_items] == statuses
-    events = [json.loads(line) for line in reporter.workflow_events_path.read_text().splitlines()]
-    warning_events = [event["event"] for event in events if event["event"] in {
-        f"{event_prefix}_detected", f"{event_prefix}_proceeded", f"{event_prefix}_skipped"
-    }]
+    events = [
+        json.loads(line)
+        for line in reporter.workflow_events_path.read_text().splitlines()
+    ]
+    warning_events = [
+        event["event"]
+        for event in events
+        if event["event"]
+        in {
+            f"{event_prefix}_detected",
+            f"{event_prefix}_proceeded",
+            f"{event_prefix}_skipped",
+        }
+    ]
     assert warning_events == [
         f"{event_prefix}_detected",
         f"{event_prefix}_proceeded" if proceed else f"{event_prefix}_skipped",
     ]
-    assert (f"{event_prefix}_skip_cleanup_failed" in [event["event"] for event in events]) == close_failed
+    assert (
+        f"{event_prefix}_skip_cleanup_failed" in [event["event"] for event in events]
+    ) == close_failed
     if not proceed:
         assert reporter.rows[0].reason == skip_reason
         assert reporter.rows[0].puzzle_solved is None
-        expected_recovery = "skipped_nik_recovery_failed" if recovery_failed else "skipped_nik_recovery_succeeded"
+        expected_recovery = (
+            "skipped_nik_recovery_failed"
+            if recovery_failed
+            else "skipped_nik_recovery_succeeded"
+        )
         assert expected_recovery in [event["event"] for event in events]
         assert reporter.get_failed_niks() == []
 
@@ -1328,7 +1422,9 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     summary = json.loads(reporter.meta_path.read_text(encoding="utf-8"))
     snapshot = json.loads(reporter.final_json_path.read_text(encoding="utf-8"))
     for report in (summary, snapshot):
-        assert {key: int(value) for key, value in report["counts"].items()} == reporter.summary()
+        assert {
+            key: int(value) for key, value in report["counts"].items()
+        } == reporter.summary()
     analytics = reporter.get_analytics()["summary"]
     assert analytics["total_transactions"] == 2
     assert analytics["completed"] == statuses.count("completed")
@@ -1337,19 +1433,31 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     assert analytics["failed_puzzle_solve"] == statuses.count("failed_puzzle_solve")
 
     summary_logs = []
-    monkeypatch.setattr(taskbot_main, "log_print", lambda *args, **kw: summary_logs.append(" ".join(args)))
+    monkeypatch.setattr(
+        taskbot_main,
+        "log_print",
+        lambda *args, **kw: summary_logs.append(" ".join(args)),
+    )
     taskbot_main._print_run_summary(
-        SimpleNamespace(run_dir=reporter.run_dir), [processor.config],
+        SimpleNamespace(run_dir=reporter.run_dir),
+        [processor.config],
         outcomes={"operator_01": {"counts": reporter.summary()}},
     )
-    assert f"completed={statuses.count('completed')} skipped={0 if proceed else 1}" in summary_logs[-1]
+    assert (
+        f"completed={statuses.count('completed')} skipped={0 if proceed else 1}"
+        in summary_logs[-1]
+    )
     reporter.flush_pending_batches()
     reporter.flush_pending_batches()
     assert batches == [tuple(reporter.rows)]
-    target = OperatorTargets.from_env({
-        "EMAIL_1": "tester@example.com", "PIN_1": "123456",
-        "NAME_OPERATORS_1": "Test Operator",
-    }, load_env_file=False).resolve("operator_01")
+    target = OperatorTargets.from_env(
+        {
+            "EMAIL_1": "tester@example.com",
+            "PIN_1": "123456",
+            "NAME_OPERATORS_1": "Test Operator",
+        },
+        load_env_file=False,
+    ).resolve("operator_01")
     db_record = OperatorDbRecord.from_report_payload(asdict(reporter.rows[0]), target)
     assert db_record.kuota_delta == (1 if statuses[0] == "completed" else 0)
     assert db_record.status_code != 200 or statuses[0] == "completed"
@@ -1365,7 +1473,10 @@ def test_nik_warning_integrates_with_transactions_puzzle_and_reports(
     logger.complete()
     application_log = Path(metadata["application_log_path"]).read_text(encoding="utf-8")
     assert f"customer.workflow.{event_prefix}_detected" in application_log
-    assert f"customer.workflow.{event_prefix}_{'proceeded' if proceed else 'skipped'}" in application_log
+    assert (
+        f"customer.workflow.{event_prefix}_{'proceeded' if proceed else 'skipped'}"
+        in application_log
+    )
     if modal_name in {"cannot_transact", "fraud"}:
         assert skip_reason in application_log
 
