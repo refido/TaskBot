@@ -2,6 +2,12 @@
 
 TaskBot automates the complete LPG customer-sale workflow in a Playwright browser. It supports multiple operators and NIKs, handles optional customer onboarding states, solves the transaction puzzle, writes durable reports, and can synchronize terminal outcomes to PostgreSQL.
 
+## Find an operator’s input, result and quota
+
+1. **Who is on the list?** Operator 1 reads `NIK_1`, operator 2 reads `NIK_2`, and so on. Without a populated numbered account, the single-account setting is `NIK`. Commas separate entries. TaskBot trims spaces, drops empty entries and keeps their order and duplicates. The operator table stores results. [Account selection and numbered list](src/infrastructure/config/settings.py#L84) · [List parser](src/infrastructure/config/settings.py#L194)
+2. **What happened to one customer?** In the run folder, open `operators/<operator_id>/items.jsonl` and read the row’s `status`. The CSV contains the same terminal records after successful writes. A finished puzzle still needs a confirmed sale result. For the overall run, open `run_meta.json` and read its `status`. [Report paths](src/web/reporter.py#L958) · [Confirmation rule](src/application/models/transaction_outcome.py#L18) · [Reports](#reports)
+3. **Where did the quota go?** For a numbered operator, look in its PostgreSQL table, for example `OPERATOR_1`. `KUOTA` records the current count and `MAX_KUOTA` the recorded high-water value. A successful result supplies a delta of one and a skip supplies zero. The saved value also depends on the prior row, month and whether the sale receipt was already applied. [Report-to-DB mapping](src/infrastructure/database/operator_store.py#L300) · [Quota SQL](src/infrastructure/database/_operator_sql.py#L93) · [Interrupted quota writes](docs/2026-11-23-quota-crash-recovery.md)
+
 ## Features
 
 - Multi-account and multi-NIK execution with one isolated browser per account.
@@ -38,12 +44,13 @@ SESSION_EXPIRED, UNDER_17, CUSTOMER_TYPE, NIB_REMINDER, CONSENT,
 UPDATE_REQUIRED, UPDATE_FORM,
 UPDATE_CONFIRMATION, UPDATE_SUCCESS, TRANSACTION_READY, NOT_REGISTERED,
 REGISTRATION_REQUEST_LIMITED, INVALID_REGISTERED_NIK,
-CANNOT_TRANSACT_AT_BASE, UNUSUAL_TRANSACTION, UNKNOWN
+NIK_MISMATCH, CANNOT_TRANSACT, FRAUD, CANNOT_TRANSACT_AT_BASE,
+UNUSUAL_TRANSACTION, UNKNOWN
 ```
 
 When states briefly overlap, the resolver prioritizes session expiry, existing blockers, update success, confirmation, update form, update required, consent, the NIB reminder, customer type, and finally transaction readiness. After a one-shot action it excludes the previous state while waiting, so a stale consent, NIB reminder, or customer-type marker cannot hide the newly rendered state. Session expiry returns to the existing bounded session-recovery path.
 
-It returns `CONTINUE`, `SKIP`, or `RESTART_AFTER_UPDATE`. A typical update path is:
+The four results are `CONTINUE`, `SKIP`, `SKIP_REQUIRES_RECOVERY` and `RESTART_AFTER_UPDATE`. An update can take this path.
 
 ```text
 NIK
@@ -73,13 +80,18 @@ Mutation buttons are single-shot, and the precheck service—not the individual 
 
 Known unhappy paths use semantic text or roles rather than generated Mantine/CSS hashes: under-17, unregistered customer, invalid registered NIK, base restriction, unusual cross-base transaction, the distinct Usaha Mikro NIB reminder, the exact daily registration-request limit, monthly purchase limit, zero stock, and the exact failed-puzzle title. The daily-limit state has terminal priority even when it overlaps an update form, confirmation, or success screen; it maps to database status `429` with zero quota delta. A blocker that disappears between detection and handling is resolved again; it cannot silently skip a NIK without a terminal report.
 
-## Complete workflow catalogue
+<a id="complete-workflow-catalogue"></a>
+
+## Workflow catalogue
+
+The six sequences above are examples. The tables below also cover NIB reminders, immediate updates, stops and recovery. The independent outcome check decides whether a sale counts. [Local branch checks](docs/2026-11-24-phase-5-reader-guide.md#branch-checks)
 
 TaskBot treats the customer pages as a state machine, not as one fixed page
 sequence. Its precheck result is one of:
 
 - `CONTINUE`: enter the transaction and puzzle stages.
-- `SKIP`: handle a business blocker and write one terminal skip row.
+- `SKIP`: finish the current customer after recording a business skip.
+- `SKIP_REQUIRES_RECOVERY`: the skip is already recorded. Recover the session before moving on. [Processor decision](src/orchestration/transaction_processor.py#L179)
 - `RESTART_AFTER_UPDATE`: return to the dashboard and submit the same NIK once
   more. This is not a technical retry and creates no extra terminal row.
 
@@ -138,7 +150,7 @@ cooldown, and proceeds to the next NIK.
 | --- | --- | --- |
 | `NIK belum 17 tahun` | Clear/reset the NIK entry. | `skipped_nik is not yet 17 years old` |
 | Customer is not registered | Click the modal close action once and reset. | `skipped_not_registered` |
-| Title `Tidak Dapat Melanjutkan Pendaftaran Pelanggan` **and** message `Terlalu banyak melakukan permintaan pendaftaran untuk NIK pelanggan ini. Silakan coba lagi di hari berikutnya.` | Click the visible modal-scoped `Tutup` once. It is terminal whether it appears immediately after NIK submission or during an update action. Never resubmit that NIK that day. | `skipped_registration_request_limited`; DB status `429`, quota delta `0` |
+| Title `Tidak Dapat Melanjutkan Pendaftaran Pelanggan` **and** message `Terlalu banyak melakukan permintaan pendaftaran untuk NIK pelanggan ini. Silakan coba lagi di hari berikutnya.` | Click the visible modal-scoped `Tutup` once. It is terminal whether it appears immediately after NIK submission or during an update action. End processing for this queue entry. | `skipped_registration_request_limited`; DB status `429`, quota delta `0` |
 | `NIK pelanggan yang didaftarkan tidak valid.` | Click `Tutup` once and reset. | `skipped_The registered customer's NIK is invalid` |
 | `Pelanggan Tidak Dapat Transaksi di Pangkalan Ini` | Click `Tutup` once and reset. | `skipped_Customers Cannot Transact at This Base` |
 | NIK is flagged for an unusual transaction at another base, unusual distance, and close time | Click `Tutup` once and reset. | `skipped_The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time.` |
@@ -147,6 +159,11 @@ cooldown, and proceeds to the next NIK.
 | Stock appears empty while opening `Catat Penjualan` | Confirm it up to three times, refreshing the dashboard before the final check. | If still empty: `skipped_out_of_stock`; stop only the affected account |
 | Puzzle solve fails and the exact `Cocokan Gambar untuk Proses Keamanan Penjualan` modal requests another challenge | Refresh and retry, up to five total puzzle attempts. | If exhausted: `failed_puzzle_solve`, then recover the dashboard/session |
 | Slider reports failure but the exact failed-puzzle modal is absent | Do not blindly move or retry the slider against an unknown page. | `failed_puzzle_solve` after the current attempt |
+
+Three other warning paths affect what happens next.
+
+- **NIK mismatch.** If the warning allows the workflow to continue, TaskBot checks the next screen. If it cannot continue, it records `skipped_nik_mismatch` and requests recovery. [Mismatch handler](src/application/services/transaction_prechecks.py#L633)
+- **Cannot transact** and **fraud warning** each produce a terminal skip and request recovery. The recorded statuses are `skipped_cannot_transact` and `skipped_fraud`. [Cannot transact handler](src/application/services/transaction_prechecks.py#L658) · [Fraud handler](src/application/services/transaction_prechecks.py#L680)
 
 The daily registration-limit locator requires the exact title and message on the
 same visible Mantine modal. It intentionally supports the live dialog even when
@@ -164,7 +181,7 @@ mutation can duplicate a registration request.
 
 | Failure | Behavior |
 | --- | --- |
-| NIK parsing/mapping fails before form population | Do not fill or submit the form; write one `error` row, capture a failure artifact, and recover. |
+| Known NIK parsing or mapping failure before the form is filled | Record `skipped_nik_parsing_failed` with the reason and try to restore the dashboard. An unexpected preparation error follows the update-error path. [Skip handler](src/application/services/transaction_prechecks.py#L700) · [Report assertions](tests/contract/test_transaction_processor.py#L326) |
 | Update form does not appear after `Update Data Pelanggan` | Write one `error` row; do not reopen it through a general retry. |
 | Confirmation does not appear after submit | Keep the submit one-shot; write one `error` row and recover. |
 | Confirmation is visible without a submission owned by this workflow | Refuse to confirm it and write one `error` row. |
@@ -227,8 +244,8 @@ Page objects receive validated `CustomerUpdateData` and never parse NIKs.
 Requirements: Python 3.14+, [uv](https://docs.astral.sh/uv/), and a supported Playwright browser. PostgreSQL is optional.
 
 ```powershell
-uv sync
-uv run playwright install
+uv sync --locked
+uv run --locked playwright install
 Copy-Item .env.example .env
 ```
 
@@ -348,18 +365,20 @@ OPERATOR_2_ID=operator_02
 ```
 
 ```powershell
-uv run python -m scripts.db_management init
-uv run python -m scripts.db_management sync-report <path-to-items.jsonl>
+uv run --locked python -m scripts.db_management init
+uv run --locked python -m scripts.db_management sync-report <path-to-items.jsonl>
 ```
 
 File-based manual sync needs an unmasked report produced with `MASK=0`; a masked NIK cannot be reconstructed. Use `--table OPERATOR_1` (or the matching numbered table) when an imported legacy report has no resolvable operator. Only configured numbered targets are required, so a one-account setup does not need `NAME_OPERATORS_2`; arbitrary numeric suffixes such as operator 3 are supported.
 
-At runtime, every terminal `TransactionRow` is appended and fsynced locally, then submitted as a one-row DB transaction through the account's persistent connection. A skipped or unresolved DB row is treated as a sync failure rather than acknowledged. The pending row remains available for final retry and the account is marked unsuccessful if persistence still fails. Consent, update, restart, workflow, and retry events never enter the transaction table.
+With database sync enabled, a successful terminal-file write queues the row for a one-row database transaction. A failed file write can prevent that delivery. A skipped or unresolved DB row is treated as a sync failure rather than acknowledged. The pending row remains available for final retry and the account is marked unsuccessful if persistence still fails. Consent, update, restart, workflow, and retry events never enter the transaction table.
+
+The quota journal can keep a confirmed sale pending across a process exit. On Windows its default root is `%LOCALAPPDATA%\TaskBot\quota-recovery`. A repeated delivery of the same receipt should leave the quota unchanged. [Journal location](src/infrastructure/database/quota_journal.py#L12) · [Recovery procedure](docs/2026-11-23-quota-crash-recovery.md)
 
 ## Run
 
 ```powershell
-uv run main.py
+uv run --locked main.py
 ```
 
 Each account owns its reporter, limiter, browser, processor, and persistent DB connection. One account failure does not stop other account threads.
@@ -389,13 +408,15 @@ reports/<yyyy>/<mm>/<dd>/<run_id>/
     traces/<operator_id>/
 ```
 
-- `items.csv` and `items.jsonl`: append-only terminal outcomes.
+- `items.csv` and `items.jsonl`: append-only terminal outcomes. Each terminal append requires a flush and disk sync. CSV is written first, so a persistent JSONL failure can leave a CSV-only row. Workflow and retry JSONL events attempt disk sync and tolerate a sync error. [Row writer](src/infrastructure/reporting/file_writer.py#L60) · [Event writer](src/web/reporter.py#L1438)
 - `workflow_events.jsonl`: immediately appended business milestones such as consent, update, confirmation, success, restart, and failure.
 - `retries.jsonl`: immediately appended technical retry history; retries never create terminal rows.
 - `items_snapshot.json`: terminal rows, mappings, retries, puzzle statistics, analytics, and compact `workflow_summary`.
 - `analytics.json`: status, performance, puzzle, skip, and error aggregates with `run_id` and `operator_id`.
 - `summary.json`: compact current-run operator totals and file paths; detailed retry history stays in JSONL.
 - Top-level `run_meta.json`: credential-free execution status and operator aggregation.
+
+The separate `user_sessions.py` export uses `artifacts/sessions` under its run when a run context is available. Its fallback is a timestamped folder under `reports/sessions`. [Export destination](src/application/use_cases/export_session.py#L65) · [Export files](src/infrastructure/sessions/export_service.py#L431)
 
 ### Account and run status
 
@@ -470,11 +491,15 @@ Focused page objects live in `src/infrastructure/browser/page_objects/`. The pre
 
 ## Development
 
+Run these checks in a clean test checkout with dotenv loading disabled and only the separate local test database configured. The Phase 1 procedure covers the dummy shop, database and report comparison. [Test procedure](docs/MODERNIZATION_PLAN.md#phase-1-acceptance-procedure)
+
 ```powershell
-$env:PYTHONPATH='.'
-uv run pytest -q
-uvx ruff format .
-uvx ruff check .
+$env:PYTHONPATH = (Get-Location).Path
+$env:PYTHON_DOTENV_DISABLED = '1'
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked mypy .
+uv run --locked pytest
 ```
 
 Tests cover direct transaction, customer type, consent, automatic update mapping, same-NIK restart, NIK autocomplete dismissal, bounded repeated updates, shared update pacing, the daily registration-request terminal modal at update boundaries, retry isolation, masking, credential redaction, shared run/operator identity, workflow telemetry, one-row reporting, stock/quota blockers, puzzle artifacts, session recovery, multi-account execution, and per-terminal-NIK DB synchronization.

@@ -1,6 +1,6 @@
 # TaskBot modernization plan
 
-**Phases 1–4 are complete for the local dummy shop. Phase 5 checks the reader guide.** Phase 1 established the baseline, Phase 2 clarified retry reporting, and Phase 3 separated operator SQL from database connections. Phase 4 reduced the median time to produce a 1,036-row report by 31.2% with masking on and 41.5% with it off. Seven paired runs matched on all 56 business files, both operator tables and the receipts. The whole-shop time ranges overlapped. [Phase 1 evidence](2026-11-23-phase-1-behavior-baseline.md#12-phase-1-acceptance) · [Phase 2 evidence](2026-11-23-phase-2-reporting.md) · [Phase 3 evidence](2026-11-24-phase-3-customer-input-and-quota.md) · [Phase 4 measurements and diagnostic results](2026-11-24-phase-4-reporting-performance.md)
+**Phases 1–4 are complete for the local dummy shop. Phase 5 has a verified guide; the reader check is open.** [Phase 5 evidence](2026-11-24-phase-5-reader-guide.md) Phase 1 established the baseline, Phase 2 clarified retry reporting, and Phase 3 separated operator SQL from database connections. Phase 4 reduced the median time to produce a 1,036-row report by 31.2% with masking on and 41.5% with it off. Seven paired runs matched on all 56 business files, both operator tables and the receipts. The whole-shop time ranges overlapped. [Phase 1 evidence](2026-11-23-phase-1-behavior-baseline.md#12-phase-1-acceptance) · [Phase 2 evidence](2026-11-23-phase-2-reporting.md) · [Phase 3 evidence](2026-11-24-phase-3-customer-input-and-quota.md) · [Phase 4 measurements and diagnostic results](2026-11-24-phase-4-reporting-performance.md)
 
 **Original audit scope.** Branch `modernize`, revision `2e781dc`. The audit used source, Git, installed program versions, aggregate run summaries, the SQL notebooks, and the owner-supplied [schema backup](<../db_query/schema backup.sql>). The owner identified `.env.test` as mostly dummy/example data. It illustrates the input layout. The saved export supplies the database structure. No database connection, application run, or SQL execution was needed for this update. At that point the audit had no whole-app run or peak-memory measurement. The dated Phase 1 notes provide the later local evidence.
 
@@ -37,6 +37,8 @@
   - [Customer path evidence](#customer-path-evidence)
 
 ## Read this first
+
+For current source locations and the three operator lookups, start with the [reader guide](../README.md#find-an-operators-input-result-and-quota) and [Phase 5 branch checks](2026-11-24-phase-5-reader-guide.md#branch-checks). The line references below record the original audit revision.
 
 ### What a customer run does
 
@@ -340,6 +342,8 @@ The export declares the two primary keys. Its 103 lines contain no separate `CRE
 
 **F16 — VERIFIED documentation discrepancies and omissions.**
 
+[Phase 5 F115 supersedes F16 for the current README, terminal-file sync and installed tools.](2026-11-24-phase-5-reader-guide.md#current-guide-corrections)
+
 | Documentation | Comparison with code |
 | --- | --- |
 | `README.md:L76-L84` calls the workflow catalogue complete and lists three precheck results. | `src/application/models/customer_workflow.py:L10-L14` also defines `SKIP_REQUIRES_RECOVERY`. `src/orchestration/transaction_processor.py:L177-L181` handles it distinctly. |
@@ -398,7 +402,7 @@ For each implementation phase, capture the full suite before and after, includin
 | **2. Clarify report responsibilities (complete)** | Extract one projection or repeated writer operation after characterizing its byte layout and exceptions. Preserve entry points, row lists, file creation and intermediate writes. DB cadence and schemas are out. | **No** | Common gate plus `test_legacy_outputs`, `test_file_failure_does_not_advance_cache`, `test_terminal_row_persists_then_syncs_before_summary` and interrupted writes. Require identical file inventories, business-report bytes and DB rows. Apply the diagnostic checks below. | A helper might change masking, ordering or the primary error. Isolate one extraction per commit and revert on mismatch. F17, F19, F26. | **M** |
 | **3. Isolate persistence and input boundaries (complete)** | Move operator table creation and quota SQL into a private module. Keep the manager responsible for provisioning, migration, monthly reset, prior-state lookup and commits. Test existing customer-list parsing, order and isolation. | **No** | Full suite, paired files and database rows, legacy migration, replay, older events, disabled DB and close failures. [Phase 3 results, F104–F107](2026-11-24-phase-3-customer-input-and-quota.md) | A change might commit a different subset or use a different month boundary. Seed previous rows, inject failures and revert the extraction as one commit. F4, F13, F18, F21. | **M** |
 | **4. Make one measured improvement (complete)** | Measured report finalization, public-row projection and redaction. Changed one redaction function to skip impossible searches. | **No** | Full suites, byte and DB comparisons, recovery readback, and paired wall-time and peak-memory samples for reports and the whole dummy shop. [Phase 4 results, F108–F113](2026-11-24-phase-4-reporting-performance.md) | A report speedup may be too small to see in the whole shop. F110 records both process trees. F112 documents the extra browser-close event and its controlled repeat. Revert `9f1933d` to roll back. F20–F24, F27. | **M** |
-| **5. Check the guide against the refactored code** | Re-run the examples from the reader guide, recheck references, and update any moved call sites. New tools, CI, a GUI, an API and DB-backed input belong in Future features. | **No** | Common gate. For every documented branch, retain a test or source reference and the recorded result. Have a reader use the guide to find the input list, terminal outcome and quota fields. | A refactor can leave correct code with incorrect instructions. Keep guide corrections with the matching phase evidence. Revert the documentation change independently if needed. F16, F28–F35. | **S** |
+| **5. Check the guide against the refactored code** ([technical checks passed; reader feedback open](2026-11-24-phase-5-reader-guide.md#open-items)) | Re-run the examples from the reader guide, recheck references, and update any moved call sites. New tools, CI, a GUI, an API and DB-backed input belong in Future features. | **No** | Common gate. For every documented branch, retain a test or source reference and the recorded result. Have a reader use the guide to find the input list, terminal outcome and quota fields. | A refactor can leave correct code with incorrect instructions. Keep guide corrections with the matching phase evidence. Revert the documentation change independently if needed. F16, F28–F35. | **S** |
 
 ### Phase 1 acceptance procedure
 
@@ -724,6 +728,8 @@ These are proposals for later. The owner approved pinning development tools and 
 | **Run-result guide** | F40 gives a dated, aggregate-only worked example. | For the next authorized practice check, record the tested revision, expected sale and skip, displayed outcome, terminal counts, quota difference, remaining count and elapsed time. Keep historical evidence distinct from new test results. |
 
 ## 5. Risks and owner questions
+
+**Phase 5.** A real reader still needs to locate the three operator values using the README. The full proposed mypy configuration also flags five expressions, including runtime guards. [Evidence and open items](2026-11-24-phase-5-reader-guide.md#open-items)
 
 Likelihood and impact are planning estimates, grounded in the cited findings.
 
