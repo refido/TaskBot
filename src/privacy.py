@@ -53,13 +53,16 @@ def artifact_nik(value: object) -> str:
 
 def sanitize_text(value: object) -> str:
     text = str(value)
-    text = _EMAIL_PATTERN.sub("<redacted-email>", text)
-    text = _LABELED_SECRET_PATTERN.sub(r"\1=<redacted>", text)
+    # Regex substitution also converts custom string subclasses to plain strings.
+    if type(text) is not str or "@" in text:
+        text = _EMAIL_PATTERN.sub("<redacted-email>", text)
+    if ":" in text or "=" in text:
+        text = _LABELED_SECRET_PATTERN.sub(r"\1=<redacted>", text)
     with _private_values_lock:
         private_values = sorted(_private_values, key=len, reverse=True)
     for private_value in private_values:
         text = text.replace(private_value, "<redacted>")
-    if _mask_nik:
+    if _mask_nik and len(text) >= 16:
         text = _NIK_PATTERN.sub(r"\1****\2", text)
     return text
 
