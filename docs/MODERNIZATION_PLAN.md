@@ -33,12 +33,16 @@ Phase 1 established the baseline, Phase 2 clarified retry reporting, and Phase 3
     - [Output inventory](#output-inventory)
     - [PostgreSQL writes and reads](#postgresql-writes-and-reads)
     - [SQL guide and database dictionary](#sql-guide-and-database-dictionary)
+      - [What the main query means](#what-the-main-query-means)
+      - [SQL catalogue](#sql-catalogue)
+      - [The two lists in the dummy file](#the-two-lists-in-the-dummy-file)
+      - [What an operator table stores](#what-an-operator-table-stores)
     - [Dependencies, tests and documentation](#dependencies-tests-and-documentation)
   - [2. Quality assessment](#2-quality-assessment)
   - [3. Modernization options](#3-modernization-options)
   - [4. Phases and acceptance gates](#4-phases-and-acceptance-gates)
     - [Phase 1 acceptance procedure](#phase-1-acceptance-procedure)
-      - [Ready to start implementation?](#ready-to-start-implementation)
+      - [Original readiness check](#original-readiness-check)
     - [Future features](#future-features)
     - [Documentation plan for future changes](#documentation-plan-for-future-changes)
   - [5. Risks and owner questions](#5-risks-and-owner-questions)
@@ -59,7 +63,7 @@ For current source locations and the three operator lookups, start with the [rea
 **F28 — VERIFIED in the code.** Think of one operator with a list of customer numbers. TaskBot takes the next number, checks whether a sale can continue, and records what happened. A finished puzzle alone does **not** count as a sale. The program needs a completed result with evidence from the sales page. The code also has a stop rule when stock runs out. [Customer loop](../src/orchestration/transaction_processor.py) · [Sale result](../src/application/models/transaction_outcome.py)
 
 | What happened to the customer? | What happens next? | Evidence |
-|---|---|---|
+| --- | --- | --- |
 | The sale is confirmed. | Record completion and continue with the list. The same confirmed number is guarded against another submission in this run. | `src/application/models/transaction_outcome.py:L18-L19` checks `status == "completed"` and nonempty evidence. `src/orchestration/transaction_processor.py:L116-L120,L419-L445` checks the guard and calls `self.reporter.complete(...)`. |
 | A business rule says skip. | Finish that customer as a skip. Some skips need the page restored before the next customer. A customer-data update can instead trigger a bounded recheck of the same customer. | `src/orchestration/transaction_processor.py:L177-L186` distinguishes `SKIP`, `SKIP_REQUIRES_RECOVERY` and `RESTART_AFTER_UPDATE`. See F16 for the README omission. |
 | The result is unclear or something fails. | An unconfirmed result cannot be counted as completed. A known blocker may have its own outcome. An unknown result can produce an error. The outer loop attempts recovery for an unexpected exception. | `src/orchestration/transaction_processor.py:L105-L112,L419-L425,L508-L535`; `tests/integration/test_transaction_confirmation.py:L28-L38` specifies a separate confirmation assertion. |
@@ -120,7 +124,7 @@ W31 matched the saved workflow events to terminal records within the same run an
 A **fixture** is just a small, repeatable example with an answer we already know. These are the inputs we need decisions about. The engineer can generate the dummy IDs and files. Real identifiers, passwords, screenshots, or `.env` are unnecessary.
 
 | Example | Dummy input or decision needed | Example expected answer |
-|---|---|---|
+| --- | --- | --- |
 | One clean sale | One test operator, customer A, a success message or receipt recognized by the practice shop, and a starting quota. | If A starts at 2 and the event is newer in the same month, A ends at 3. One completed terminal row. |
 | One skip and one stop | Customers B and C in order. Choose a recognized business skip for B. Separately simulate no stock for B. | With a skip, B’s quota does not increase and C can be processed. With no stock, C remains unprocessed for that operator. |
 | Unclear outcome | One dummy customer whose sale receives no clear confirmation. | No completed sale or success quota increase. Capture the actual error/block outcome as the baseline. |
@@ -131,7 +135,7 @@ A **fixture** is just a small, repeatable example with an answer we already know
 **F31 — VERIFIED for the local archive; PARTIAL as a production baseline.** In 161 standard `run_meta.json` files, 145 had a terminal status and usable start/end timestamps. Sixteen still said `running` and were excluded. The duration is wall-clock time from `ended_at - started_at`. It includes time spent waiting. It does not measure CPU use. `main.py:L172-L185` writes these fields. R25 gives the extraction command and output.
 
 | Run group | Finished records | Median elapsed | Within 15 minutes to 2 hours, inclusive |
-|---|---:|---:|---:|
+| --- | ---: | ---: | ---: |
 | All finished records | 145 | 26 min 7 sec | 95 |
 | Marked `completed` | 27 | 56 min 1 sec | 21 |
 | Marked `completed_with_errors` | 98 | 26 min 32.5 sec | 66 |
@@ -148,7 +152,7 @@ The owner’s **15-minute to 2-hour** estimate covers most of this archive. Of t
 **F40 — VERIFIED as a historical report.** The latest standard run-summary date in this checkout is **November 21, 2026**, with one run that day. It started at **10:50:30 WIB** and ended at **11:29:35 WIB**, an elapsed **39 minutes 5 seconds**. Both operators recorded completed execution and successful persistence. The overall label was **`completed_with_errors`**.
 
 | Requested | Processed | Completed rows | Skipped rows | Remaining | Transaction errors |
-|---:|---:|---:|---:|---:|---:|
+| ---: | ---: | ---: | ---: | ---: | ---: |
 | 1,752 | 214 | 200 | 14 | 1,538 | 0 |
 
 The 214 processed customers are accounted for by 200 completions and 14 skips. Two of the skips were out of stock, one per operator (S04, S15). The code stops that operator’s list on out-of-stock. It gives a clean `completed` transaction status only when nobody remains and every terminal row is completed. Its transaction-error count is narrower and counts only `error` and `failed_puzzle_solve`. These rules explain why the report can have zero transaction errors and still say `completed_with_errors`. Evidence: `src/orchestration/transaction_processor.py:L95-L105`; `src/application/services/account_runner.py:L181-L198`; S22 run-summary readback.
@@ -160,7 +164,7 @@ This is evidence that the workflow ran and recorded sales that day. It does not 
 **F32 — VERIFIED paths; external use is UNVERIFIED.** A file can be optional, or run through a different command, and still be useful.
 
 | Kind | What it is for | Proof |
-|---|---|---|
+| --- | --- | --- |
 | Normal sale run | `main.py` starts the account work. Operator CSV/JSONL, summaries and run logs describe what happened. DB sync is optional. | `main.py:L273-L318,L338-L351`, `src/application/services/account_runner.py:L58-L86`, F12. |
 | Conditional part of that run | Log rotation is configured on the normal logging sinks. Debug tracing writes a ZIP when diagnostics are active and tracing has started. A rotated file or debug trace need not exist in every run. | `src/logging_utils.py:L179-L216`; `src/infrastructure/browser/playwright_session.py:L149-L172`; `src/infrastructure/interaction_diagnostics.py:L317-L329,L356-L361`. |
 | Separate command | `user_sessions.py` exports a session. Its profile directory and session JSONs belong to that command. It performs a different job from the routine sale report. | `user_sessions.py:L17-L18`, `src/application/use_cases/export_session.py:L65-L70`, `src/infrastructure/sessions/export_service.py:L423-L438`. |
@@ -169,7 +173,7 @@ This is evidence that the workflow ran and recorded sales that day. It does not 
 **F33 — PARTIAL dead-code assessment.** An offline scan of all **137 tracked Python files** counted **687 non-test function and method definitions**. It found 595 with a name reference in application code, 15 referenced by name only in tests, two with string references only, 54 special methods or `main` definitions, and **21 with no matching name reference**. This is a name-based scan: two different methods can share a name, and external callers or dynamic dispatch can escape it (R26). These numbers are leads for review, not deletion approval.
 
 | Example | What the evidence shows | Decision |
-|---|---|---|
+| --- | --- | --- |
 | `TransactionProcessor.process_all_niks` | The graph’s inbound trace returned zero. Source explicitly calls `processor.process_all_niks()` at `src/application/services/account_runner.py:L70`. The real processor factory is supplied at `main.py:L106-L108`. | **VERIFIED normal path.** Keep. |
 | `main._sync_report_to_database` | The function exists at `main.py:L64-L89`. The ordinary runner receives `DatabaseReportSyncer()` at line 108. Tests directly call the wrapper at `tests/contract/test_db_sync_lifecycle.py:L35-L38,L141-L143`. | **VERIFIED test-covered helper.** Keep its contract. |
 | `TransactionReporter.get_rows_by_status` | `src/web/reporter.py:L706-L708` defines the method. The repository search returned its definition alone and the graph found zero callers (R40, RG10). | **UNVERIFIED outside the tracked code.** Review as a possible cleanup. No deletion proposed. |
@@ -295,7 +299,7 @@ Imagine putting customer cards into four piles. The `WHERE` clause decides which
 **F37 — VERIFIED file inventory.** `db_query` contains three files in this review (B02). `basic query.sql` is the query notebook, `deduplicate.sql` is the maintenance script, and [schema backup.sql](<../db_query/schema backup.sql>) is the exported table layout documented in F39/F41. S01 and S08 cover the two notebook/maintenance files inspected earlier. Each file was read as text.
 
 | File and lines | What the SQL actually does |
-|---|---|
+| --- | --- |
 | `basic query.sql:L4-L52,L201-L249` | The Lowokwaru priority lists for Operator 1 and Operator 2 described above. |
 | `basic query.sql:L57-L88` | Combines both operator tables with a source-table label, then filters for Lowokwaru. The status and quota filters at lines 72–79 are commented out. This list can be broader than either main list; `MAX_KUOTA` is its first sort key. |
 | `basic query.sql:L92-L106,L253-L257,L349-L356` | Operator 1 has a fixed-date inspection and a single-customer lookup. Operator 2 has a newest-update-first inspection and a single-customer lookup. The last block searches a literal customer list across both tables with `UNION ALL`. Personal literals are omitted here. |
@@ -322,7 +326,7 @@ Both active lists contain two dummy 16-digit entries. **Zero of the four active 
 **F39 — VERIFIED for the supplied schema snapshot.** Both `public."OPERATOR_1"` and `public."OPERATOR_2"` have 14 columns. Each uses `NIK` as its own primary key, so a customer number can occur once in each table. The export identifies PostgreSQL **18.4** and `pg_dump` **18.4**. The dictionary below describes the exported tables. Column meanings come from the writer. [Schema backup](<../db_query/schema backup.sql>) (`L7-L8,L33-L48,L58-L73,L83-L84,L92-L93`); `src/infrastructure/database/operator_store.py:L293-L316,L972-L986`.
 
 | Column(s) | Type and default in the backup | Meaning in the writer |
-|---|---|---|
+| --- | --- | --- |
 | `NIK` | `BIGINT PRIMARY KEY` | One customer key within an operator table. Repeated writes can update that customer’s record. |
 | `OPERATOR` | `TEXT NOT NULL`, **no default** | Configured operator name. TaskBot binds it explicitly on insert (`src/infrastructure/database/operator_store.py:L307,L795-L800,L1186-L1189`). |
 | `NAMA_KONSUMER`, `JENIS_PENGGUNA` | `TEXT NOT NULL DEFAULT ''` each | Customer name and customer type taken from the report payload when available. |
