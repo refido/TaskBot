@@ -21,7 +21,7 @@ Recorded run, markdownlint-cli2 0.24.2, before commit:
 
 ```text
 npm run --silent lint:md
-Linting: 19 files
+Linting: 20 files
 Summary: 0 issues in 0 files
 ```
 
