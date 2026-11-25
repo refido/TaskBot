@@ -17,7 +17,8 @@ uv run --locked powershell -NoProfile -File (Join-Path $p 'suite.ps1') reference
 uv run --locked powershell -NoProfile -File (Join-Path $p 'pairs.ps1')
 uv run --locked python -I -B (Join-Path $p 'guide-permutations.py')
 uv run --locked powershell -NoProfile -File (Join-Path $p 'guide-query.ps1')
-uv run --locked powershell -NoProfile -File (Join-Path $p 'guide-lookups.ps1')
+# The original guide-lookups.ps1 parsed the README wording at beb593e.
+# For the revised operator 2 example, see the November 25 follow-up linked below.
 Set-Location (Join-Path $p 'current')
 uv run --locked mypy --no-incremental --config-file (Join-Path $p 'proposal.toml') .
 uv run --locked mypy --no-incremental --config-file (Join-Path $p 'narrow.toml') .
@@ -87,4 +88,4 @@ The baseline and candidate golden runs each printed `PASS 7 pairs, 56 business f
 
 Live-site and production database verification were **NOT RUN**. The local results describe the dummy shop and test data.
 
-**PARTIAL · Reader acceptance.** The executable readback passed. The owner has been asked to find the three values using only the README. Their independent answer is still pending.
+**PARTIAL · Reader acceptance.** The owner read the first version and requested clearer points. [The November 25 follow-up](2026-11-25-operator-quick-guide.md) records the revision. How easily the revised wording reads is **UNVERIFIED**.

@@ -4,9 +4,19 @@ TaskBot automates the complete LPG customer-sale workflow in a Playwright browse
 
 ## Find an operator’s input, result and quota
 
-1. **Who is on the list?** Operator 1 reads `NIK_1`, operator 2 reads `NIK_2`, and so on. Without a populated numbered account, the single-account setting is `NIK`. Commas separate entries. TaskBot trims spaces, drops empty entries and keeps their order and duplicates. The operator table stores results. [Account selection and numbered list](src/infrastructure/config/settings.py#L84) · [List parser](src/infrastructure/config/settings.py#L194)
-2. **What happened to one customer?** In the run folder, open `operators/<operator_id>/items.jsonl` and read the row’s `status`. The CSV contains the same terminal records after successful writes. A finished puzzle still needs a confirmed sale result. For the overall run, open `run_meta.json` and read its `status`. [Report paths](src/web/reporter.py#L958) · [Confirmation rule](src/application/models/transaction_outcome.py#L18) · [Reports](#reports)
-3. **Where did the quota go?** For a numbered operator, look in its PostgreSQL table, for example `OPERATOR_1`. `KUOTA` records the current count and `MAX_KUOTA` the recorded high-water value. A successful result supplies a delta of one and a skip supplies zero. The saved value also depends on the prior row, month and whether the sale receipt was already applied. [Report-to-DB mapping](src/infrastructure/database/operator_store.py#L300) · [Quota SQL](src/infrastructure/database/_operator_sql.py#L93) · [Interrupted quota writes](docs/2026-11-23-quota-crash-recovery.md)
+Here’s where to look for **operator 2** with the default report folder.
+
+1. **Who is on the list?** In the project’s `.env` file, look for `NIK_2`. It lists operator 2’s customer numbers in order.
+
+2. **Did the sale go through?**
+
+   - Open `operators/operator_02/items.jsonl` in the [run’s report folder](#reports).
+   - Find the customer’s line. If `status` is `completed`, TaskBot recorded a confirmed sale.
+
+3. **What is this customer’s quota?** In pgAdmin, open the `OPERATOR_2` table and find the customer’s row. Read these two columns:
+
+   - `KUOTA` is the current count for this customer.
+   - `MAX_KUOTA` is the highest count recorded for this customer.
 
 ## Features
 
@@ -253,6 +263,8 @@ On macOS/Linux, use `cp .env.example .env` for the last command.
 
 ## Configuration
 
+TaskBot uses the single-account `NIK` list when no numbered account is populated. For both formats, it splits the list at commas, trims spaces, drops empty entries and keeps duplicates in order. [Account selection](src/infrastructure/config/settings.py#L84) · [List parser](src/infrastructure/config/settings.py#L194)
+
 ```env
 URL_APPLICATION=https://your-app.example
 HEADLESS=True
@@ -351,6 +363,8 @@ The default directory is anchored to the project root even when TaskBot is launc
 Business milestones use INFO, locator diagnostics DEBUG, recoverable conditions WARNING, and terminal update failures ERROR. Structured `transaction.stage.*` events trace NIK submission, customer-state resolution, order check, sale submission, puzzle outcome, and completion. The exact monthly-limit warning is preserved in the terminal skip reason.
 
 ### PostgreSQL
+
+A confirmed sale adds one to the quota calculation. A skip adds zero. The stored count also depends on the prior row, the month and whether the sale receipt has already been applied. [Report-to-DB mapping](src/infrastructure/database/operator_store.py#L300) · [Quota SQL](src/infrastructure/database/_operator_sql.py#L93)
 
 ```env
 DB_HOST=localhost
