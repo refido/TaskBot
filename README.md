@@ -90,6 +90,7 @@ Mutation buttons are single-shot, and the precheck service—not the individual 
 
 Known unhappy paths use semantic text or roles rather than generated Mantine/CSS hashes: under-17, unregistered customer, invalid registered NIK, base restriction, unusual cross-base transaction, the distinct Usaha Mikro NIB reminder, the exact daily registration-request limit, monthly purchase limit, zero stock, and the exact failed-puzzle title. The daily-limit state has terminal priority even when it overlaps an update form, confirmation, or success screen; it maps to database status `429` with zero quota delta. A blocker that disappears between detection and handling is resolved again; it cannot silently skip a NIK without a terminal report.
 
+<!-- markdownlint-disable-next-line MD033 -- stable link target; differs from the heading slug -->
 <a id="complete-workflow-catalogue"></a>
 
 ## Workflow catalogue

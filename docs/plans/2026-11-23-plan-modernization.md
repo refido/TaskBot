@@ -447,7 +447,7 @@ For each implementation phase, capture the full suite before and after, includin
 <details>
 <summary>November 23 readiness checks, exact commands and selected output</summary>
 
-**P01**
+##### P01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -457,7 +457,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 **No claim without proof.**
 ```
 
-**P02**
+##### P02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -469,7 +469,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**P03**
+##### P03
 
 ```powershell
 git rev-parse --short HEAD
@@ -479,7 +479,7 @@ git rev-parse --short HEAD
 2e781dc
 ```
 
-**P04**
+##### P04
 
 ```powershell
 rg -n -A 14 '^### Phase 1 acceptance procedure|^## 5\. Risks and owner questions|^### What C7 and a fixture mean' docs/MODERNIZATION_PLAN.md
@@ -491,7 +491,7 @@ rg -n -A 14 '^### Phase 1 acceptance procedure|^## 5\. Risks and owner questions
 404-5. **Measure time and memory.** Start with the small correctness examples. For reporting alone, benchmark 224 and 1,036 synthetic terminal rows as archive-informed sizes. Optionally add 10,000 rows as a stress test labeled separately. Run one warm-up and five measured repetitions per size on the same machine with the same DB starting state. Record wall time, output bytes, row count, raw samples, median and range. Measure the local workflow separately. Sample the simultaneous memory use of Python and its browser/driver children throughout the run, record the sampling interval and counter, and report DB memory separately. Keep history from F31 as context. It supplies no before/after speed comparison or peak-memory baseline.
 ```
 
-**P05**
+##### P05
 
 ```powershell
 rg -n -i 'phase 1|TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pattern 'safety net|current checkout|modernization plan|golden.master|phase 1 acceptance' | Select-Object -First 3
@@ -501,7 +501,7 @@ rg -n -i 'phase 1|TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-St
 (no output)
 ```
 
-**P06**
+##### P06
 
 ```powershell
 rg --files tests | rg -i 'golden|baseline|benchmark|fixture|test_transaction_confirmation'
@@ -511,7 +511,7 @@ rg --files tests | rg -i 'golden|baseline|benchmark|fixture|test_transaction_con
 tests\integration\test_transaction_confirmation.py
 ```
 
-**P07**
+##### P07
 
 ```powershell
 rg -n '^\[|requires-python|pytest' pyproject.toml pytest.ini
@@ -522,7 +522,7 @@ pyproject.toml:6:requires-python = ">=3.14"
 pytest.ini:1:[pytest]
 ```
 
-**P08**
+##### P08
 
 ```powershell
 @'
@@ -544,7 +544,7 @@ latest saved run date 20261121
 20261123 run summaries 0
 ```
 
-**P09**
+##### P09
 
 ```powershell
 git ls-files -- '*golden*' '*benchmark*' '*baseline*' '*junit*' '*compose*.yml' '*compose*.yaml'
@@ -554,7 +554,7 @@ git ls-files -- '*golden*' '*benchmark*' '*baseline*' '*junit*' '*compose*.yml' 
 (no output)
 ```
 
-**P10**
+##### P10
 
 ```powershell
 rg -n -i 'golden|test_legacy_outputs|def .*benchmark' tests/contract/test_reporter_aggregation.py
@@ -565,7 +565,7 @@ rg -n -i 'golden|test_legacy_outputs|def .*benchmark' tests/contract/test_report
 142:    assert actual == json.loads(GOLDEN.read_text(encoding="utf-8"))[key]
 ```
 
-**P11**
+##### P11
 
 ```powershell
 rg -n -i 'https?://|base_url|login_url|dashboard_url|env_file|dotenv|storage_state' main.py src/infrastructure/config src/orchestration/account_runner.py | ForEach-Object { $_ -replace 'https?://[^\s"\x27]+', '[URL]' } | Select-Object -First 45
@@ -576,7 +576,7 @@ rg: src/orchestration/account_runner.py: The system cannot find the file specifi
 main.py:275:    load_environment(dotenv_path=Path(__file__).resolve().with_name(".env"))
 ```
 
-**P12**
+##### P12
 
 ```powershell
 rg -n -i --glob '*.py' 'https?://|\bBASE_URL\b|\bLOGIN_URL\b|\bDASHBOARD_URL\b' src | ForEach-Object { $_ -replace 'https?://[^\s"\x27]+', '[URL]' } | Select-Object -First 50
@@ -586,7 +586,7 @@ rg -n -i --glob '*.py' 'https?://|\bBASE_URL\b|\bLOGIN_URL\b|\bDASHBOARD_URL\b' 
 (no output)
 ```
 
-**P13**
+##### P13
 
 ```powershell
 rg --files src | rg 'account_runner|browser_session|login_page|session_recovery'
@@ -596,7 +596,7 @@ rg --files src | rg 'account_runner|browser_session|login_page|session_recovery'
 src\application\services\account_runner.py
 ```
 
-**P14**
+##### P14
 
 ```powershell
 rg -n 'class |def test_|set_content\(|wait_for_transaction_outcome|success_confirmed' tests/integration/test_transaction_confirmation.py | Select-Object -Last 7
@@ -607,7 +607,7 @@ rg -n 'class |def test_|set_content\(|wait_for_transaction_outcome|success_confi
 38:    assert outcome.success_confirmed is (status == "completed")
 ```
 
-**P15**
+##### P15
 
 ```powershell
 rg -n -i 'static|golden|unverified|training shop' docs/MODERNIZATION_PLAN.md | Select-String -Pattern '^44[1-9]:' | ForEach-Object { $_.Line.Substring(0, [Math]::Min(350, $_.Line.Length)) }
@@ -617,7 +617,7 @@ rg -n -i 'static|golden|unverified|training shop' docs/MODERNIZATION_PLAN.md | S
 447:**Later decisions.** The owner identified the primary Lowokwaru recipe. The intended outside-region query per operator, treatment of waiting rows, and order of exact ties still need a business decision. Before removing a file, SQL utility or old schema support, identify its users. Peak memory, deployed version, live schema, DB membership and C7
 ```
 
-**P16**
+##### P16
 
 ```powershell
 rg -n -i 'goto|\burl\b|storage_state|profile|\.login\(' src/infrastructure/browser/page_objects/login_page.py src/infrastructure/browser/playwright_session.py src/application/services/session_recovery.py src/application/services/account_runner.py | Select-Object -First 52
@@ -628,7 +628,7 @@ src/application/services/session_recovery.py:68:        self.page.goto(self.conf
 src/infrastructure/browser/playwright_session.py:122:        page.goto(self.config.url_application)
 ```
 
-**P17**
+##### P17
 
 ```powershell
 rg -n -i 'URL|WEBSITE|DOMAIN|HOST|DB_NAME|USER_DATA' src/infrastructure/config/settings.py main.py
@@ -638,7 +638,7 @@ rg -n -i 'URL|WEBSITE|DOMAIN|HOST|DB_NAME|USER_DATA' src/infrastructure/config/s
 src/infrastructure/config/settings.py:43:        url_application = source.get("URL_APPLICATION", "").strip()
 ```
 
-**P18**
+##### P18
 
 ```powershell
 rg -n 'PYTHON_DOTENV_DISABLED|if load_env_file|os.environ|dotenv_path=Path' src/infrastructure/config/environment.py main.py | Select-Object -First 14
@@ -674,7 +674,7 @@ check_index_coverage({"project":"D-MyProject-TaskBot","paths":["AGENTS.md","docs
 "freshness":"metadata_changed"
 ```
 
-**P19**
+##### P19
 
 ```powershell
 @'
@@ -697,7 +697,7 @@ print("Readiness section, three findings, baseline checks and three configuratio
 Readiness section, three findings, baseline checks and three configuration references verified.
 ```
 
-**P20**
+##### P20
 
 ```powershell
 git diff --stat
@@ -710,7 +710,7 @@ git diff --stat
 
 P02 gave the same working-tree status before and after the documentation edit. The tracked diff above is the existing `.gitignore` change. Git lists the plan as untracked.
 
-**P21**
+##### P21
 
 ```powershell
 rg -n '^#### Ready to start implementation\?|^\*\*Owner input for the end-to-end check|^\*\*When to change the application|^\*\*P19\*\*|^## 0\. Owner' docs/MODERNIZATION_PLAN.md | ForEach-Object { $_.Substring(0, [Math]::Min(78, $_.Length)) }
@@ -729,7 +729,7 @@ rg -n '^#### Ready to start implementation\?|^\*\*Owner input for the end-to-end
 The [database plan](2026-11-25-plan-database-customer-selection.md) and [project structure plan](2026-11-25-plan-project-structure.md) take the following proposals into separate, reviewable phases. The owner approved pinning development tools and adding CI in a future phase. The current revision changes documentation only.
 
 | Idea | First small version | What must be true before adoption |
-|---|---|---|
+| --- | --- | --- |
 | **Choose customers from the DB** | Document the existing operator-specific selection recipes first (F36–F38). Resolve the reversed headers, decide what the lowest priority means and which operator/region was intended, then trial a synthetic assigned list. | Compare membership, order, same-priority ties, duplicates, two regions, quota boundary and stop/skip behavior with the current configured list. Require separate approval before changing the source used by the runner. F4, F13, F23, F29, F36–F39. |
 | **Make daily use easier** | Lowest-effort option: a desktop shortcut to a **local report viewer** so the operator can open a status/summary without opening the project. A small local GUI can later let an operator choose a practice workspace, review the list and open an operator-led workflow from one screen. Start with viewing finished runs and remaining work. A shortcut is simpler; a GUI is easier to browse but adds maintenance. | Ask an operator to find the last result and distinguish completed, skipped, failed and unfinished work. Use existing public report files. A write-capable operator workflow is a separate product decision. F12, F18, F31, F34. |
 | **Separate database, backend API and UI** | If several people or machines need shared access, start with read-only summaries: the UI asks the backend for status and totals; the backend reads the approved data. Keep DB credentials on the backend and customer-level details out of summary responses. A hosted API adds access control, deployment and support work that a local viewer avoids. | Establish who can see which operator’s data and which reports are authoritative. Compare the API’s values with existing public reports for the same synthetic run. Keep raw session exports out of the API. F5, F12, F29, F32, F34. |
@@ -739,7 +739,7 @@ The [database plan](2026-11-25-plan-database-customer-selection.md) and [project
 ### Documentation plan for future changes
 
 | Deliverable | First version in this document | How a later revision earns acceptance |
-|---|---|---|
+| --- | --- | --- |
 | **Query guide** | F36–F37 map every query family to a file and line, distinguish reads from maintenance writes, and record the two reversed region labels. | The owner identifies the intended inside/outside blocks per operator and whether rank 3 is selectable or merely displayed. Compare dummy cases for both regions, quota 5/6, month/day boundaries and tied sort keys. Record observed order and unresolved ties. Any SQL correction is a separate approved change. |
 | **DB dictionary** | F39/F41 document the supplied PostgreSQL 18.4 snapshot and its two differences from fresh-table creation. | When the schema changes, compare a new schema-only export against B04/B11. Check names, types, defaults, nullability, primary keys, additional objects and ordinal positions. For a later approved test run, cover both layouts with synthetic rows. |
 | **Dummy-input guide** | F38 shows which assignments are enabled and which are examples. | Add an explicitly synthetic inside/outside pair in a future test-fixture change. Show that the chosen list preserves order and that the operator label agrees with its test data. |
@@ -775,7 +775,7 @@ Likelihood and impact are planning estimates, grounded in the cited findings.
 
 The following PowerShell commands ran in `D:\MyProject\TaskBot`. Each entry gives the exact command and a trimmed output excerpt. Empty output is marked explicitly. Commands 01–90 belong to the audit, and 91–94 recheck the instructions, worktree, destination and revision before saving. Source inspection of a utility is distinct from invoking it. Command 03 located earlier context and is included for provenance. All repository findings above use current source or command output.
 
-**01**
+### 01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md
@@ -786,7 +786,7 @@ Get-Content -LiteralPath AGENTS.md
 - Never read, print, or modify `.env`. Use `.env.example` / `.env.test` only.
 ```
 
-**02**
+### 02
 
 ```powershell
 Get-Content -LiteralPath C:/Users/user/.agents/skills/codebase-memory/SKILL.md
@@ -796,7 +796,7 @@ Get-Content -LiteralPath C:/Users/user/.agents/skills/codebase-memory/SKILL.md
 Get-Content : Access is denied
 ```
 
-**03**
+### 03
 
 ```powershell
 rg -n -i "TaskBot|transaction_processor" C:/Users/user/.codex/memories/MEMORY.md | Select-Object -First 12
@@ -806,7 +806,7 @@ rg -n -i "TaskBot|transaction_processor" C:/Users/user/.codex/memories/MEMORY.md
 1914:# Task Group: TaskBot NIK parsing, mismatch handling, reporting, and recovery semantics
 ```
 
-**04**
+### 04
 
 ```powershell
 git status --short --branch
@@ -817,7 +817,7 @@ git status --short --branch
  M .gitignore
 ```
 
-**05**
+### 05
 
 ```powershell
 git ls-files -- . ":(exclude).env*" ":(exclude)**/.env*"
@@ -829,7 +829,7 @@ tests/contract/test_db_sync_lifecycle.py
 uv.lock
 ```
 
-**06**
+### 06
 
 ```powershell
 git log -10 --date=short --format="%h %ad %s"
@@ -839,7 +839,7 @@ git log -10 --date=short --format="%h %ad %s"
 2e781dc 2026-11-22 Merge pull request #17 from refido/big_data
 ```
 
-**07**
+### 07
 
 ```powershell
 Get-Content -LiteralPath C:/Users/user/.codex/skills/codebase-memory/SKILL.md
@@ -849,7 +849,7 @@ Get-Content -LiteralPath C:/Users/user/.codex/skills/codebase-memory/SKILL.md
 Get-Content : Access is denied
 ```
 
-**08**
+### 08
 
 ```powershell
 Get-ChildItem -Force -Name
@@ -860,7 +860,7 @@ README.md
 AGENTS.md
 ```
 
-**09**
+### 09
 
 ```powershell
 rg --files --hidden --no-ignore docs -g "*.md"
@@ -870,7 +870,7 @@ rg --files --hidden --no-ignore docs -g "*.md"
 rg: docs: IO error for operation on docs: The system cannot find the file specified. (os error 2)
 ```
 
-**10**
+### 10
 
 ```powershell
 git log --format="%h %ad %s" --date=short -- requirements.txt pyproject.toml | Select-Object -Last 18
@@ -880,7 +880,7 @@ git log --format="%h %ad %s" --date=short -- requirements.txt pyproject.toml | S
 242c83d 2026-01-17 Migrate to UV
 ```
 
-**11**
+### 11
 
 ```powershell
 git check-ignore -v AGENTS.md docs/MODERNIZATION_PLAN.md
@@ -890,7 +890,7 @@ git check-ignore -v AGENTS.md docs/MODERNIZATION_PLAN.md
 .gitignore:175:AGENTS.md	AGENTS.md
 ```
 
-**12**
+### 12
 
 ```powershell
 git ls-files -- .github .pre-commit-config.yaml .python-version .env.example .env.test
@@ -901,7 +901,7 @@ git ls-files -- .github .pre-commit-config.yaml .python-version .env.example .en
 .python-version
 ```
 
-**13**
+### 13
 
 ```powershell
 Get-Content -LiteralPath C:/Users/user/.codex/skills/codebase-memory/SKILL.md
@@ -911,7 +911,7 @@ Get-Content -LiteralPath C:/Users/user/.codex/skills/codebase-memory/SKILL.md
 ## Evidence Tiers
 ```
 
-**14**
+### 14
 
 ```powershell
 rg -n "^" pyproject.toml .python-version pytest.ini
@@ -923,7 +923,7 @@ pytest.ini:3:    tests/unit
 .python-version:1:3.14
 ```
 
-**15**
+### 15
 
 ```powershell
 rg -n "^(version = 1$|revision =|requires-python =|name =|\[package.metadata\]|\[package.dev-dependencies\])" uv.lock
@@ -934,7 +934,7 @@ rg -n "^(version = 1$|revision =|requires-python =|name =|\[package.metadata\]|\
 357:[package.dev-dependencies]
 ```
 
-**16**
+### 16
 
 ```powershell
 git show --format="%h %as %s" --name-status 242c83d -- requirements.txt pyproject.toml uv.lock .python-version README.md
@@ -946,7 +946,7 @@ D	requirements.txt
 A	uv.lock
 ```
 
-**17**
+### 17
 
 ```powershell
 rg -n "getenv|environ\b|dotenv|env_(bool|int|float|str)|read_env" -g "*.py" src main.py user_sessions.py nik_parser.py inspect_env.py scripts
@@ -957,7 +957,7 @@ src\infrastructure\config\environment.py:54:    return {**values, **os.environ}
 main.py:275:    load_environment(dotenv_path=Path(__file__).resolve().with_name(".env"))
 ```
 
-**18**
+### 18
 
 ```powershell
 rg -n "CREATE TABLE|ALTER TABLE|INSERT INTO|UPDATE |DELETE FROM|SELECT |TRUNCATE|DROP TABLE|ON CONFLICT|REFERENCES" src/infrastructure/database scripts/db_management.py
@@ -968,7 +968,7 @@ src/infrastructure/database\operator_store.py:864:                SELECT {last_t
 src/infrastructure/database\operator_store.py:1206:            ON CONFLICT ({nik}) DO UPDATE SET
 ```
 
-**19**
+### 19
 
 ```powershell
 rg -n "\.write_text\(|\.write_bytes\(|\.open\(|\bopen\(|json\.dump\(|to_csv\(|DictWriter\(|logger\.add\(|\.imwrite\(|\.screenshot\(|\.save\(|storage_state\(|tracing\.stop\(|record_video" -g "*.py" main.py user_sessions.py nik_parser.py inspect_env.py src scripts
@@ -979,7 +979,7 @@ src\infrastructure\reporting\file_writer.py:52:            writer = csv.DictWrit
 main.py:189:    temporary_path.write_text(
 ```
 
-**20**
+### 20
 
 ```powershell
 rg -n "^#|^[-*] |^\|[^|]+\|" README.md CLAUDE.md | ForEach-Object { $_ -replace '(?i)https?://\S+|[\w.+-]+@[\w.-]+|\d{8,}','[redacted]' }
@@ -989,7 +989,7 @@ rg -n "^#|^[-*] |^\|[^|]+\|" README.md CLAUDE.md | ForEach-Object { $_ -replace 
 README.md:76:## Complete workflow catalogue
 ```
 
-**21**
+### 21
 
 ```powershell
 rg -n "source\.get|source\[|_ENV ?=|DEFAULT_|_parse_|\benviron\.get|prefix|suffix|_nonnegative_env_float|[A-Z_]{5,}\"" src/infrastructure/config/settings.py src/infrastructure/config/environment.py src/infrastructure/database/operator_store.py src/infrastructure/interaction_diagnostics.py main.py | Select-String -Pattern "source\.get|source\[|_ENV ?=|environ\.get|CUSTOMER_UPDATE_|[A-Z_]{5,}\x22,?$|prefix in|operator_setting =|source,$"
@@ -999,7 +999,7 @@ rg -n "source\.get|source\[|_ENV ?=|DEFAULT_|_parse_|\benviron\.get|prefix|suffi
 Missing ] at end of attribute or type literal.
 ```
 
-**22**
+### 22
 
 ```powershell
 rg -n "^" src/infrastructure/reporting/file_writer.py src/application/dto/run_context.py src/path_utils.py
@@ -1010,7 +1010,7 @@ src/infrastructure/reporting/file_writer.py:59:        self._append_to_csv(row)
 src/infrastructure/reporting/file_writer.py:60:        self._append_to_jsonl(row)
 ```
 
-**23**
+### 23
 
 ```powershell
 rg -n "path|\.json|\.csv|\.txt|\.log|prepare_files|write_|append_|ReportFileWriter" src/web/reporter.py src/logging_utils.py main.py src/infrastructure/sessions/export_service.py src/infrastructure/interaction_diagnostics.py | Select-String -Pattern " / |\.csv|\.json|\.txt|\.log(?!g)|\.zip|\.png|\.jpg|FileWriter|\.replace\(|write_failed|\.write_|logger\.add"
@@ -1021,7 +1021,7 @@ main.py:187:    meta_path = run_dir / "run_meta.json"
 src/logging_utils.py:151:    application_log_path = root / "application.log"
 ```
 
-**24**
+### 24
 
 ```powershell
 rg -n "^class |^def |^    def |INSERT INTO|CREATE TABLE|CREATE DATABASE|DEFAULT|= sql.Identifier|current_schema|DELETE FROM|TRUNCATE|DROP " src/infrastructure/database/operator_store.py
@@ -1031,7 +1031,7 @@ rg -n "^class |^def |^    def |INSERT INTO|CREATE TABLE|CREATE DATABASE|DEFAULT|
 986:                {created_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
-**25**
+### 25
 
 ```powershell
 rg -n "^(def |    def |if __name__)|run_account\(|\.run\(|get_.*quota|sync_|\.complete\(|\.finalize\(|TransactionReporter\(|\.close\(|process_nik|futures|ThreadPoolExecutor" main.py src/application/services/account_runner.py src/application/use_cases/process_account.py src/infrastructure/database/report_syncer.py user_sessions.py scripts/db_management.py
@@ -1041,7 +1041,7 @@ rg -n "^(def |    def |if __name__)|run_account\(|\.run\(|get_.*quota|sync_|\.co
 src/application/services/account_runner.py:58:            batch_sync_configured = self._configure_batch_sync(reporter)
 ```
 
-**26**
+### 26
 
 ```powershell
 rg -n 'source\.get|source\[|_ENV =|CUSTOMER_UPDATE_|operator_setting =|_collect_operator|startswith\(|environ\.get|^\s*"[A-Z_]+",?$' src/infrastructure/config/settings.py src/infrastructure/config/environment.py src/infrastructure/database/operator_store.py src/infrastructure/interaction_diagnostics.py main.py
@@ -1052,7 +1052,7 @@ src/infrastructure/config/settings.py:43:        url_application = source.get("U
 src/infrastructure/database/operator_store.py:139:        password = source["DB_PASSWORD"]
 ```
 
-**27**
+### 27
 
 ```powershell
 rg -n '^(?:#\s*)?([A-Z][A-Z_0-9]+)\s*=' --only-matching .env.example
@@ -1064,7 +1064,7 @@ rg -n '^(?:#\s*)?([A-Z][A-Z_0-9]+)\s*=' --only-matching .env.example
 55:NAME_OPERATORS_2=
 ```
 
-**28**
+### 28
 
 ```powershell
 rg -n '(^\s+[^#].*(source|config\.|account\.|value|prefix|table_name|suffix|enabled)|^class |^def )' src/infrastructure/config/settings.py | Select-Object -First 115
@@ -1074,7 +1074,7 @@ rg -n '(^\s+[^#].*(source|config\.|account\.|value|prefix|table_name|suffix|enab
 158:        return sorted(suffixes, key=lambda value: int(value))
 ```
 
-**29**
+### 29
 
 ```powershell
 rg -n '(_path|_dir|db_sync|DB_|nik_mask|from_env|run_context|os\.|create\()' src/config.py src/application/dto/run_context.py src/path_utils.py src/privacy.py
@@ -1084,7 +1084,7 @@ rg -n '(_path|_dir|db_sync|DB_|nik_mask|from_env|run_context|os\.|create\()' src
 src/config.py:40:        set_nik_masking(self._settings.mask_nik)
 ```
 
-**30**
+### 30
 
 ```powershell
 rg -n 'get_|setdefault|os\.environ|env\(|[A-Z]{2,}_[A-Z]+|dotenv_values\(' inspect_env.py src/infrastructure/config/environment.py src/infrastructure/config/settings.py src/infrastructure/database/operator_store.py | Select-String -Pattern 'source\.get|os\.environ|os\.getenv|DOTENV_|^[^:]+:(1[2-4][0-9]|1[89][0-9]|2[01][0-9]|[34][0-9]|[56][0-9]|7[0-9]):.*\b[A-Z]+_[A-Z_]+|inspect_env.py'
@@ -1094,7 +1094,7 @@ rg -n 'get_|setdefault|os\.environ|env\(|[A-Z]{2,}_[A-Z]+|dotenv_values\(' inspe
 src/infrastructure/database/operator_store.py:145:            user=source["DB_USER"].strip(),
 ```
 
-**31**
+### 31
 
 ```powershell
 rg -n 'CREATE TABLE|\{nik\} BIGINT|TIMESTAMP|ON CONFLICT|_find_previous_transaction\(|previous_report|cursor\.execute\(|connection\.commit\(|reset_monthly_quotas\(|table_name=|table_pattern|DEFAULT_TABLE|DEFAULT_OPERATOR|legacy|INSERT INTO|_operator_table_names' src/infrastructure/database/operator_store.py | Select-Object -First 110
@@ -1105,7 +1105,7 @@ rg -n 'CREATE TABLE|\{nik\} BIGINT|TIMESTAMP|ON CONFLICT|_find_previous_transact
 1206:            ON CONFLICT ({nik}) DO UPDATE SET
 ```
 
-**32**
+### 32
 
 ```powershell
 rg -n --no-heading --with-filename '^' src/application/dto/run_context.py src/infrastructure/config/environment.py src/application/services/account_runner.py src/application/use_cases/process_account.py
@@ -1116,7 +1116,7 @@ src/application/use_cases/process_account.py:47:            executor.submit(run_
 src/application/use_cases/process_account.py:53:        for future in as_completed(future_to_operator_id):
 ```
 
-**33**
+### 33
 
 ```powershell
 rg -n --no-heading --with-filename 'write|_dir\s*=|strftime|fingerprint|before|batch_size|batch_sync|pending|self\.rows|self\..*append\(|def (finish|log_|record|finalize|_append)|TransactionReporter|_write_run_meta' src/web/reporter.py src/infrastructure/database/report_syncer.py main.py src/infrastructure/sessions/export_service.py
@@ -1126,7 +1126,7 @@ rg -n --no-heading --with-filename 'write|_dir\s*=|strftime|fingerprint|before|b
 src/web/reporter.py:1097:            self.file_writer.append_row(row)
 ```
 
-**34**
+### 34
 
 ```powershell
 rg -n '^(?!\s*(?:DB_(?:HOST|PASSWORD|USER|NAME)|(?:EMAIL|PIN|NIK)(?:_\d+)?|URL_APPLICATION|NAME_OPERATORS_\d+)\s*=).*' --pcre2 README.md | Where-Object { [int]($_ -split ':',2)[0] -ge 209 } | ForEach-Object { $_ -replace 'https?://\S+|[\w.+-]+@[\w.-]+|\d{8,}','[redacted]' }
@@ -1136,7 +1136,7 @@ rg -n '^(?!\s*(?:DB_(?:HOST|PASSWORD|USER|NAME)|(?:EMAIL|PIN|NIK)(?:_\d+)?|URL_A
 357:At runtime, every terminal `TransactionRow` is appended and fsynced locally, then submitted as a one-row DB transaction through the account's persistent connection. A skipped or unresolved DB row is treated as a sync failure rather than acknowledged. The pending row remains available for final retry and the account is marked unsuccessful if persistence still fails. Consent, update, restart, workflow, and retry events never enter the transaction table.
 ```
 
-**35**
+### 35
 
 ```powershell
 rg -n -o 'def test_[A-Za-z_0-9]+' tests/contract | Select-String -Pattern 'golden|legacy|sync|initialization|run_status|reporter|entrypoint|flush|commit|monthly|retry' | Select-Object -First 65
@@ -1147,7 +1147,7 @@ tests/contract\test_reporter_aggregation.py:131:def test_legacy_outputs
 tests/contract\test_reporter_aggregation.py:226:def test_file_failure_does_not_advance_cache
 ```
 
-**36**
+### 36
 
 ```powershell
 git ls-files 'tests/*/test_*.py' | Group-Object { ($_ -split '/')[1] } | Select-Object Count,Name
@@ -1159,7 +1159,7 @@ git ls-files 'tests/*/test_*.py' | Group-Object { ($_ -split '/')[1] } | Select-
    27 unit       
 ```
 
-**37**
+### 37
 
 ```powershell
 git show 242c83d^:README.md | Select-String -Pattern 'pip install' | Select-Object -First 3
@@ -1169,7 +1169,7 @@ git show 242c83d^:README.md | Select-String -Pattern 'pip install' | Select-Obje
 pip install -r requirements.txt
 ```
 
-**38**
+### 38
 
 ```powershell
 uv --version
@@ -1179,7 +1179,7 @@ uv --version
 uv 0.9.26 (ee4f00362 2026-01-15)
 ```
 
-**39**
+### 39
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B -S --version
@@ -1189,7 +1189,7 @@ uv 0.9.26 (ee4f00362 2026-01-15)
 Python 3.14.2
 ```
 
-**40**
+### 40
 
 ```powershell
 rg -n 'table_name\s*=|except |\.commit\(|with conn|month_start|SET \{kuota\}|COALESCE\(|CASE WHEN|\.fetchone\(|\.fetchall\(' src/infrastructure/database/operator_store.py
@@ -1199,7 +1199,7 @@ rg -n 'table_name\s*=|except |\.commit\(|with conn|month_start|SET \{kuota\}|COA
 194:            table_name = f"OPERATOR_{suffix}"
 ```
 
-**41**
+### 41
 
 ```powershell
 rg -n 'reports|sessions|output_dir|artifact_dir|\.json|\.zip|\.png|trace_path =|screenshot_dir =|operator_slug' src/application/use_cases/export_session.py src/infrastructure/sessions/export_service.py src/infrastructure/interaction_diagnostics.py src/pipelines/slider/artifacts.py src/orchestration/transaction_processor.py | Select-String -Pattern 'Path\(| / |\.zip|\.png|meta\.json|\.strftime|output_dir\s*=|operator_slug\s*='
@@ -1209,7 +1209,7 @@ rg -n 'reports|sessions|output_dir|artifact_dir|\.json|\.zip|\.png|trace_path =|
 src/pipelines/slider/artifacts.py:216:        (output_dir / "meta.json").write_text(
 ```
 
-**42**
+### 42
 
 ```powershell
 rg -n '^class |^\s*(self\.|with self\.|finally:|except |processor\.|session\.|close_|reporter\.)' src/application/services/account_runner.py | Select-Object -First 115
@@ -1220,7 +1220,7 @@ rg -n '^class |^\s*(self\.|with self\.|finally:|except |processor\.|session\.|cl
 101:                        reporter.flush_pending_batches()
 ```
 
-**43**
+### 43
 
 ```powershell
 rg -n 'def run_account|def _build_account_runner|process_account\(|reporter_factory|browser_session_factory|transaction_processor_factory|report_syncer|run_account=|__main__|main\(\)$|_write_run_meta\(' main.py
@@ -1230,7 +1230,7 @@ rg -n 'def run_account|def _build_account_runner|process_account\(|reporter_fact
 108:        report_syncer=DatabaseReportSyncer(),
 ```
 
-**44**
+### 44
 
 ```powershell
 rg -n 'sqlite3|\.connect\(|with playwright|Fake|monkeypatch|golden|fixture|psycopg2\.connect|\.read_text\(|json\.loads|assert .*(expected|golden)|\.set_content\(' tests/contract/test_reporter_aggregation.py tests/contract/test_database_setup_lifecycle.py tests/integration/test_entrypoints.py | Select-Object -First 60
@@ -1240,7 +1240,7 @@ rg -n 'sqlite3|\.connect\(|with playwright|Fake|monkeypatch|golden|fixture|psyco
 tests/contract/test_reporter_aggregation.py:142:    assert actual == json.loads(GOLDEN.read_text(encoding="utf-8"))[key]
 ```
 
-**45**
+### 45
 
 ```powershell
 rg -n 'global |Lock\(|^_[A-Z_]+\s*=|register_private_values|def public_|from typing import|Optional\[|List\[|Dict\[|Union\[|\.evaluate\(' src/privacy.py src/logging_utils.py src/web/reporter.py nik_parser.py src/infrastructure/browser/page_objects/base_page.py src/infrastructure/database/operator_store.py | Select-Object -First 65
@@ -1250,7 +1250,7 @@ rg -n 'global |Lock\(|^_[A-Z_]+\s*=|register_private_values|def public_|from typ
 src/privacy.py:22:    global _mask_nik
 ```
 
-**46**
+### 46
 
 ```powershell
 rg -n '^\s*def |\.read_text|\.loads|\.get\(|lru_cache' nik_parser.py | Select-Object -First 50
@@ -1260,7 +1260,7 @@ rg -n '^\s*def |\.read_text|\.loads|\.get\(|lru_cache' nik_parser.py | Select-Ob
 77:@lru_cache(maxsize=4)
 ```
 
-**47**
+### 47
 
 ```powershell
 rg -n 'def .*|= \[|public_row_payload|\.rows|fallback|_sync|\.clear\(|fsync|except OSError' src/web/reporter.py | Select-String -Pattern 'write_files|public_row_payload|self\.rows|_write_jsonl|_append_event|fsync|_write_meta|\.clear\(|except OSError' | Select-Object -First 60
@@ -1270,7 +1270,7 @@ rg -n 'def .*|= \[|public_row_payload|\.rows|fallback|_sync|\.clear\(|fsync|exce
 652:            "items": [self.file_writer.public_row_payload(r) for r in self.rows],
 ```
 
-**48**
+### 48
 
 ```powershell
 rg -n -A1 '^name = "?(loguru|numpy|opencv-python|pillow|playwright|psycopg2-binary|python-dotenv|pytest|pytest-base-url|pytest-playwright)\b' uv.lock
@@ -1280,7 +1280,7 @@ rg -n -A1 '^name = "?(loguru|numpy|opencv-python|pillow|playwright|psycopg2-bina
 [no stdout]
 ```
 
-**49**
+### 49
 
 ```powershell
 rg -n -A1 '^name =' uv.lock
@@ -1293,7 +1293,7 @@ rg -n -A1 '^name =' uv.lock
 309-version = "1.2.1"
 ```
 
-**50**
+### 50
 
 ```powershell
 rg -n 'precheck|session|SKIP|RESTART|CONTINUE|cannot_transact|fraud|mismatch' src/application/models/customer_workflow.py src/application/services/transaction_prechecks.py src/infrastructure/reporting/classification.py | Select-String -Pattern 'SKIP_REQUIRES_RECOVERY|class .*Decision|NIK_MISMATCH|FRAUD|CANNOT_TRANSACT' | Select-Object -First 18
@@ -1303,7 +1303,7 @@ rg -n 'precheck|session|SKIP|RESTART|CONTINUE|cannot_transact|fraud|mismatch' sr
 src/application/models/customer_workflow.py:13:    SKIP_REQUIRES_RECOVERY = "skip_requires_recovery"
 ```
 
-**51**
+### 51
 
 ```powershell
 rg -n 'from typing import.*(List|Dict|Optional|Tuple)|\b(List|Dict|Optional|Tuple)\[' -g '*.py' src main.py user_sessions.py nik_parser.py scripts | Select-Object -First 15
@@ -1313,7 +1313,7 @@ rg -n 'from typing import.*(List|Dict|Optional|Tuple)|\b(List|Dict|Optional|Tupl
 src\infrastructure\reporting\analytics.py:6:from typing import Any, DefaultDict
 ```
 
-**52**
+### 52
 
 ```powershell
 rg -n 'evaluate\(|=>|SELECT|from .* import|\.set_content\(' src/infrastructure/browser/page_objects/base_page.py src/infrastructure/browser/precheck_observer.py | Select-String -Pattern '=>|evaluate\(' | Select-Object -First 8
@@ -1323,7 +1323,7 @@ rg -n 'evaluate\(|=>|SELECT|from .* import|\.set_content\(' src/infrastructure/b
 [no stdout]
 ```
 
-**53**
+### 53
 
 ```powershell
 rg -n 'def |\.get\(' inspect_env.py
@@ -1333,7 +1333,7 @@ rg -n 'def |\.get\(' inspect_env.py
 [no stdout]
 ```
 
-**54**
+### 54
 
 ```powershell
 rg -n '\.json|\.csv|\.log|\.txt|\.zip|\.png|\.jpg|mkstemp|TemporaryDirectory' -g '*.py' src main.py user_sessions.py scripts | Where-Object { $_ -match '(\.json[l]?|\.csv|\.log|\.txt|\.zip|\.png|\.jpg)["\x27/}]|TemporaryDirectory|mkstemp' } | Select-String -NotMatch '\.bind\(|\.logger|self.log\(|from .* import |^.*: *#'
@@ -1343,7 +1343,7 @@ rg -n '\.json|\.csv|\.log|\.txt|\.zip|\.png|\.jpg|mkstemp|TemporaryDirectory' -g
 src\web\reporter.py:925:        self.final_json_path = self.run_dir / "items_snapshot.json"
 ```
 
-**55**
+### 55
 
 ```powershell
 rg -n 'run_dir|reports|serialize=|enqueue=|filter=|logger\.add|global|uuid|strftime|\.mkdir' src/logging_utils.py
@@ -1353,7 +1353,7 @@ rg -n 'run_dir|reports|serialize=|enqueue=|filter=|logger\.add|global|uuid|strft
 216:        filter=_is_db_log_record,
 ```
 
-**56**
+### 56
 
 ```powershell
 rg -n 'def _parse_nik|\.split|\.findall|finditer|list\(|_parse_headless|return .*\bin\b|_parse_mask|NUMBERED' src/infrastructure/config/settings.py
@@ -1363,7 +1363,7 @@ rg -n 'def _parse_nik|\.split|\.findall|finditer|list\(|_parse_headless|return .
 191:        return tuple(nik.strip() for nik in raw_nik.split(",") if nik.strip())
 ```
 
-**57**
+### 57
 
 ```powershell
 rg -n 'random\.|time\.monotonic|perf_counter|datetime\.now|as_completed' src/web/rate_limiter.py src/infrastructure/reporting/analytics.py main.py src/application/services/account_runner.py src/infrastructure/database/operator_store.py | Select-Object -First 25
@@ -1373,7 +1373,7 @@ rg -n 'random\.|time\.monotonic|perf_counter|datetime\.now|as_completed' src/web
 src/web/rate_limiter.py:97:        jitter_func: Callable[[float, float], float] = random.uniform,
 ```
 
-**58**
+### 58
 
 ```powershell
 git status --short --branch
@@ -1384,7 +1384,7 @@ git status --short --branch
  M .gitignore
 ```
 
-**59**
+### 59
 
 ```powershell
 rg -n '^' inspect_env.py | ForEach-Object { $_ -replace '(?i)[\w.+-]+@[\w.-]+|\d{8,}', '[redacted]' }
@@ -1394,7 +1394,7 @@ rg -n '^' inspect_env.py | ForEach-Object { $_ -replace '(?i)[\w.+-]+@[\w.-]+|\d
 6:values = dotenv_values(env_path)
 ```
 
-**60**
+### 60
 
 ```powershell
 rg -n --no-heading '=>|\.evaluate\(' -g '*.py' src | Select-Object -First 5
@@ -1404,7 +1404,7 @@ rg -n --no-heading '=>|\.evaluate\(' -g '*.py' src | Select-Object -First 5
 src\infrastructure\sessions\export_service.py:120:        async () => {
 ```
 
-**61**
+### 61
 
 ```powershell
 rg -n 'class |SKIP|CONTINUE|RESTART|def process_all_niks|reporter\.log_(success|skip|error)|def log_(success|skip|error)|self\._append_row|_add_row\(' src/application/models/customer_workflow.py src/orchestration/transaction_processor.py src/web/reporter.py | Select-String -Pattern 'PrecheckAction|SKIP_REQUIRES_RECOVERY|process_all_niks|reporter.log_(success|error)|def log_(success|skip|error)|self\._append_row|def _add_row' | Select-Object -First 24
@@ -1414,7 +1414,7 @@ rg -n 'class |SKIP|CONTINUE|RESTART|def process_all_niks|reporter\.log_(success|
 src/application/models/customer_workflow.py:10:class PrecheckAction(StrEnum):
 ```
 
-**62**
+### 62
 
 ```powershell
 rg -n --no-heading 'build_export|build_timestamped_run_dir|return main|run_session|run_export|export_configured_sessions|return .*export|sync_report_file|ensure_database|from_env\(|\.ensure_|def _|\.json\(' scripts/db_management.py user_sessions.py src/application/use_cases/export_session.py src/infrastructure/database/report_syncer.py | Select-Object -First 70
@@ -1424,7 +1424,7 @@ rg -n --no-heading 'build_export|build_timestamped_run_dir|return main|run_sessi
 user_sessions.py:18:    return run_user_session_export()
 ```
 
-**63**
+### 63
 
 ```powershell
 rg -n 'artifact_root|attempt_dir|create_attempt|output_dir\s*=|screenshots_dir|trace_path\s*=|get_report_dir|data_puzzle' src/web/helpers.py src/orchestration/transaction_processor.py src/pipelines/slider/solver.py src/application/services/puzzle_service.py src/infrastructure/interaction_diagnostics.py | Select-String -Pattern ' / | = \(|\.joinpath|create_attempt|data_puzzle|attempt_dir\s*=' | Select-Object -First 40
@@ -1434,7 +1434,7 @@ rg -n 'artifact_root|attempt_dir|create_attempt|output_dir\s*=|screenshots_dir|t
 src/orchestration/transaction_processor.py:791:                    debug_root=str(artifact_root / "traces" / 
 ```
 
-**64**
+### 64
 
 ```powershell
 rg -n ' \| None|DefaultDict|defaultdict|\.write_text|\.replace\(|ensure_ascii|indent=|loguru|_enqueue|\.flush_|next\(|manager is None|setup_failed|SKIP|connection|if .*(configured|config is None|missing)' src/infrastructure/database/report_syncer.py src/infrastructure/reporting/analytics.py src/infrastructure/reporting/file_writer.py | Select-String -Pattern 'DefaultDict|defaultdict|write_text|indent=|ensure_ascii|manager is None|config is None|connection =|connection.close\(' | Select-Object -First 28
@@ -1444,7 +1444,7 @@ rg -n ' \| None|DefaultDict|defaultdict|\.write_text|\.replace\(|ensure_ascii|in
 src/infrastructure/reporting/analytics.py:105:        counts: DefaultDict[str, int] = defaultdict(int)
 ```
 
-**65**
+### 65
 
 ```powershell
 rg -n --no-heading --with-filename '^(\s*except |\s*pass$|\s*return |\s*if |\s*raise )' src/infrastructure/config/settings.py | Select-String -Pattern '19[4-9]:|20[0-9]:|21[0-9]:'
@@ -1454,7 +1454,7 @@ rg -n --no-heading --with-filename '^(\s*except |\s*pass$|\s*return |\s*if |\s*r
 src/infrastructure/config/settings.py:213:        raise ValueError("MASK must be true/1/on/yes or false/0/off/no.")
 ```
 
-**66**
+### 66
 
 ```powershell
 Get-ChildItem -LiteralPath db_query,backup,.vscode -File -Recurse | Group-Object Extension | Select-Object Count,Name
@@ -1464,7 +1464,7 @@ Get-ChildItem -LiteralPath db_query,backup,.vscode -File -Recurse | Group-Object
     4 .sql 
 ```
 
-**67**
+### 67
 
 ```powershell
 rg -n 'except |fsync|\.flush\(|\.touch\(|_append_jsonl|\.read_text\(|\.replace\(' src/web/reporter.py main.py | Select-String -Pattern '13[78][0-9]:|\.touch\(|\.read_text\(|\.replace\('
@@ -1474,7 +1474,7 @@ rg -n 'except |fsync|\.flush\(|\.touch\(|_append_jsonl|\.read_text\(|\.replace\(
 main.py:193:    temporary_path.replace(meta_path)
 ```
 
-**68**
+### 68
 
 ```powershell
 rg -n 'def main\(|main\(\)|read_report_payloads|load_region_mapping|DEFAULT_MAPPING_PATH|parse_nik\(|write_files\(|json\.loads\(.*read_text|read_text\(' main.py nik_parser.py src/infrastructure/database/operator_store.py src/application/services/transaction_prechecks.py | Select-Object -Last 30
@@ -1484,7 +1484,7 @@ rg -n 'def main\(|main\(\)|read_report_payloads|load_region_mapping|DEFAULT_MAPP
 nik_parser.py:104:    regions = mapping or load_region_mapping()
 ```
 
-**69**
+### 69
 
 ```powershell
 rg -n '^' src/infrastructure/database/operator_store.py | Select-String -Pattern '^(36[1-9]|370|49[6-9]|50[0-8]|59[4-9]|60[0-9]|78[3-9]|79[0-9]|80[0-9]|86[3-9]|87[0-8]|118[6-9]|119[0-9]|120[0-9]|121[0-9]|122[0-9]|123[0-9]|124[0-1]):'
@@ -1495,7 +1495,7 @@ rg -n '^' src/infrastructure/database/operator_store.py | Select-String -Pattern
 1206:            ON CONFLICT ({nik}) DO UPDATE SET
 ```
 
-**70**
+### 70
 
 ```powershell
 rg -n '^' src/web/reporter.py | Select-String -Pattern '^(14[1-9]|56[0-9]|60[0-9]|65[0-9]|109[5-9]|110[0-9]|111[0-7]|114[5-9]|115[0-9]|116[0-6]|13[78][0-9]):'
@@ -1505,7 +1505,7 @@ rg -n '^' src/web/reporter.py | Select-String -Pattern '^(14[1-9]|56[0-9]|60[0-9
 1104:            self._queue_row_for_batch_sync(row)
 ```
 
-**71**
+### 71
 
 ```powershell
 rg -n 'reporter\.|config\.nik|for nik in|from_env|report_path|if .*row|batch_size|sync_report_payloads|raise RuntimeError' src/orchestration/transaction_processor.py src/infrastructure/database/report_syncer.py | Select-String -Pattern 'processor.py:.*(self.reporter\.(add|append|log|record_success)|config.nik)|report_syncer.py:.*(sync_report_payloads|summary\.|required=False|if manager is None)' | Select-Object -First 30
@@ -1515,7 +1515,7 @@ rg -n 'reporter\.|config\.nik|for nik in|from_env|report_path|if .*row|batch_siz
 src/orchestration/transaction_processor.py:95:        for nik in self.config.nik:
 ```
 
-**72**
+### 72
 
 ```powershell
 rg -n 'fake|Fake|monkeypatch|\.setattr\(|database|postgres|tmp_path' tests/integration/test_entrypoints.py tests/contract/test_database_setup_lifecycle.py | Select-Object -First 23
@@ -1525,7 +1525,7 @@ rg -n 'fake|Fake|monkeypatch|\.setattr\(|database|postgres|tmp_path' tests/integ
 tests/contract/test_database_setup_lifecycle.py:112:    monkeypatch.setattr(operator_store.psycopg2, "connect", case.connect)
 ```
 
-**73**
+### 73
 
 ```powershell
 rg -n 'Ruff|ruff|mypy|pre-commit|pytest-benchmark|tracemalloc|psutil|pg_dump|testcontainers|GOLDEN|reporter_aggregation_legacy' --glob '*.toml' --glob '*.ini' --glob '*.py' --glob '*.md' pyproject.toml pytest.ini tests README.md | Select-Object -First 30
@@ -1535,7 +1535,7 @@ rg -n 'Ruff|ruff|mypy|pre-commit|pytest-benchmark|tracemalloc|psutil|pg_dump|tes
 tests\contract\test_reporter_aggregation.py:19:GOLDEN = Path(__file__).with_name("reporter_aggregation_legacy.json")
 ```
 
-**74**
+### 74
 
 ```powershell
 git ls-files '*.md' '*.rst' '*.sql' '*.js' '*.yml' '*.yaml' '*.ipynb'
@@ -1545,7 +1545,7 @@ git ls-files '*.md' '*.rst' '*.sql' '*.js' '*.yml' '*.yaml' '*.ipynb'
 README.md
 ```
 
-**75**
+### 75
 
 ```powershell
 rg -n '^' README.md | Select-String -Pattern '^(7[6-9]|8[0-5]|19[5-9]|20[0-8]):'
@@ -1556,7 +1556,7 @@ rg -n '^' README.md | Select-String -Pattern '^(7[6-9]|8[0-5]|19[5-9]|20[0-8]):'
 83:- `RESTART_AFTER_UPDATE`: return to the dashboard and submit the same NIK once
 ```
 
-**76**
+### 76
 
 ```powershell
 rg -n 'CREATE|ALTER|INSERT|UPDATE|DELETE|COPY|TRUNCATE|SELECT' --only-matching --no-ignore -g '*.sql' db_query | ForEach-Object { ($_ -split ':')[-1] } | Group-Object | Select-Object Count,Name
@@ -1570,7 +1570,7 @@ rg -n 'CREATE|ALTER|INSERT|UPDATE|DELETE|COPY|TRUNCATE|SELECT' --only-matching -
     2 INSERT
 ```
 
-**77**
+### 77
 
 ```powershell
 rg -n '^' src/infrastructure/database/report_syncer.py | Select-Object -Skip 26 -First 118
@@ -1581,7 +1581,7 @@ rg -n '^' src/infrastructure/database/report_syncer.py | Select-Object -Skip 26 
 68:                summary = manager.sync_report_payloads(
 ```
 
-**78**
+### 78
 
 ```powershell
 rg -n 'status =|_aggregate_run_status|execution_status|transaction_status|completed_with_errors|_print_run_summary|summary_path|result_map|except BaseException|return .*status' main.py src/application/services/account_runner.py
@@ -1591,7 +1591,7 @@ rg -n 'status =|_aggregate_run_status|execution_status|transaction_status|comple
 src/application/services/account_runner.py:168:        return operator_id, status == "completed"
 ```
 
-**79**
+### 79
 
 ```powershell
 rg -n '^' src/application/use_cases/export_session.py | Select-String -Pattern '^(2[0-9]|6[0-9]|70|11[0-9]|14[0-9]|16[0-9]):'
@@ -1601,7 +1601,7 @@ rg -n '^' src/application/use_cases/export_session.py | Select-String -Pattern '
 68:        Path(context_run_dir) / "artifacts" / "sessions"
 ```
 
-**80**
+### 80
 
 ```powershell
 rg -n -o '\b[A-Z][A-Z_0-9]{2,}\b' --no-filename .env.example | Sort-Object -Unique | Select-String -Pattern 'DB_|LOG_|MASK|HEADLESS|NIK|NAME_OPERATORS|OPERATOR|MAX_CONCURRENT|TASKBOT|CUSTOMER_UPDATE|URL_APPLICATION'
@@ -1611,7 +1611,7 @@ rg -n -o '\b[A-Z][A-Z_0-9]{2,}\b' --no-filename .env.example | Sort-Object -Uniq
 47:DB_NAME
 ```
 
-**81**
+### 81
 
 ```powershell
 rg -n 'selenium|Playwright|LPG|penjualan|laporan|transaction|sale' README.md src/orchestration/transaction_processor.py | Select-String -Pattern 'README.md:3:|process_all_niks|process_single_nik|completed|\.add_transaction|transaction\.confirmed' | Select-Object -First 18
@@ -1621,7 +1621,7 @@ rg -n 'selenium|Playwright|LPG|penjualan|laporan|transaction|sale' README.md src
 README.md:3:TaskBot automates the complete LPG customer-sale workflow in a Playwright browser. It supports multiple 
 ```
 
-**82**
+### 82
 
 ```powershell
 git diff --stat
@@ -1632,7 +1632,7 @@ git diff --stat
  1 file changed, 3 insertions(+), 1 deletion(-)
 ```
 
-**83**
+### 83
 
 ```powershell
 rg -n -o 'os\.(?:getenv\([^,)]*|environ(?:\.get\([^,)]*|\[[^\]]+\]|\.copy\(\))?)|from os import (?:getenv|environ)|dotenv_values\(|load_dotenv\(' -g '*.py' tests
@@ -1643,7 +1643,7 @@ tests\unit\test_environment.py:104:os.getenv("SMALL"
 tests\unit\test_environment.py:110:os.getenv("AT_LIMIT"
 ```
 
-**84**
+### 84
 
 ```powershell
 rg -n 'self\.reporter\.|reporter\.|self\._add_row\(' src/orchestration/transaction_processor.py src/web/reporter.py | Select-Object -First 44
@@ -1653,7 +1653,7 @@ rg -n 'self\.reporter\.|reporter\.|self\._add_row\(' src/orchestration/transacti
 src/orchestration/transaction_processor.py:445:                self.reporter.complete(
 ```
 
-**85**
+### 85
 
 ```powershell
 rg -n 'RENAME COLUMN|legacy_name|old_name|column_name in|SET \{|COALESCE|with connection|NAMA_PENGGUNA|NAMA_KONSUMER|column_names' src/infrastructure/database/operator_store.py | Select-String -Pattern '10[1-9][0-9]:'
@@ -1663,7 +1663,7 @@ rg -n 'RENAME COLUMN|legacy_name|old_name|column_name in|SET \{|COALESCE|with co
 1083:                    SET {last_transaction_time} = {updated_time}
 ```
 
-**86**
+### 86
 
 ```powershell
 rg -n 'def display_nik|\*\*\*\*|def sanitize_text|_private_values\b|mask_nik|def public_operator|register_private_values' src/privacy.py
@@ -1673,7 +1673,7 @@ rg -n 'def display_nik|\*\*\*\*|def sanitize_text|_private_values\b|mask_nik|def
 61:        private_values = sorted(_private_values, key=len, reverse=True)
 ```
 
-**87**
+### 87
 
 ```powershell
 rg -n 'if |\.partition\(|\.split\(|def _parse_max|def _load_accounts|return numbered_accounts' src/infrastructure/config/settings.py | Select-Object -First 25
@@ -1683,7 +1683,7 @@ rg -n 'if |\.partition\(|\.split\(|def _parse_max|def _load_accounts|return numb
 83:            return numbered_accounts
 ```
 
-**88**
+### 88
 
 ```powershell
 rg -n 'stat\(|write_|\.print|benchmark|\.exists\(|\.setenv\(|os\.environ|pytestmark|main\.|monkeypatch' tests/integration/test_entrypoints.py | Select-Object -First 25
@@ -1693,7 +1693,7 @@ rg -n 'stat\(|write_|\.print|benchmark|\.exists\(|\.setenv\(|os\.environ|pytestm
 [no stdout]
 ```
 
-**89**
+### 89
 
 ```powershell
 rg -n 'from .* import|def main' src/orchestration/browser_session.py user_sessions.py | Select-Object -First 18
@@ -1703,7 +1703,7 @@ rg -n 'from .* import|def main' src/orchestration/browser_session.py user_sessio
 src/orchestration/browser_session.py:1:from src.infrastructure.browser.playwright_session import (
 ```
 
-**90**
+### 90
 
 ```powershell
 git status --short --branch
@@ -1714,7 +1714,7 @@ git status --short --branch
  M .gitignore
 ```
 
-**91**
+### 91
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -1724,7 +1724,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 **No claim without proof.** Every statement about the code, its behavior, or the result of a
 ```
 
-**92**
+### 92
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -1735,7 +1735,7 @@ git status --short --branch --untracked-files=all
  M .gitignore
 ```
 
-**93**
+### 93
 
 ```powershell
 Test-Path -LiteralPath docs/MODERNIZATION_PLAN.md
@@ -1745,7 +1745,7 @@ Test-Path -LiteralPath docs/MODERNIZATION_PLAN.md
 False
 ```
 
-**94**
+### 94
 
 ```powershell
 git rev-parse --short HEAD
@@ -2094,7 +2094,7 @@ Revision checks use the `R` and `RG` prefixes. Runtime figures came only from ru
 <details>
 <summary>PowerShell commands R01–R45 and results</summary>
 
-**R01**
+### R01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -2104,7 +2104,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 **No claim without proof.**
 ```
 
-**R02**
+### R02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -2116,7 +2116,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**R03**
+### R03
 
 ```powershell
 git rev-parse --short HEAD
@@ -2126,7 +2126,7 @@ git rev-parse --short HEAD
 2e781dc
 ```
 
-**R04**
+### R04
 
 ```powershell
 rg -n "^#{1,3} |^\*\*Open questions|^\*\*Change and verification|^\*\*Audit basis|^\| \*\*[1-5]\." docs/MODERNIZATION_PLAN.md | Select-Object -First 48
@@ -2137,7 +2137,7 @@ rg -n "^#{1,3} |^\*\*Open questions|^\*\*Change and verification|^\*\*Audit basi
 200:### Future phases
 ```
 
-**R05**
+### R05
 
 ```powershell
 git log --reverse --format="%h %as %s" -- uv.lock | Select-Object -First 3
@@ -2147,7 +2147,7 @@ git log --reverse --format="%h %as %s" -- uv.lock | Select-Object -First 3
 242c83d 2026-01-17 Migrate to UV
 ```
 
-**R06**
+### R06
 
 ```powershell
 rg -n 'started_at|finished_at|duration|meta_path|run_dir|"status"|ended_at' main.py
@@ -2159,7 +2159,7 @@ rg -n 'started_at|finished_at|duration|meta_path|run_dir|"status"|ended_at' main
 177:            if status == "running"
 ```
 
-**R07**
+### R07
 
 ```powershell
 Get-ChildItem -LiteralPath reports -File -Recurse -Filter run_meta.json | Measure-Object | Select-Object Count
@@ -2169,7 +2169,7 @@ Get-ChildItem -LiteralPath reports -File -Recurse -Filter run_meta.json | Measur
   161
 ```
 
-**R08**
+### R08
 
 ```powershell
 rg -n 'def process_all_niks|for nik in|_confirmed_niks|break$|continue$|stop_account|def process_single_nik|PrecheckAction\.|reporter\.complete|confirmed|TransactionOutcome\.|failed_puzzle_solve' src/orchestration/transaction_processor.py | Select-Object -First 85
@@ -2181,7 +2181,7 @@ rg -n 'def process_all_niks|for nik in|_confirmed_niks|break$|continue$|stop_acc
 445:                self.reporter.complete(
 ```
 
-**R09**
+### R09
 
 ```powershell
 rg -n 'test_.*(confirm|ambig|unconfirmed|partial|stock|remaining|repeat|duplicate)|class .*Outcome|^    [A-Z_]+ = ' src/application/models/transaction_outcome.py tests/integration/test_transaction_confirmation.py tests/contract/test_run_outcomes.py | Select-Object -First 45
@@ -2191,7 +2191,7 @@ rg -n 'test_.*(confirm|ambig|unconfirmed|partial|stock|remaining|repeat|duplicat
 tests/contract/test_run_outcomes.py:283:def test_successful_duplicate_nik_is_not_reported_as_remaining_work(run_scenarios):
 ```
 
-**R10**
+### R10
 
 ```powershell
 rg -n 'psycopg2\.connect|kuota_delta|_SUCCESS_STATUSES|BIGINT PRIMARY KEY|next_kuota|SELECT \{last_transaction_time\}|def sync_report_file|for payload in|table_name = f' src/infrastructure/database/operator_store.py | Select-Object -First 55
@@ -2203,7 +2203,7 @@ rg -n 'psycopg2\.connect|kuota_delta|_SUCCESS_STATUSES|BIGINT PRIMARY KEY|next_k
 974:                {nik} BIGINT PRIMARY KEY,
 ```
 
-**R11**
+### R11
 
 ```powershell
 rg -n -i 'peak[_ ]?(working|memory|rss)|\brss\b|peak_wset|working.?set|private bytes|memory_(bytes|mb|usage)|psutil|tracemalloc|GetProcessMemoryInfo|ru_maxrss' -g '*.py' src main.py scripts user_sessions.py tests
@@ -2213,7 +2213,7 @@ rg -n -i 'peak[_ ]?(working|memory|rss)|\brss\b|peak_wset|working.?set|private b
 (no stdout)
 ```
 
-**R12**
+### R12
 
 ```powershell
 Get-ChildItem -LiteralPath 'C:/Program Files/PostgreSQL' -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
@@ -2223,7 +2223,7 @@ Get-ChildItem -LiteralPath 'C:/Program Files/PostgreSQL' -Directory -ErrorAction
 18
 ```
 
-**R13**
+### R13
 
 ```powershell
 Get-Command psql,postgres,pgAdmin4 -CommandType Application -ErrorAction SilentlyContinue | Select-Object Name,Version
@@ -2233,7 +2233,7 @@ Get-Command psql,postgres,pgAdmin4 -CommandType Application -ErrorAction Silentl
 (no stdout)
 ```
 
-**R14**
+### R14
 
 ```powershell
 rg -n '^(# TaskBot|## )|uv run main.py' README.md | Select-Object -Last 20
@@ -2244,7 +2244,7 @@ rg -n '^(# TaskBot|## )|uv run main.py' README.md | Select-Object -Last 20
 362:uv run main.py
 ```
 
-**R15**
+### R15
 
 ```powershell
 git log --reverse --date=short --format="%h %as %s" | Select-Object -First 3
@@ -2254,7 +2254,7 @@ git log --reverse --date=short --format="%h %as %s" | Select-Object -First 3
 70c5647 2025-10-17 Add initial project files and basic login
 ```
 
-**R16**
+### R16
 
 ```powershell
 rg -n '^' src/orchestration/transaction_processor.py | Select-String -Pattern '^(9[3-9]|10[0-9]|11[0-9]|120|17[6-9]|18[0-6]|41[89]|42[0-9]|445|52[4-9]|53[0-9]):'
@@ -2268,7 +2268,7 @@ rg -n '^' src/orchestration/transaction_processor.py | Select-String -Pattern '^
 535:                self.reporter.error(
 ```
 
-**R17**
+### R17
 
 ```powershell
 rg -n 'process_all_niks\(|_sync_report_to_database\b|build_output_dir\(' main.py user_sessions.py scripts src tests | Select-Object -First 55
@@ -2279,7 +2279,7 @@ tests\contract\test_db_sync_lifecycle.py:205:    assert taskbot_main._sync_repor
 tests\contract\test_transaction_processor.py:314:    processor.process_all_niks()
 ```
 
-**R18**
+### R18
 
 ```powershell
 rg -n 'def |test_|setattr' tests/integration/test_transaction_confirmation.py | Select-Object -First 24
@@ -2289,7 +2289,7 @@ rg -n 'def |test_|setattr' tests/integration/test_transaction_confirmation.py | 
 28:def test_hidden_captcha_requires_independent_transaction_result(page, html, status, reason):
 ```
 
-**R19**
+### R19
 
 ```powershell
 rg -n '^' src/infrastructure/database/operator_store.py | Select-String -Pattern '^(29[3-6]|310|85[1-6]|111[3-9]|112[0-6]|1206):'
@@ -2301,7 +2301,7 @@ rg -n '^' src/infrastructure/database/operator_store.py | Select-String -Pattern
 1206:            ON CONFLICT ({nik}) DO UPDATE SET
 ```
 
-**R20**
+### R20
 
 ```powershell
 rg -n 'cv2\.|import cv2' src/vision/overlay.py | Select-Object -First 6
@@ -2313,7 +2313,7 @@ rg -n 'cv2\.|import cv2' src/vision/overlay.py | Select-Object -First 6
 30:    cv2.imwrite(str(out_path), overlay)
 ```
 
-**R21**
+### R21
 
 ```powershell
 Get-Item -LiteralPath 'C:/Program Files/PostgreSQL/18/bin/postgres.exe','C:/Program Files/PostgreSQL/18/bin/psql.exe','C:/Program Files/PostgreSQL/18/pgAdmin 4/runtime/pgAdmin4.exe','C:/Program Files/pgAdmin 4/runtime/pgAdmin4.exe' -ErrorAction SilentlyContinue | Select-Object Name,@{Name='Product';Expression={$_.VersionInfo.ProductName}},@{Name='Version';Expression={$_.VersionInfo.ProductVersion}}
@@ -2325,7 +2325,7 @@ psql.exe     PostgreSQL 18.4
 pgAdmin4.exe pgAdmin 4  9.15"  
 ```
 
-**R22**
+### R22
 
 ```powershell
 git ls-files -- 'pyproject.toml' 'package.json' ':(glob)**/package.json' ':(glob)**/*.html' ':(glob)**/*.tsx' ':(glob)**/*.ui'
@@ -2335,7 +2335,7 @@ git ls-files -- 'pyproject.toml' 'package.json' ':(glob)**/package.json' ':(glob
 pyproject.toml
 ```
 
-**R23**
+### R23
 
 ```powershell
 rg -n -i 'fastapi|flask|django|starlette|aiohttp.web|http\.server|tkinter|pyqt|pyside|wxpython|streamlit|gradio' -g '*.py' -g '*.toml' src scripts pyproject.toml main.py user_sessions.py
@@ -2345,7 +2345,7 @@ rg -n -i 'fastapi|flask|django|starlette|aiohttp.web|http\.server|tkinter|pyqt|p
 (no stdout)
 ```
 
-**R24**
+### R24
 
 ```powershell
 rg -n '^- |^\*\*Open questions|^\d\. ' docs/MODERNIZATION_PLAN.md | Select-Object -First 30
@@ -2355,7 +2355,7 @@ rg -n '^- |^\*\*Open questions|^\d\. ' docs/MODERNIZATION_PLAN.md | Select-Objec
 228:6. May a later tooling phase add pinned development dependencies and CI configuration?
 ```
 
-**R25**
+### R25
 
 ```powershell
 @'
@@ -2422,7 +2422,7 @@ completed_with_errors {'n': 98, 'min_seconds': 4.0, 'median_seconds': 1592.5, 'm
 failed {'n': 20, 'min_seconds': 0.0, 'median_seconds': 239.5, 'max_seconds': 6260.0, 'below_15min': 12, '15min_to_2h_inclusive': 8, 'over_2h': 0}
 ```
 
-**R26**
+### R26
 
 ```powershell
 @'
@@ -2465,7 +2465,7 @@ counts {'name_referenced_in_application': 595, 'name_referenced_only_in_tests': 
 example src/web/reporter.py 706 get_rows_by_status
 ```
 
-**R27**
+### R27
 
 ```powershell
 Get-Content -LiteralPath docs/MODERNIZATION_PLAN.md -Encoding UTF8 -TotalCount 32
@@ -2475,7 +2475,7 @@ Get-Content -LiteralPath docs/MODERNIZATION_PLAN.md -Encoding UTF8 -TotalCount 3
 # TaskBot modernization plan
 ```
 
-**R28**
+### R28
 
 ```powershell
 rg -n 'trace_path|tracing\.(start|stop)|if .*debug|if .*enabled|rotation=|retention=|compression=|if .*pause' src/infrastructure/interaction_diagnostics.py src/logging_utils.py | Select-Object -First 28
@@ -2486,7 +2486,7 @@ src/logging_utils.py:187:        rotation=rotation,
 src/infrastructure/interaction_diagnostics.py:361:                    self.context.tracing.stop(path=str(self.trace_path))
 ```
 
-**R29**
+### R29
 
 ```powershell
 Get-ChildItem -LiteralPath db_query -Filter '*.sql' -File | ForEach-Object { $sqlWords = Select-String -Path $_.FullName -Pattern '^\s*(SELECT|WITH|UPDATE|DELETE|INSERT|CREATE|ALTER|BEGIN|COMMIT)\b' -AllMatches; $sqlWords.Matches | ForEach-Object { $_.Groups[1].Value.ToUpperInvariant() } } | Group-Object | Select-Object Count,Name
@@ -2498,7 +2498,7 @@ Get-ChildItem -LiteralPath db_query -Filter '*.sql' -File | ForEach-Object { $sq
     2 INSERT
 ```
 
-**R30**
+### R30
 
 ```powershell
 rg -n 'regional|SimpleNamespace|monkeypatch|Fake|synthetic|class .*Case|def test_|\.set_content' tests/integration/test_transaction_confirmation.py tests/contract/test_reporter_aggregation.py | Select-Object -First 16
@@ -2509,7 +2509,7 @@ tests/contract/test_reporter_aggregation.py:40:def frozen_reports(monkeypatch):
 tests/contract/test_reporter_aggregation.py:131:def test_legacy_outputs(frozen_reports, tmp_path, name, masked):
 ```
 
-**R31**
+### R31
 
 ```powershell
 rg -n '^' main.py | Select-String -Pattern '^(15[7-9]|16[0-9]|17[0-9]|18[0-6]):'
@@ -2521,7 +2521,7 @@ rg -n '^' main.py | Select-String -Pattern '^(15[7-9]|16[0-9]|17[0-9]|18[0-6]):'
 185:        "account_outcomes": outcomes or {},
 ```
 
-**R32**
+### R32
 
 ```powershell
 rg -n 'requested_nik_count|processed_nik_count|remaining_nik_count|len\(.*nik' src/application/services/account_runner.py src/application/models/transaction_outcome.py
@@ -2533,7 +2533,7 @@ src/application/services/account_runner.py:197:            "processed_nik_count"
 src/application/services/account_runner.py:198:            "remaining_nik_count": remaining,
 ```
 
-**R33**
+### R33
 
 ```powershell
 rg -n 'get_rows_by_status|db_query|pgadmin|run_user_session_export\(|_sync_report_to_database\(' --ignore-case -g '*.py' -g '*.md' -g '!docs/**' src scripts tests main.py user_sessions.py README.md | Select-String -Pattern 'get_rows_by_status|db_query|pgadmin|user_sessions.py|main.py:64:'
@@ -2544,7 +2544,7 @@ src\web\reporter.py:706:    def get_rows_by_status(self, status: str) -> list[Tr
 user_sessions.py:18:    return run_user_session_export()
 ```
 
-**R34**
+### R34
 
 ```powershell
 rg -n 'InteractionDiagnostics|interaction_debug_enabled|if .*diagnostics|trace|def (start|stop)|self\.enabled|self\.debug_enabled' src/infrastructure/browser/playwright_session.py src/infrastructure/interaction_diagnostics.py | Select-Object -First 40
@@ -2555,7 +2555,7 @@ src/infrastructure/browser/playwright_session.py:151:        if not self._intera
 src/infrastructure/interaction_diagnostics.py:359:            if self._trace_started:
 ```
 
-**R35**
+### R35
 
 ```powershell
 git ls-tree -r --name-only 70c5647 -- requirements.txt uv.lock pyproject.toml
@@ -2565,7 +2565,7 @@ git ls-tree -r --name-only 70c5647 -- requirements.txt uv.lock pyproject.toml
 pyproject.toml
 ```
 
-**R36**
+### R36
 
 ```powershell
 git grep -n -E '^pip install|^uv sync' 70c5647 -- README.md
@@ -2575,7 +2575,7 @@ git grep -n -E '^pip install|^uv sync' 70c5647 -- README.md
 (no stdout)
 ```
 
-**R37**
+### R37
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B -S --version
@@ -2585,7 +2585,7 @@ git grep -n -E '^pip install|^uv sync' 70c5647 -- README.md
 Python 3.14.2
 ```
 
-**R38**
+### R38
 
 ```powershell
 rg -n 'def run_user_session_export|def main\(|add_parser\(|if __name__|ensure_database_and_tables\(|sync_report_file\(' main.py user_sessions.py scripts/db_management.py src/application/use_cases/export_session.py
@@ -2596,7 +2596,7 @@ scripts/db_management.py:63:        manager.ensure_database_and_tables()
 scripts/db_management.py:74:            summary = manager.sync_report_file(args.report_path, table_name=args.table)
 ```
 
-**R39**
+### R39
 
 ```powershell
 @'
@@ -2629,7 +2629,7 @@ distinct_requested_summed_per_operator n min median max (87, 35, 1976, 5378)
 distinct_processed_summed_per_operator n min median max (87, 0, 224, 1036)
 ```
 
-**R40**
+### R40
 
 ```powershell
 rg -n -F 'get_rows_by_status' --glob '*.py' --glob '*.md' --glob '!docs/**' .
@@ -2639,7 +2639,7 @@ rg -n -F 'get_rows_by_status' --glob '*.py' --glob '*.md' --glob '!docs/**' .
 .\src\web\reporter.py:706:    def get_rows_by_status(self, status: str) -> list[TransactionRow]:
 ```
 
-**R41**
+### R41
 
 ```powershell
 rg -n 'def get_rows_by_status|return \[r for r in self.rows if r.status == status\]|def success_confirmed|success_evidence|proof|completed|status' src/application/models/transaction_outcome.py src/web/reporter.py | Select-String -Pattern 'get_rows_by_status|return \[r for r in self.rows if r.status == status\]|transaction_outcome.py' | Select-Object -First 25
@@ -2650,7 +2650,7 @@ bool(self.evidence.strip())
 src/web/reporter.py:706:    def get_rows_by_status(self, status: str) -> list[TransactionRow]:
 ```
 
-**R42**
+### R42
 
 ```powershell
 rg -n 'migrate_table_schema|RENAME COLUMN|NAMA_PENGGUNA|NAMA_KONSUMER|old_name|old_column' src/infrastructure/database/operator_store.py | Select-Object -Last 14
@@ -2661,7 +2661,7 @@ rg -n 'migrate_table_schema|RENAME COLUMN|NAMA_PENGGUNA|NAMA_KONSUMER|old_name|o
 1026:                sql.SQL("ALTER TABLE {table} RENAME COLUMN {old} TO {new}").format(
 ```
 
-**R43**
+### R43
 
 ```powershell
 git log --reverse --format="%h %as %s" -- requirements.txt | Select-Object -First 3
@@ -2672,7 +2672,7 @@ ac73f0d 2025-10-17 Implement Dashboard functionality
 242c83d 2026-01-17 Migrate to UV
 ```
 
-**R44**
+### R44
 
 ```powershell
 rg -n 'test_|set_content|expect|assert .*outcome' tests/integration/test_transaction_confirmation.py | Select-Object -Last 10
@@ -2683,7 +2683,7 @@ rg -n 'test_|set_content|expect|assert .*outcome' tests/integration/test_transac
 38:    assert outcome.success_confirmed is (status == "completed")
 ```
 
-**R45**
+### R45
 
 ```powershell
 Get-Content -Raw -Encoding UTF8 -LiteralPath docs/MODERNIZATION_PLAN.md
@@ -2875,7 +2875,7 @@ Read-only inspection in `D:\MyProject\TaskBot`. The prior turn’s preflight loc
 <details>
 <summary>Inspection commands and selected output</summary>
 
-**S01**
+### S01
 
 ```powershell
 @'
@@ -2900,7 +2900,7 @@ lines 358
 4 --OPERATOR 1 GET FOR TRX TODAY LOWOKWARU
 ```
 
-**S02**
+### S02
 
 ```powershell
 @'
@@ -2938,7 +2938,7 @@ deduplicate.sql
 523 COMMIT;
 ```
 
-**S03**
+### S03
 
 ```powershell
 @'
@@ -2974,7 +2974,7 @@ basic 273 LEFT("NIK"::text, 6) <> '357305'
 dedupe 235 
 ```
 
-**S04**
+### S04
 
 ```powershell
 @'
@@ -3001,7 +3001,7 @@ error 0
 failed_puzzle_solve 0
 ```
 
-**S05**
+### S05
 
 ```powershell
 rg -n '_SUCCESS_STATUSES|ReportStatusMapping\((409|422|429)|max_kuota|next_max_kuota|previous_transaction_time|^\s*(conflict|status_code|problem|nama_konsumer|jenis_pengguna)=|kuota_delta=' src/infrastructure/database/operator_store.py | Select-Object -First 53
@@ -3015,7 +3015,7 @@ rg -n '_SUCCESS_STATUSES|ReportStatusMapping\((409|422|429)|max_kuota|next_max_k
 78:    "skipped_fraud": ReportStatusMapping(409, "NIK blocked due to suspected fraud"),
 ```
 
-**S06**
+### S06
 
 ```powershell
 rg -n 'OUT_OF_STOCK|out_of_stock|transaction_status|remaining_nik_count|return.*completed_with_errors' src/application/services/account_runner.py src/orchestration/transaction_processor.py | Select-Object -First 23
@@ -3029,7 +3029,7 @@ src/application/services/account_runner.py:146:            (transactions["transa
 src/application/services/account_runner.py:162:            transaction_status=transactions["transaction_status"],
 ```
 
-**S07**
+### S07
 
 ```powershell
 rg -n -i 'nik|url_application|dotenv|load_environment' src/infrastructure/config/settings.py src/infrastructure/config/environment.py | Select-Object -First 24
@@ -3043,7 +3043,7 @@ src/infrastructure/config/environment.py:15:def load_environment(
 src/infrastructure/config/environment.py:19:    dotenv_path: Path | None = None,
 ```
 
-**S08**
+### S08
 
 ```powershell
 @'
@@ -3074,7 +3074,7 @@ combined_filter_commented 72 True
 combined_filter_commented 79 True
 ```
 
-**S09**
+### S09
 
 ```powershell
 rg -n '^(\s*(created_time|updated_time)=|\s*\{updated_time\}\s*=|\s*record\.event_time|\s*event_time =|\s*record\.last_transaction_time|\s*if record\.kuota_delta|\s*WHERE .*current_schema\(\)|\s*OPERATOR|\s*def _connect)' src/infrastructure/database/operator_store.py | Select-Object -Last 25
@@ -3088,7 +3088,7 @@ rg -n '^(\s*(created_time|updated_time)=|\s*\{updated_time\}\s*=|\s*record\.even
 853:        if record.kuota_delta <= 0:
 ```
 
-**S10**
+### S10
 
 ```powershell
 rg -n '_parse_nik_list|environ\.get\(f"NIK|NIK_\{suffix\}|for nik in self.config.nik|load_environment\(dotenv_path\)' src/infrastructure/config/settings.py src/orchestration/transaction_processor.py
@@ -3098,7 +3098,7 @@ rg -n '_parse_nik_list|environ\.get\(f"NIK|NIK_\{suffix\}|for nik in self.config
 [no stdout]
 ```
 
-**S11**
+### S11
 
 ```powershell
 @'
@@ -3126,7 +3126,7 @@ section districts list 7285
 matched_public_region districts 35.73.05 Lowokwaru
 ```
 
-**S12**
+### S12
 
 ```powershell
 rg -n "replace\(|_index\(|district_code|districts.get|\[:6\]|\.join\(" nik_parser.py | Select-Object -First 30
@@ -3140,7 +3140,7 @@ rg -n "replace\(|_index\(|district_code|districts.get|\[:6\]|\.join\(" nik_parse
 107:    district_code = f"{nik[:2]}.{nik[2:4]}.{nik[4:6]}"
 ```
 
-**S13**
+### S13
 
 ```powershell
 rg -n 'return self\.status|^\s*"transaction_status"|remaining =|^\s*else "completed_with_errors"|transaction_error_count' src/application/models/transaction_outcome.py src/application/services/account_runner.py
@@ -3153,7 +3153,7 @@ src/application/services/account_runner.py:193:            "transaction_error_co
 src/application/models/transaction_outcome.py:19:        return self.status == "completed" and bool(self.evidence.strip())
 ```
 
-**S14**
+### S14
 
 ```powershell
 @'
@@ -3181,7 +3181,7 @@ posted_and_saved_tokens_equal True
 main_files_reference_query_folder False
 ```
 
-**S15**
+### S15
 
 ```powershell
 @'
@@ -3205,7 +3205,7 @@ skipped_out_of_stock 2
 operators_with_out_of_stock_row 2
 ```
 
-**S16**
+### S16
 
 ```powershell
 rg -n "^" src/application/services/account_runner.py | Select-String -Pattern "^(18[1-9]|19[0-9]):"
@@ -3219,7 +3219,7 @@ rg -n "^" src/application/services/account_runner.py | Select-String -Pattern "^
 185:        counts["total"] = sum(counts.values())
 ```
 
-**S17**
+### S17
 
 ```powershell
 rg -n "^" src/infrastructure/database/operator_store.py | Select-String -Pattern "^(29[3-9]|30[0-9]|31[0-7]|80[7-9]|810|811|112[89]|113[0-6]|124[0-9]|125[0-3]):"
@@ -3233,7 +3233,7 @@ rg -n "^" src/infrastructure/database/operator_store.py | Select-String -Pattern
 297:        problem = "" if is_successful else _build_problem(payload)
 ```
 
-**S18**
+### S18
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -3246,7 +3246,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**S19**
+### S19
 
 ```powershell
 @'
@@ -3279,7 +3279,7 @@ DB_NAME present True looks_like_template False
 db_name_is_standard_maintenance_db False
 ```
 
-**S20**
+### S20
 
 ```powershell
 rg -n "DOTENV_PATH|load_environment\(dotenv_path=|NIK_\{suffix\}|_parse_nik_list\(|for nik in self.config.nik" main.py src/infrastructure/config/environment.py src/infrastructure/config/settings.py src/orchestration/transaction_processor.py
@@ -3293,7 +3293,7 @@ src/infrastructure/config/settings.py:118:            nik = cls._parse_nik_list(
 src/infrastructure/config/settings.py:190:    def _parse_nik_list(raw_nik: str) -> tuple[str, ...]:
 ```
 
-**S21**
+### S21
 
 ```powershell
 Get-Content -Raw -Encoding UTF8 -LiteralPath docs/MODERNIZATION_PLAN.md
@@ -3303,7 +3303,7 @@ Get-Content -Raw -Encoding UTF8 -LiteralPath docs/MODERNIZATION_PLAN.md
 # TaskBot modernization plan
 ```
 
-**S22**
+### S22
 
 ```powershell
 @'
@@ -3357,7 +3357,7 @@ The owner supplied `db_query/schema backup.sql` as the schema reference. SHA-256
 <details>
 <summary>Read-only commands and output excerpts</summary>
 
-**B01**
+### B01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -3367,7 +3367,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 No claim without proof. Never connect to a real/production database. Only a local test DB.
 ```
 
-**B02**
+### B02
 
 ```powershell
 Get-ChildItem -LiteralPath db_query -File | Sort-Object Name | Select-Object Name,Length
@@ -3381,7 +3381,7 @@ deduplicate.sql    12566
 schema backup.sql   3223
 ```
 
-**B03**
+### B03
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -3393,7 +3393,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**B04**
+### B04
 
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath 'db_query/schema backup.sql' | Select-Object -ExpandProperty Hash
@@ -3403,7 +3403,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath 'db_query/schema backup.sql' | Selec
 CA994610E28BFE0DCDAFBF80470B452D11501A18A76D9370280387EA5B8D6D89
 ```
 
-**B05**
+### B05
 
 ```powershell
 rg -n '^\*\*F3[789]|^\*\*Live check|^\*\*Evidence boundary|^\*\*Later decisions|^\*\*Change and verification boundary|^\| \*\*DB dictionary|^  - \[SQL|^## SQL and November|^### SQL guide|^#### What an operator|^\*\*PARTIAL inventory|^\| \*\*Dummy-input guide|^\*\*What the owner|^\| \*\*C4 /' docs/MODERNIZATION_PLAN.md
@@ -3415,7 +3415,7 @@ rg -n '^\*\*F3[789]|^\*\*Live check|^\*\*Evidence boundary|^\*\*Later decisions|
 262:**F39 — VERIFIED in the source definition; live schema UNVERIFIED.** Think of one operator table as a card file with one current record per customer number. The SQL notebook explicitly names `public."OPERATOR_1"` and `public."OPERATOR_2"`. The Python writer constructs quoted `OPERATOR_<suffix>` names and inspects `current_schema()` during migration. A source declaration establishes the intended layout. The installed live schema, indexes, constraints, triggers and actual row contents require a separate check. Evidence: `src/infrastructure/database/operator_store.py:L194,L972-L986,L1012-L1016,L1096-L1111,L1186-L1206`.
 ```
 
-**B06**
+### B06
 
 ```powershell
 rg -n -i -o '^-- Dumped (from database|by pg_dump) version [0-9.]+|^\s*(?:CREATE\s+(?:UNIQUE\s+)?(?:TABLE|SCHEMA|INDEX|VIEW|SEQUENCE|FUNCTION|TRIGGER|EXTENSION)|ALTER\s+(?:TABLE|SCHEMA|SEQUENCE)|ADD CONSTRAINT|COPY |INSERT INTO|GRANT |REVOKE |BEGIN;|COMMIT;)' -- 'db_query/schema backup.sql' | Select-Object -First 120
@@ -3432,7 +3432,7 @@ rg -n -i -o '^-- Dumped (from database|by pg_dump) version [0-9.]+|^\s*(?:CREATE
 84:    ADD CONSTRAINT
 ```
 
-**B07**
+### B07
 
 ```powershell
 rg -n -o 'CREATE TABLE public\."OPERATOR_[0-9]+"|ALTER TABLE ONLY public\."OPERATOR_[0-9]+"|ADD CONSTRAINT "[A-Za-z_0-9]+" PRIMARY KEY \("[A-Z_]+"\)|^\s*"[A-Z_]+" (?:bigint|integer|text|boolean|timestamp without time zone)(?: DEFAULT (?:\x27\x27::text|0|false|CURRENT_TIMESTAMP))?(?: NOT NULL)?' -- 'db_query/schema backup.sql'
@@ -3442,7 +3442,7 @@ rg -n -o 'CREATE TABLE public\."OPERATOR_[0-9]+"|ALTER TABLE ONLY public\."OPERA
 [no stdout]
 ```
 
-**B08**
+### B08
 
 ```powershell
 rg -n '^_COLUMN_NAMES|^    "[A-Z_]+",|CREATE TABLE IF NOT EXISTS|\{[a-z_]+\} (?:TEXT|BIGINT|INTEGER|BOOLEAN|TIMESTAMP)' src/infrastructure/database/operator_store.py | Select-Object -First 51
@@ -3454,7 +3454,7 @@ rg -n '^_COLUMN_NAMES|^    "[A-Z_]+",|CREATE TABLE IF NOT EXISTS|\{[a-z_]+\} (?:
 984:                {previous_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
 ```
 
-**B09**
+### B09
 
 ```powershell
 rg -n -i 'live schema|live test.schema|test copy|dedicated local test database|fixture specifies|source.declared|backup contents|two files under|two files actually|schema.only export|deployed version' docs/MODERNIZATION_PLAN.md | Select-Object -First 32
@@ -3466,7 +3466,7 @@ rg -n -i 'live schema|live test.schema|test copy|dedicated local test database|f
 375:| **DB dictionary** | F39 lists all 14 source-declared fields and how the writer uses them. | On a confirmed local test copy, save a dated, schema-only SELECT comparison. Document unexpected tables, defaults, keys, indexes or triggers. Recheck after the schema or a migration changes. |
 ```
 
-**B10**
+### B10
 
 ```powershell
 @'
@@ -3510,7 +3510,7 @@ data_statements 0
 table_owner_clauses 2
 ```
 
-**B11**
+### B11
 
 ```powershell
 @'
@@ -3554,7 +3554,7 @@ backup_order NIK, OPERATOR, KUOTA, MAX_KUOTA, CONFLICT, PROBLEM, UPDATED_TIME, C
 source_order OPERATOR, NIK, NAMA_KONSUMER, JENIS_PENGGUNA, KUOTA, MAX_KUOTA, CONFLICT, STATUS_CODE, STATUS_CODE_DESCRIPTION, PROBLEM, LAST_TRANSACTION_TIME, PREVIOUS_TRANSACTION_TIME, UPDATED_TIME, CREATED_TIME
 ```
 
-**B12**
+### B12
 
 ```powershell
 rg -n 'RENAME COLUMN|existing_columns|ADD COLUMN|SET DEFAULT|INSERT INTO \{table\} AS target|record\.operator|operator=target\.operator_name|column_name.lower\(' src/infrastructure/database/operator_store.py
@@ -3570,7 +3570,7 @@ rg -n 'RENAME COLUMN|existing_columns|ADD COLUMN|SET DEFAULT|INSERT INTO \{table
 1186:            INSERT INTO {table} AS target (
 ```
 
-**B13**
+### B13
 
 ```powershell
 rg -n -F 'Suppl' docs/MODERNIZATION_PLAN.md | Select-Object -First 4
@@ -3580,7 +3580,7 @@ rg -n -F 'Suppl' docs/MODERNIZATION_PLAN.md | Select-Object -First 4
 [no stdout]
 ```
 
-**B14**
+### B14
 
 ```powershell
 Get-Content -Raw -Encoding UTF8 -LiteralPath docs/MODERNIZATION_PLAN.md
@@ -3599,7 +3599,7 @@ Commands W01–W35 were run from the repository root. W36–W38 check the finish
 <details>
 <summary>Commands, results and graph lookups for F42–F44</summary>
 
-**W01**
+### W01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -3609,7 +3609,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 **No claim without proof.**
 ```
 
-**W02**
+### W02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -3621,7 +3621,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**W03**
+### W03
 
 ```powershell
 git rev-parse --short HEAD
@@ -3631,7 +3631,7 @@ git rev-parse --short HEAD
 2e781dc
 ```
 
-**W04**
+### W04
 
 ```powershell
 rg -n '^## |^### |^#### |^\| [^|]+ \|' README.md | Select-String -Pattern '^([3-9][0-9]|1[0-9][0-9]):'
@@ -3645,7 +3645,7 @@ rg -n '^## |^### |^#### |^\| [^|]+ \|' README.md | Select-String -Pattern '^([3-
 176:### Recoverable anomaly flows
 ```
 
-**W05**
+### W05
 
 ```powershell
 rg -n '^## Read this first|^### What a customer run does|^### What C7|^## 0\.|^\*\*F[0-9]+ —|^## Schema backup evidence' docs/MODERNIZATION_PLAN.md | Select-Object -First 30
@@ -3656,7 +3656,7 @@ rg -n '^## Read this first|^### What a customer run does|^### What C7|^## 0\.|^\
 55:### What C7 and a fixture mean
 ```
 
-**W06**
+### W06
 
 ```powershell
 rg -n -i 'parametrize|^def test_.*(happy|flow|optional|nib|consent|choose|update|precheck|transaction)|^class .*Scenario' tests/unit/test_customer_workflow.py tests/contract/test_transaction_processor.py | Select-Object -First 105
@@ -3667,7 +3667,7 @@ tests/unit/test_customer_workflow.py:429:def test_requested_happy_customer_path_
 tests/unit/test_customer_workflow.py:443:def test_update_uses_parsed_region_and_birth_date_then_restarts_same_nik():
 ```
 
-**W07**
+### W07
 
 ```powershell
 rg -n '^(class|    def )|PrecheckAction\.|if .*PrecheckState\.' src/application/models/customer_workflow.py src/application/services/transaction_prechecks.py | Select-Object -First 108
@@ -3678,7 +3678,7 @@ src/application/models/customer_workflow.py:10:class PrecheckAction(StrEnum):
 src/application/services/transaction_prechecks.py:137:    def handle_pre_checks(
 ```
 
-**W08**
+### W08
 
 ```powershell
 rg -n '^NIK|^\s*(NIK|A|B) *(-|→)|^These|^The|^TaskBot' README.md | Select-String -Pattern '^([3-7][0-9]|8[0-9]|10[3-9]|12[0-9]|15[0-9]|17[0-9]):'
@@ -3693,7 +3693,7 @@ rg -n '^NIK|^\s*(NIK|A|B) *(-|→)|^These|^The|^TaskBot' README.md | Select-Stri
 69:NIK -> consent -> update -> SAME NIK -> transaction -> puzzle
 ```
 
-**W09**
+### W09
 
 ```powershell
 rg -n --glob 'test_*.py' -i 'def test_.*(nib|happy_path|happy_flow|consent_only|update_only|state_sequence|precheck_sequence|direct_transaction)' tests
@@ -3703,7 +3703,7 @@ rg -n --glob 'test_*.py' -i 'def test_.*(nib|happy_path|happy_flow|consent_only|
 tests\unit\test_customer_workflow.py:603:def test_nib_reminder_continues_once_then_resolves_transaction():
 ```
 
-**W10**
+### W10
 
 ```powershell
 @'
@@ -3733,7 +3733,7 @@ for file, spans in [
 419:             if not outcome.success_confirmed:
 ```
 
-**W11**
+### W11
 
 ```powershell
 git ls-files -- "*conftest.py" "pytest.ini" ".env.test"
@@ -3743,7 +3743,7 @@ git ls-files -- "*conftest.py" "pytest.ini" ".env.test"
 pytest.ini
 ```
 
-**W12**
+### W12
 
 ```powershell
 rg -n -F 'nib_reminder' tests | Select-String -Pattern 'consent|choose_type|customer_type|TRANSACTION_READY|UPDATE_REQUIRED' | Select-Object -First 24
@@ -3753,7 +3753,7 @@ rg -n -F 'nib_reminder' tests | Select-String -Pattern 'consent|choose_type|cust
 tests\unit\test_customer_type_modal.py:241:@pytest.mark.parametrize("next_state", ["transaction_ready", "consent",
 ```
 
-**W13**
+### W13
 
 ```powershell
 rg -n -i 'def test_.*(state|flow|update|nib)|parametrize' tests/integration/test_entrypoints.py tests/unit/test_precheck_observation.py | Select-Object -First 25
@@ -3763,7 +3763,7 @@ rg -n -i 'def test_.*(state|flow|update|nib)|parametrize' tests/integration/test
 tests/unit/test_precheck_observation.py:137:def test_single_state_resolution(case, state):
 ```
 
-**W14**
+### W14
 
 ```powershell
 @'
@@ -3793,7 +3793,7 @@ for name, spans in [
 19:         return self.status == "completed" and bool(self.evidence.strip())
 ```
 
-**W15**
+### W15
 
 ```powershell
 @'
@@ -3821,7 +3821,7 @@ for name, spans in [
 1461:     assert reporter.retry_calls == []
 ```
 
-**W16**
+### W16
 
 ```powershell
 @'
@@ -3888,7 +3888,7 @@ for update in (False, True):
 AssertionError
 ```
 
-**W17**
+### W17
 
 ```powershell
 @'
@@ -3909,7 +3909,7 @@ README.md:167-174 = 8
 README.md:183-193 = 11
 ```
 
-**W18**
+### W18
 
 ```powershell
 @'
@@ -3926,7 +3926,7 @@ for i, line in enumerate(lines, 1):
 269:                     return self._skip_nik_parsing_failure(nik, started_at, exc)
 ```
 
-**W19**
+### W19
 
 ```powershell
 rg -n -A 30 'def customer_update_data_from_nik' src
@@ -3937,7 +3937,7 @@ src\application\models\customer_workflow.py-72-        nik=result.original_nik,
 src\application\models\customer_workflow.py-73-        city=result.kota_kabupaten,
 ```
 
-**W20**
+### W20
 
 ```powershell
 @'
@@ -3973,7 +3973,7 @@ raise SystemExit(pytest.main(["-q", "-s", "--noconftest", "-p", "no:cacheprovide
 INTERNALERROR> PermissionError: file write blocked
 ```
 
-**W21**
+### W21
 
 ```powershell
 @'
@@ -4043,7 +4043,7 @@ unexpected outcome () True skip observed ['request'] events ['customer_update_re
 AssertionError
 ```
 
-**W22**
+### W22
 
 ```powershell
 @'
@@ -4080,7 +4080,7 @@ raise SystemExit(pytest.main(["-q", "-s", "--noconftest", "-p", "no:cacheprovide
 9 passed in 0.33s
 ```
 
-**W23**
+### W23
 
 ```powershell
 rg -n -B 2 -A 30 '^class CustomerUpdateData|^def customer_update_data_from_nik' src/application/models/customer_workflow.py
@@ -4090,7 +4090,7 @@ rg -n -B 2 -A 30 '^class CustomerUpdateData|^def customer_update_data_from_nik' 
 50-
 ```
 
-**W24**
+### W24
 
 ```powershell
 @'
@@ -4159,7 +4159,7 @@ for update in (False, True):
 16 fake screen orders passed -> restart_after_update
 ```
 
-**W25**
+### W25
 
 ```powershell
 @'
@@ -4190,7 +4190,7 @@ raise SystemExit(pytest.main(["-q", "-s", "--noconftest", "-p", "no:cacheprovide
 1 passed in 2.40s
 ```
 
-**W26**
+### W26
 
 ```powershell
 rg -n -m 6 '20261121|2026-11-21|workflow_events|workflow\.json' docs/MODERNIZATION_PLAN.md | ForEach-Object { $_.Substring(0, [Math]::Min(440, $_.Length)) }
@@ -4201,7 +4201,7 @@ rg -n -m 6 '20261121|2026-11-21|workflow_events|workflow\.json' docs/MODERNIZATI
 2970:start 2026-11-21T10:50:30+07:00 finish 2026-11-21T11:29:35+07:00 seconds 2345.0
 ```
 
-**W27**
+### W27
 
 ```powershell
 rg -n 'def record_workflow_event|workflow_events|workflow\.json|workflow\.csv' src/reporting src/infrastructure | Select-Object -First 22
@@ -4211,7 +4211,7 @@ rg -n 'def record_workflow_event|workflow_events|workflow\.json|workflow\.csv' s
 rg: src/reporting: The system cannot find the file specified. (os error 2)
 ```
 
-**W28**
+### W28
 
 ```powershell
 @'
@@ -4227,7 +4227,7 @@ for i in [197,198,199,200,201,202,2944,2945,2946,2947,2948,2949,2950,2968,2969,2
 2971: overall completed_with_errors
 ```
 
-**W29**
+### W29
 
 ```powershell
 rg -n 'def record_workflow_event|workflow_events|def _record_workflow_event' src/web/reporter.py src/orchestration/transaction_processor.py src/application/services/transaction_prechecks.py
@@ -4238,7 +4238,7 @@ src/web/reporter.py:599:        self.workflow_events.append(workflow_event)
 src/web/reporter.py:600:        self._append_jsonl(self.workflow_events_path, asdict(workflow_event))
 ```
 
-**W30**
+### W30
 
 ```powershell
 @'
@@ -4275,7 +4275,7 @@ workflow_events.jsonl files 2 rows 398 fields ['event', 'nik', 'operator_id'] co
 items.jsonl files 2 rows 214 fields ['nik', 'operator_id', 'status'] counts {'completed': 200, 'skipped': 14}
 ```
 
-**W31**
+### W31
 
 ```powershell
 @'
@@ -4330,7 +4330,7 @@ skipped action patterns 3 items 14
    type 2
 ```
 
-**W32**
+### W32
 
 ```powershell
 @'
@@ -4349,7 +4349,7 @@ reports/2026/11/21/20261121_105030_7a95/operators/operator_01/items.jsonl
 reports/2026/11/21/20261121_105030_7a95/operators/operator_02/items.jsonl
 ```
 
-**W33**
+### W33
 
 ```powershell
 Get-Content -LiteralPath docs/MODERNIZATION_PLAN.md -Encoding UTF8 -Tail 12
@@ -4359,7 +4359,7 @@ Get-Content -LiteralPath docs/MODERNIZATION_PLAN.md -Encoding UTF8 -Tail 12
 **B14**
 ```
 
-**W34**
+### W34
 
 ```powershell
 rg -n -A 15 '^    def record_workflow_event' src/web/reporter.py
@@ -4370,7 +4370,7 @@ rg -n -A 15 '^    def record_workflow_event' src/web/reporter.py
 592-            nik=display_nik(nik),
 ```
 
-**W35**
+### W35
 
 ```powershell
 rg -n '^### Phase 1 acceptance procedure|^## Appendix|^\*\*F4[0-9] |^### Recover' docs/MODERNIZATION_PLAN.md README.md | ForEach-Object { $_.Substring(0, [Math]::Min(110, $_.Length)) }
@@ -4386,7 +4386,7 @@ docs/MODERNIZATION_PLAN.md:409:## Appendix. Command evidence
 
 W16 and W21 exposed an invalid value in the one-off fake update record. W23 shows the field checks. W24 supplies explicit dummy fields and repeats the whole check. W20 stopped before test collection when pytest's logging plugin tried to open a file for writing. W22 disables that plugin and runs the selected tests. W27 searched one missing directory. W29 located the reporter in `src/web/reporter.py`.
 
-**W36**
+### W36
 
 ```powershell
 @'
@@ -4413,7 +4413,7 @@ print("10 numbered rows; 6 saved patterns; totals 200 and 14; evidence and secti
 10 numbered rows; 6 saved patterns; totals 200 and 14; evidence and section links present
 ```
 
-**W37**
+### W37
 
 ```powershell
 git diff --stat
@@ -4426,7 +4426,7 @@ git diff --stat
 
 W02 and W38 both list the existing `.gitignore` edit and the untracked plan. The ordinary Git diff statistic covers tracked files.
 
-**W38**
+### W38
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -4440,7 +4440,7 @@ git status --short --branch --untracked-files=all
 
 **Readback on November 23.** W01, W36, W37 and W38 were repeated. The focused reads below locate the saved findings and the original claims.
 
-**W39**
+### W39
 
 ```powershell
 rg -n -A 31 '^\*\*W36\*\*' docs/MODERNIZATION_PLAN.md
@@ -4450,7 +4450,7 @@ rg -n -A 31 '^\*\*W36\*\*' docs/MODERNIZATION_PLAN.md
 4066:**W36**
 ```
 
-**W40**
+### W40
 
 ```powershell
 rg -n '^### How many customer paths|^\*\*F4[234] |^## Customer path evidence|^\| C[1-7] |^####? Phase 1' docs/MODERNIZATION_PLAN.md
@@ -4461,7 +4461,7 @@ rg -n '^### How many customer paths|^\*\*F4[234] |^## Customer path evidence|^\|
 3272:## Customer path evidence
 ```
 
-**W41**
+### W41
 
 ```powershell
 rg -n -m 12 '^\| .*C[1-7]\b|^## 0\.|^## 5\.|^## Appendix\.|^### What C7' docs/MODERNIZATION_PLAN.md | ForEach-Object { $_.Substring(0, [Math]::Min(510, $_.Length)) }

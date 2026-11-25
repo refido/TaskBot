@@ -41,6 +41,7 @@ uv run --locked mypy --no-incremental --config-file (Join-Path $p 'narrow.toml')
 
 The readback followed the three names in the README against a dummy queue, an actual dummy-shop terminal row and its database record. It printed `PASS: guide input preserved 3 entries; terminal status completed; quota and high-water 3/3`.
 
+<!-- markdownlint-disable-next-line MD033 -- stable link target; differs from the heading slug -->
 <a id="current-guide-corrections"></a>
 
 ## F115 · VERIFIED · Outdated directions corrected
@@ -51,6 +52,7 @@ The current terminal writer calls `_append_with_retry` for CSV and then JSONL. T
 
 ## F116 · VERIFIED · Branch checks
 
+<!-- markdownlint-disable-next-line MD033 -- stable link target; differs from the heading slug -->
 <a id="branch-checks"></a>
 
 The following groups cover each row of the README tables. The targeted test run printed `461 passed in 15.63s`; its JUnit report contained 461 cases and zero failures. The local shop supplied the external confirmation step. The screen-order example used fake screens and blocked network and disk writes.

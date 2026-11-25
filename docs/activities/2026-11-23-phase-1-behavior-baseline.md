@@ -78,7 +78,7 @@ Use B36 unchanged for a later comparison. The in-memory store includes the outpu
 | F57 · **VERIFIED** by the owner for the database's role; current stored rows **UNVERIFIED** | The owner identified the shared target as the daily-sales database. `AGENTS.md` says “Only a local test DB.” The offline backup declares the two operator tables and their NIK primary keys at `db_query/schema backup.sql:L33,L58,L84,L93` (N01, N13). | No database session was opened and no SQL was sent. A read-only check on a separate copy can verify its PostgreSQL version, schema and the current state of dummy rows. Proof of a new quota change needs a known before/after pair. |
 | F58 · **VERIFIED** in an offline diagnostic | Commit `7a9ca01` removed the old manager import from `main.py` (N07, N10, N14). Some tests still use that name and check the setup lock and payload helper at `tests/unit/test_database_report_syncer.py:L96,L115-L123,L239-L241`. In the unchanged checkout, 1 selected case passed and 20 errored. Making those three existing names available from `main` temporarily, inside a fresh test process, gave **21 passed**. Seven separate child-process tests were excluded from both runs (N12, N16, N17). | There is a specific compatibility repair to try. This experiment neither changed source files nor established that all 50 failures/errors in F53 would clear. |
 
-**What the owner can provide**
+### What the owner can provide
 
 1. **For SELECT checks:** point `.env.test` to an already prepared, separate local test database with the two operator tables and a few invented customer records. The test database can use the same PostgreSQL server with a distinct database name. Leave daily-sales settings in `.env.local`. Just say when the test copy is ready; there is no need to send a password, a real customer number or a production export.
 2. **For the code repair:** give the go-ahead to change `main.py` to expose the three existing names again and rerun the affected tests. This is separate from permission to query any database. The analysis-only instruction still applies to source edits.
@@ -88,7 +88,7 @@ Use B36 unchanged for a later comparison. The in-memory store includes the outpu
 <details>
 <summary>Updated configuration and offline compatibility checks (N01–N20)</summary>
 
-**N01**
+### N01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -98,7 +98,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 - Never connect to a real/production database. Only a local test DB.
 ```
 
-**N02**
+### N02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -111,7 +111,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**N03**
+### N03
 
 ```powershell
 git rev-parse --short HEAD
@@ -121,7 +121,7 @@ git rev-parse --short HEAD
 2e781dc
 ```
 
-**N04**
+### N04
 
 ```powershell
 rg -n 'DB_HOST|DB_PORT|DB_NAME|DB_USER|DB_PASSWORD|DB_DATABASE|DATABASE_URL|class DatabaseConfig|def.*connect' src/infrastructure/database/operator_store.py
@@ -132,7 +132,7 @@ rg -n 'DB_HOST|DB_PORT|DB_NAME|DB_USER|DB_PASSWORD|DB_DATABASE|DATABASE_URL|clas
 903:    def _connect(self, database_name: str):
 ```
 
-**N05**
+### N05
 
 ```powershell
 rg -n '^## |\*\*Decision\.|^\*\*F5[0-9]' docs/2026-11-23-phase-1-behavior-baseline.md | Select-Object -First 22
@@ -143,7 +143,7 @@ rg -n '^## |\*\*Decision\.|^\*\*F5[0-9]' docs/2026-11-23-phase-1-behavior-baseli
 69:## Command evidence
 ```
 
-**N06**
+### N06
 
 ```powershell
 rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pattern 'phase 1|local test database|golden baseline' | Select-Object -First 2
@@ -153,7 +153,7 @@ rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pa
 (no output)
 ```
 
-**N07**
+### N07
 
 ```powershell
 git log -n 6 --oneline -S OperatorDatabaseManager -- main.py
@@ -164,7 +164,7 @@ git log -n 6 --oneline -S OperatorDatabaseManager -- main.py
 62e4da6 feat: Implement automatic report syncing to database after operator session
 ```
 
-**N08**
+### N08
 
 ```powershell
 @'
@@ -214,7 +214,7 @@ same configured host/port/database True
 nonempty customer-list keys 2 2
 ```
 
-**N09**
+### N09
 
 ```powershell
 git log -n 1 --format='%h %ad %s' --date=short -- main.py
@@ -224,7 +224,7 @@ git log -n 1 --format='%h %ad %s' --date=short -- main.py
 838d510 2026-09-25 feat: implement environment variable loading with size constraints and update related configurations
 ```
 
-**N10**
+### N10
 
 ```powershell
 git show --format= --unified=1 7a9ca01 -- main.py | Select-String -Pattern '^[+-].*(OperatorDatabaseManager|_database_report_payload|_DATABASE_SETUP_LOCK|DatabaseReportSyncer)' | Select-Object -First 15
@@ -236,7 +236,7 @@ git show --format= --unified=1 7a9ca01 -- main.py | Select-String -Pattern '^[+-
 -def _database_report_payload(row: Any) -> dict[str, Any]:
 ```
 
-**N11**
+### N11
 
 ```powershell
 rg -n -A 85 '^def db_case\(' tests/contract/test_db_sync_lifecycle.py | Select-Object -Last 32
@@ -247,7 +247,7 @@ rg -n -A 85 '^def db_case\(' tests/contract/test_db_sync_lifecycle.py | Select-O
 121-    path = tmp_path / "items.jsonl"
 ```
 
-**N12**
+### N12
 
 ```powershell
 rg -n 'main\.(OperatorDatabaseManager|_DATABASE_SETUP_LOCK|_database_report_payload)|def test_setup_ready_is_per_instance_not_global' tests/unit/test_database_report_syncer.py
@@ -260,7 +260,7 @@ rg -n 'main\.(OperatorDatabaseManager|_DATABASE_SETUP_LOCK|_database_report_payl
 241:            assert main._database_report_payload is report_syncer._database_report_payload
 ```
 
-**N13**
+### N13
 
 ```powershell
 rg -n 'create table|CREATE TABLE|ADD CONSTRAINT|PRIMARY KEY' 'db_query/schema backup.sql' | Select-String -Pattern 'CREATE TABLE|PRIMARY KEY' | Select-Object -First 8
@@ -274,7 +274,7 @@ rg -n 'create table|CREATE TABLE|ADD CONSTRAINT|PRIMARY KEY' 'db_query/schema ba
 93:    ADD CONSTRAINT "OPERATOR_2_pkey" PRIMARY KEY ("NIK");
 ```
 
-**N14**
+### N14
 
 ```powershell
 git show -s --format='%h %ad %s' --date=short 7a9ca01
@@ -284,7 +284,7 @@ git show -s --format='%h %ad %s' --date=short 7a9ca01
 7a9ca01 2026-09-15 Add comprehensive tests for cleanup logging, precheck observation, and account processing
 ```
 
-**N15**
+### N15
 
 ```powershell
 git diff --stat
@@ -295,7 +295,7 @@ git diff --stat
  1 file changed, 5 insertions(+), 1 deletion(-)
 ```
 
-**N16**
+### N16
 
 ```powershell
 rg -n 'tmp_path|Path\(|\.write_text|\.exists\(|^def test_|subprocess\.run' tests/unit/test_database_report_syncer.py | Select-Object -First 30
@@ -308,7 +308,7 @@ rg -n 'tmp_path|Path\(|\.write_text|\.exists\(|^def test_|subprocess\.run' tests
 248:    result = subprocess.run(
 ```
 
-**N17**
+### N17
 
 ```powershell
 foreach ($phaseVariant in @("checkout", "temporary-exports")) {
@@ -357,7 +357,7 @@ checkout pytest exit 1 {'deselected': 7, 'errors': 20, 'passed': 1}
 temporary-exports pytest exit 0 {'deselected': 7, 'passed': 21}
 ```
 
-**N18**
+### N18
 
 ```powershell
 @'
@@ -374,7 +374,7 @@ print("three findings, configuration boundary, test result and requested owner i
 three findings, configuration boundary, test result and requested owner inputs verified
 ```
 
-**N19**
+### N19
 
 ```powershell
 rg -n '^## 7\. What we need next|^\*\*What the owner can provide' docs/2026-11-23-phase-1-behavior-baseline.md
@@ -741,7 +741,7 @@ ERROR tests/contract/test_db_sync_lifecycle.py::test_persistent_syncer_recovers_
 
 Commands use Windows PowerShell. No credential value is included. R22 found that this Windows build treats `--pwfile=-` as a filename. R23 used a protected temporary file and removed it after initialization. The cluster ACL required running R31/R38/R42 as the creating Windows user. R36 could not access the sandbox’s private scratch directory from that account. A separate reference checkout was made in the cluster’s verification directory. R37 compared native Windows and Git line endings. R38 verified the source with line endings accounted for before running the baseline.
 
-**R01**
+#### R01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -751,7 +751,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 - Never connect to a real/production database. Only a local test DB.
 ```
 
-**R02**
+#### R02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -764,7 +764,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**R03**
+#### R03
 
 ```powershell
 git rev-parse HEAD
@@ -774,7 +774,7 @@ git rev-parse HEAD
 2e781dc673327d09c94ac8a281a9219ee5f531c9
 ```
 
-**R04**
+#### R04
 
 ```powershell
 Get-Content -LiteralPath main.py -TotalCount 55 -Encoding UTF8
@@ -784,7 +784,7 @@ Get-Content -LiteralPath main.py -TotalCount 55 -Encoding UTF8
 # Compatibility exports retain canonical identity and composition patch points.
 ```
 
-**R05**
+#### R05
 
 ```powershell
 rg -n 'OperatorDatabaseManager|_DATABASE_SETUP_LOCK|def _database_report_payload|__all__' src/infrastructure/database/report_syncer.py main.py
@@ -796,7 +796,7 @@ src/infrastructure/database/report_syncer.py:21:        self._manager: OperatorD
 src/infrastructure/database/report_syncer.py:109:    def _get_manager(self, report_path: object) -> OperatorDatabaseManager | None:
 ```
 
-**R06**
+#### R06
 
 ```powershell
 Get-Command pg_ctl.exe,initdb.exe,psql.exe -ErrorAction SilentlyContinue | Select-Object Name,Source; Get-ChildItem -LiteralPath 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
@@ -806,7 +806,7 @@ Get-Command pg_ctl.exe,initdb.exe,psql.exe -ErrorAction SilentlyContinue | Selec
 18
 ```
 
-**R07**
+#### R07
 
 ```powershell
 Get-Content -LiteralPath tests/integration/test_entrypoints.py -Encoding UTF8 | Select-Object -First 130
@@ -817,7 +817,7 @@ Get-Content -LiteralPath tests/integration/test_entrypoints.py -Encoding UTF8 | 
     module = importlib.import_module("user_sessions")
 ```
 
-**R08**
+#### R08
 
 ```powershell
 rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pattern 'separate local|phase 1|PGDATA' | Select-Object -First 2
@@ -827,7 +827,7 @@ rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pa
 (no output)
 ```
 
-**R09**
+#### R09
 
 ```powershell
 rg -n '^(CREATE|ALTER|SET |SELECT|COPY|INSERT|UPDATE|DELETE|GRANT|REVOKE|\\)' 'db_query/schema backup.sql' | ForEach-Object { $_ -replace '(restrict|unrestrict)\s+\S+', '$1 [omitted]' }
@@ -838,7 +838,7 @@ rg -n '^(CREATE|ALTER|SET |SELECT|COPY|INSERT|UPDATE|DELETE|GRANT|REVOKE|\\)' 'd
 58:CREATE TABLE public."OPERATOR_2" (
 ```
 
-**R10**
+#### R10
 
 ```powershell
 Get-Content -Encoding UTF8 -LiteralPath pytest.ini; git ls-files -- '.env' '.env.*' 'reports/**' | Measure-Object | Select-Object -ExpandProperty Count
@@ -848,7 +848,7 @@ Get-Content -Encoding UTF8 -LiteralPath pytest.ini; git ls-files -- '.env' '.env
 addopts = -p no:cacheprovider
 ```
 
-**R11**
+#### R11
 
 ```powershell
 git ls-files -- '.env' '.env.*'; git ls-files | Group-Object { [IO.Path]::GetExtension($_) } | Select-Object Count,Name | Sort-Object Count -Descending | Select-Object -First 22
@@ -858,7 +858,7 @@ git ls-files -- '.env' '.env.*'; git ls-files | Group-Object { [IO.Path]::GetExt
 .env.example
 ```
 
-**R12**
+#### R12
 
 ```powershell
 rg -n '\.goto\(|\.connect\(|https?://|connect_over_cdp' tests/integration | ForEach-Object { $_ -replace 'https?://[^\s"\x27]+','[URL]' } | Select-Object -First 25
@@ -868,7 +868,7 @@ rg -n '\.goto\(|\.connect\(|https?://|connect_over_cdp' tests/integration | ForE
 (no output)
 ```
 
-**R13**
+#### R13
 
 ```powershell
 Get-Item -LiteralPath 'C:\Program Files\PostgreSQL\18\bin\initdb.exe','C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe' | Select-Object Name,@{n='Version';e={$_.VersionInfo.ProductVersion}}; Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\ms-playwright" -Name -ErrorAction SilentlyContinue | Select-Object -First 8; Get-Item -LiteralPath "$env:LOCALAPPDATA\TaskBot\phase1-pg18" -ErrorAction SilentlyContinue | Select-Object Name
@@ -879,7 +879,7 @@ initdb.exe 18.4
 pg_ctl.exe 18.4   
 ```
 
-**R14**
+#### R14
 
 ```powershell
 rg -n -A 38 'def upsert_report_payload\(|def sync_report_payloads\(|def _compute|def _resolve_previous|class OperatorDatabaseManager|def _connect\(' src/infrastructure/database/operator_store.py | Select-Object -First 108
@@ -889,7 +889,7 @@ rg -n -A 38 'def upsert_report_payload\(|def sync_report_payloads\(|def _compute
 558:    def sync_report_payloads(
 ```
 
-**R15**
+#### R15
 
 ```powershell
 rg -n 'Phase 1|N20|behavior-baseline|Working tree' docs/2026-11-23-phase-1-behavior-baseline.md | Select-Object -First 10
@@ -901,7 +901,7 @@ rg -n 'Phase 1|N20|behavior-baseline|Working tree' docs/2026-11-23-phase-1-behav
 31:| Finding | Evidence from the unchanged checkout | Meaning for Phase 1 |
 ```
 
-**R16**
+#### R16
 
 ```powershell
 @'
@@ -932,7 +932,7 @@ audit_root C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow
 tracked files copied 145 private config exists False
 ```
 
-**R17**
+#### R17
 
 ```powershell
 @'
@@ -962,7 +962,7 @@ suite before exit 1 log before-pytest.log
 failed nodes 8 error nodes 43
 ```
 
-**R18**
+#### R18
 
 ```powershell
 & 'C:\Program Files\PostgreSQL\18\bin\initdb.exe' --help | Select-String -Pattern 'pwfile|auth-host|auth-local|encoding|locale' 
@@ -972,7 +972,7 @@ failed nodes 8 error nodes 43
       --pwfile=FILE         read password for the new superuser from file
 ```
 
-**R19**
+#### R19
 
 ```powershell
 rg -n -A 25 'def _resolve_payload_target|def _determine|def _calculate|def _prepare|def _build_upsert|def _get_upsert|def _upsert' src/infrastructure/database/operator_store.py | Select-Object -First 112
@@ -983,7 +983,7 @@ rg -n -A 25 'def _resolve_payload_target|def _determine|def _calculate|def _prep
 1121-                WHEN EXCLUDED.{kuota} > 0
 ```
 
-**R20**
+#### R20
 
 ```powershell
 Get-Content -LiteralPath 'db_query/schema backup.sql' -Encoding UTF8 | Select-Object -Skip 32 -First 44
@@ -994,7 +994,7 @@ CREATE TABLE public."OPERATOR_1" (
 CREATE TABLE public."OPERATOR_2" (
 ```
 
-**R21**
+#### R21
 
 ```powershell
 git check-ignore -v -- .env.test .env.local
@@ -1005,7 +1005,7 @@ git check-ignore -v -- .env.test .env.local
 .gitignore:176:.env.local	.env.local
 ```
 
-**R22**
+#### R22
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -1043,7 +1043,7 @@ Write-Output "phase1 started on loopback port $phasePort"
 initdb: error: could not open file "-" for reading: No such file or directory
 ```
 
-**R23**
+#### R23
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1070,7 +1070,7 @@ Write-Output "test instance port $phasePort"
 test instance port 55432
 ```
 
-**R24**
+#### R24
 
 ```powershell
 Select-String -LiteralPath 'C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow\before-pytest.log' -Pattern '^FAILED |^E\s+' | Select-Object -Last 12 | ForEach-Object { $_.Line.Substring(0,[Math]::Min(210,$_.Line.Length)) }
@@ -1080,7 +1080,7 @@ Select-String -LiteralPath 'C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow
 E   AttributeError: module 'main' has no attribute '_database_report_payload'
 ```
 
-**R25**
+#### R25
 
 ```powershell
 Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding UTF8 | Select-Object -Skip 108 -First 20; Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding UTF8 | Select-Object -Skip 778 -First 100
@@ -1090,7 +1090,7 @@ Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding
             self._upsert_sql(normalized_table),
 ```
 
-**R26**
+#### R26
 
 ```powershell
 Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding UTF8 | Select-Object -Skip 1112 -First 98
@@ -1101,7 +1101,7 @@ Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding
                      < date_trunc('month', EXCLUDED.{updated_time})
 ```
 
-**R27**
+#### R27
 
 ```powershell
 rg -n '^    def ensure_tables_exist|def .*operator_table|_CREATE|^def _parse_nik|def _get.*date' src/infrastructure/database/operator_store.py
@@ -1113,7 +1113,7 @@ rg -n '^    def ensure_tables_exist|def .*operator_table|_CREATE|^def _parse_nik
 1366:def _parse_nik(value: Any) -> int:
 ```
 
-**R28**
+#### R28
 
 ```powershell
 Get-Content -LiteralPath src/web/reporter.py -Encoding UTF8 | Select-Object -Skip 63 -First 80; Get-Content -LiteralPath src/infrastructure/database/operator_store.py | Select-Object -Skip 151 -First 25
@@ -1124,7 +1124,7 @@ class OperatorTarget:
 class OperatorTargets:
 ```
 
-**R29**
+#### R29
 
 ```powershell
 Get-Content -LiteralPath src/infrastructure/database/report_syncer.py | Select-Object -Skip 193 -First 10; rg -n 'def _queue_row_for_batch_sync|def now_iso|def .*flush|def complete\(|def skip\(' src/web/reporter.py
@@ -1134,7 +1134,7 @@ Get-Content -LiteralPath src/infrastructure/database/report_syncer.py | Select-O
 def _database_report_payload(row: Any) -> dict[str, Any]:
 ```
 
-**R30**
+#### R30
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1197,7 +1197,7 @@ with closing(connect("postgres")) as admin:
 'C:\Users\user\AppData\Local\TaskBot\phase1-pg18\admin.dpapi' is denied."
 ```
 
-**R31**
+#### R31
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1264,7 +1264,7 @@ created taskbot_phase1_reference
 created taskbot_phase1
 ```
 
-**R32**
+#### R32
 
 ```powershell
 Get-Content -LiteralPath src/web/reporter.py -Encoding UTF8 | Select-Object -Skip 152 -First 88
@@ -1274,7 +1274,7 @@ Get-Content -LiteralPath src/web/reporter.py -Encoding UTF8 | Select-Object -Ski
     def configure_batch_sync(
 ```
 
-**R33**
+#### R33
 
 ```powershell
 Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding UTF8 | Select-Object -Skip 593 -First 57; rg -n 'def _parse_report_datetime|def _normalize_datetime' src/infrastructure/database/operator_store.py
@@ -1284,7 +1284,7 @@ Get-Content -LiteralPath src/infrastructure/database/operator_store.py -Encoding
             #     COMMIT
 ```
 
-**R34**
+#### R34
 
 ```powershell
 Get-Content -LiteralPath tests/contract/test_reporter_aggregation.py -Encoding UTF8 | Select-Object -Skip 18 -First 35
@@ -1294,7 +1294,7 @@ Get-Content -LiteralPath tests/contract/test_reporter_aggregation.py -Encoding U
 def make_reporter(tmp_path, operator="operator_01"):
 ```
 
-**R35**
+#### R35
 
 ```powershell
 @'
@@ -1416,7 +1416,7 @@ print("operator files",len(files),"bytes",sum(map(len,files.values())),"manifest
 (no output)
 ```
 
-**R36**
+#### R36
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1430,7 +1430,7 @@ $env:TASKBOT_P1_DB_SECRET=([pscredential]::new('postgres',$sealed)).GetNetworkCr
 D:\MyProject\TaskBot\.venv\Scripts\python.exe: can't open file 'C:\\Users\\user\\AppData\\Local\\Temp\\taskbot-p1-tzztx6ow\\phase1-compare.py': [Errno 13] Permission denied
 ```
 
-**R37**
+#### R37
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1577,7 +1577,7 @@ print("operator files",len(files),"bytes",sum(map(len,files.values())),"manifest
 AssertionError
 ```
 
-**R38**
+#### R38
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1717,7 +1717,7 @@ database SHA256 aab38b1d57e7ec3e3c9a41644dbf499f11b2b60c3a9826a11a03a0adaf743043
 operator files 14 bytes 55826 manifest SHA256 693e9170e0123ef483640ce0f72efc8d7cbaa239702f0bff28d1cb2206c7c76d
 ```
 
-**R39**
+#### R39
 
 ```powershell
 Copy-Item -LiteralPath main.py -Destination 'C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow\checkout\main.py' -ErrorAction Stop
@@ -1748,7 +1748,7 @@ suite focused exit 0 log focused-pytest.log
 failed nodes 0 error nodes 0
 ```
 
-**R40**
+#### R40
 
 ```powershell
 git diff --check -- main.py; git diff -- main.py
@@ -1760,7 +1760,7 @@ git diff --check -- main.py; git diff -- main.py
 +    _database_report_payload as _database_report_payload,
 ```
 
-**R41**
+#### R41
 
 ```powershell
 @'
@@ -1790,7 +1790,7 @@ suite after exit 0 log after-pytest.log
 failed nodes 0 error nodes 0
 ```
 
-**R42**
+#### R42
 
 ```powershell
 $ErrorActionPreference='Stop'
@@ -1811,7 +1811,7 @@ database SHA256 aab38b1d57e7ec3e3c9a41644dbf499f11b2b60c3a9826a11a03a0adaf743043
 operator files 14 bytes 55826 manifest SHA256 693e9170e0123ef483640ce0f72efc8d7cbaa239702f0bff28d1cb2206c7c76d
 ```
 
-**R43**
+#### R43
 
 ```powershell
 git diff --stat; git status --short --branch --untracked-files=all
@@ -1828,7 +1828,7 @@ git diff --stat; git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-**R44**
+#### R44
 
 ```powershell
 rg -n '^## |^\*\*Decision\.\*\*|^Reference checkout|^\*\*November 23 decision' docs/2026-11-23-phase-1-behavior-baseline.md | Select-Object -First 13
@@ -1838,7 +1838,7 @@ rg -n '^## |^\*\*Decision\.\*\*|^Reference checkout|^\*\*November 23 decision' d
 69:## 7. What we need next
 ```
 
-**R45**
+#### R45
 
 ```powershell
 rg -n 'as _DATABASE_SETUP_LOCK|as OperatorDatabaseManager|as _database_report_payload|^    def sync_report_payloads\(|^    def configure_batch_sync\(' main.py src/infrastructure/database/operator_store.py src/web/reporter.py
@@ -1848,7 +1848,7 @@ rg -n 'as _DATABASE_SETUP_LOCK|as OperatorDatabaseManager|as _database_report_pa
 main.py:22:    OperatorDatabaseManager as OperatorDatabaseManager,
 ```
 
-**R46**
+#### R46
 
 ```powershell
 @'
@@ -1866,7 +1866,7 @@ before characters 20601 lines 229 long numeric or email values 0 sensitive assig
 after characters 1622 lines 21 long numeric or email values 0 sensitive assignments 0
 ```
 
-**R47**
+#### R47
 
 ```powershell
 Get-Content -Raw -Encoding UTF8 -LiteralPath 'C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow\before-pytest.log'
@@ -1876,7 +1876,7 @@ Get-Content -Raw -Encoding UTF8 -LiteralPath 'C:\Users\user\AppData\Local\Temp\t
 8 failed, 1368 passed, 43 errors in 60.30s (0:01:00)
 ```
 
-**R48**
+#### R48
 
 ```powershell
 Get-Content -Raw -Encoding UTF8 -LiteralPath 'C:\Users\user\AppData\Local\Temp\taskbot-p1-tzztx6ow\after-pytest.log'
@@ -1886,7 +1886,7 @@ Get-Content -Raw -Encoding UTF8 -LiteralPath 'C:\Users\user\AppData\Local\Temp\t
 1419 passed in 55.19s
 ```
 
-**R49**
+#### R49
 
 ```powershell
 $phaseRoot = Join-Path $env:LOCALAPPDATA 'TaskBot\phase1-pg18'
@@ -1909,7 +1909,7 @@ try {
 (1 row)
 ```
 
-**R50**
+#### R50
 
 ```powershell
 @'
@@ -1924,7 +1924,7 @@ print("repair section, connection settings, full suite outputs and both golden h
 '@ | .\.venv\Scripts\python.exe -I -B -S -
 ```
 
-**R51**
+#### R51
 
 R50 returned the following result.
 
@@ -1942,7 +1942,7 @@ rg -n '^## 8\. Compatibility repair|^### Using the test instance|^### Full suite
 471:### Full suite output
 ```
 
-**R52**
+#### R52
 
 ```powershell
 git diff --check -- main.py
@@ -2199,8 +2199,7 @@ The commands below ran from the repository root. Each entry contains the exact s
 <details>
 <summary>Open the command and output log</summary>
 
-<a id="b01"></a>
-**B01**
+### B01
 
 ```powershell
 Get-Content -LiteralPath AGENTS.md -Encoding UTF8
@@ -2210,8 +2209,7 @@ Get-Content -LiteralPath AGENTS.md -Encoding UTF8
 **No claim without proof.**
 ```
 
-<a id="b02"></a>
-**B02**
+### B02
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -2223,8 +2221,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-<a id="b03"></a>
-**B03**
+### B03
 
 ```powershell
 git rev-parse HEAD
@@ -2234,8 +2231,7 @@ git rev-parse HEAD
 2e781dc673327d09c94ac8a281a9219ee5f531c9
 ```
 
-<a id="b04"></a>
-**B04**
+### B04
 
 ```powershell
 rg --files docs | Sort-Object
@@ -2245,8 +2241,7 @@ rg --files docs | Sort-Object
 docs\MODERNIZATION_PLAN.md
 ```
 
-<a id="b05"></a>
-**B05**
+### B05
 
 ```powershell
 rg -n -A 8 '^### Phase 1 acceptance procedure|^#### Ready to start implementation\?' docs/MODERNIZATION_PLAN.md
@@ -2257,8 +2252,7 @@ rg -n -A 8 '^### Phase 1 acceptance procedure|^#### Ready to start implementatio
 405-5. **Measure time and memory.** Start with the small correctness examples. For reporting alone, benchmark 224 and 1,036 synthetic terminal rows as archive-informed sizes. Optionally add 10,000 rows as a stress test labeled separately. Run one warm-up and five measured repetitions per size on the same machine with the same DB starting state. Record wall time, output bytes, row count, raw samples, median and range. Measure the local workflow separately. Sample the simultaneous memory use of Python and its browser/driver children throughout the run, record the sampling interval and counter, and report DB memory separately. Keep history from F31 as context. It supplies no before/after speed comparison or peak-memory baseline.
 ```
 
-<a id="b06"></a>
-**B06**
+### B06
 
 ```powershell
 rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pattern 'phase 1|test baseline|training shop|safety net' | Select-Object -First 2
@@ -2268,8 +2262,7 @@ rg -n -i 'TaskBot' 'C:\Users\user\.codex\memories\MEMORY.md' | Select-String -Pa
 (no output)
 ```
 
-<a id="b07"></a>
-**B07**
+### B07
 
 ```powershell
 rg --files tests | Sort-Object
@@ -2281,8 +2274,7 @@ tests\contract\test_monthly_quota_lifecycle.py
 tests\integration\test_transaction_confirmation.py
 ```
 
-<a id="b08"></a>
-**B08**
+### B08
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B --version
@@ -2292,8 +2284,7 @@ tests\integration\test_transaction_confirmation.py
 Python 3.14.2
 ```
 
-<a id="b09"></a>
-**B09**
+### B09
 
 ```powershell
 @'
@@ -2323,8 +2314,7 @@ standard saved runs 162 latest folder date 20261123
 recent dates and counts [('20261118', 1), ('20261119', 1), ('20261120', 2), ('20261121', 1), ('20261123', 1)]
 ```
 
-<a id="b10"></a>
-**B10**
+### B10
 
 ```powershell
 rg -n '^class |^def |^    def |^from |^import ' tests/contract/test_monthly_quota_lifecycle.py tests/contract/test_database_setup_lifecycle.py | Select-Object -First 100
@@ -2337,8 +2327,7 @@ tests/contract/test_monthly_quota_lifecycle.py:45:def quota_case(monkeypatch):
 tests/contract/test_monthly_quota_lifecycle.py:124:    def connect(**kwargs):
 ```
 
-<a id="b11"></a>
-**B11**
+### B11
 
 ```powershell
 rg -n '^class |^def |^    def |^from |^import |GOLDEN|assert actual' tests/contract/test_reporter_aggregation.py src/infrastructure/reporting/file_writer.py
@@ -2351,8 +2340,7 @@ tests/contract/test_reporter_aggregation.py:142:    assert actual == json.loads(
 tests/contract/test_reporter_aggregation.py:156:    assert actual == json.loads(GOLDEN.read_text(encoding="utf-8"))[key]
 ```
 
-<a id="b12"></a>
-**B12**
+### B12
 
 ```powershell
 rg -n -i '\b100\b|stock.*limit|DAILY.*(STOCK|QUOTA)' src/infrastructure/config/settings.py src/orchestration/transaction_processor.py tests/contract/test_monthly_quota_lifecycle.py
@@ -2362,8 +2350,7 @@ rg -n -i '\b100\b|stock.*limit|DAILY.*(STOCK|QUOTA)' src/infrastructure/config/s
 (no output)
 ```
 
-<a id="b13"></a>
-**B13**
+### B13
 
 ```powershell
 @'
@@ -2399,8 +2386,7 @@ operator 1 [('total_niks', 'str'), ('completed', 15), ('skipped', 0), ('failed',
 operator 2 [('total_niks', 'str'), ('completed', 14), ('skipped', 1), ('failed', 0), ('retries', 0), ('counts', ('dict', 3, [('completed', 'int'), ('total', 'int')]))]
 ```
 
-<a id="b14"></a>
-**B14**
+### B14
 
 ```powershell
 rg -n -i 'OutOfSellableStockError|for nik in self\.config\.nik|\bkuota_delta\b|quota_delta' src/orchestration/transaction_processor.py src/infrastructure/database/operator_store.py | Select-Object -First 22
@@ -2413,8 +2399,7 @@ src/orchestration/transaction_processor.py:264:            except OutOfSellableS
 src/infrastructure/database/operator_store.py:310:            kuota_delta=1 if is_successful else 0,
 ```
 
-<a id="b15"></a>
-**B15**
+### B15
 
 ```powershell
 rg -n -i '^def test_.*(older|newer|duplicate|quota|out_of_stock|restart|unconfirmed|missing_evidence)|monkeypatch\.setattr\(.*connect' tests/unit/test_operator_database.py tests/contract/test_transaction_processor.py tests/contract/test_monthly_quota_lifecycle.py tests/contract/test_database_setup_lifecycle.py | Select-Object -First 54
@@ -2427,8 +2412,7 @@ tests/contract/test_transaction_processor.py:1403:def test_successful_update_res
 tests/contract/test_monthly_quota_lifecycle.py:131:    monkeypatch.setattr(operator_store.psycopg2, "connect", case.connect)
 ```
 
-<a id="b16"></a>
-**B16**
+### B16
 
 ```powershell
 Get-Content -LiteralPath src/infrastructure/reporting/file_writer.py -Encoding UTF8 | Select-Object -First 120
@@ -2441,8 +2425,7 @@ Get-Content -LiteralPath src/infrastructure/reporting/file_writer.py -Encoding U
             os.fsync(file_handle.fileno())
 ```
 
-<a id="b17"></a>
-**B17**
+### B17
 
 ```powershell
 rg -n -A 24 '^class TransactionRow' src/infrastructure/reporting/models.py
@@ -2454,8 +2437,7 @@ rg -n -A 24 '^class TransactionRow' src/infrastructure/reporting/models.py
 28-    run_id: str = ""
 ```
 
-<a id="b18"></a>
-**B18**
+### B18
 
 ```powershell
 @'
@@ -2501,8 +2483,7 @@ nonempty operator/run count maps 278 by completion count {'above 100': 9, 'below
 operator/dates in these maps 160 day sums exact 100 108 over 100 11
 ```
 
-<a id="b19"></a>
-**B19**
+### B19
 
 ```powershell
 rg -n 'completed_with_errors|transaction_error_count|transaction_status' main.py src/application | Select-Object -First 43
@@ -2513,8 +2494,7 @@ main.py:268:    if "completed_with_errors" in statuses:
 src/application\services\account_runner.py:193:            "transaction_error_count": (
 ```
 
-<a id="b20"></a>
-**B20**
+### B20
 
 ```powershell
 rg -n '^def test_|^class |psycopg2|\bconnect\(' tests/unit/test_operator_database.py tests/unit/test_database_report_payload_lifecycle.py | Select-Object -First 53
@@ -2526,8 +2506,7 @@ tests/unit/test_operator_database.py:256:def test_nik_parsing_skip_preserves_rea
 tests/unit/test_operator_database.py:417:def test_upsert_record_passes_expected_values_to_cursor():
 ```
 
-<a id="b21"></a>
-**B21**
+### B21
 
 ```powershell
 rg -n '^def test_|@pytest.mark.parametrize' tests/contract/test_db_sync_lifecycle.py tests/unit/test_transaction_outcome.py | Select-Object -First 45
@@ -2539,8 +2518,7 @@ tests/unit/test_transaction_outcome.py:54:def test_missing_success_times_out_ins
 tests/unit/test_transaction_outcome.py:80:def test_stock_empty_modal_is_a_stop_outcome(result_page):
 ```
 
-<a id="b22"></a>
-**B22**
+### B22
 
 ```powershell
 @'
@@ -2559,8 +2537,7 @@ for p,a,b in [("src/application/services/account_runner.py",174,199),("main.py",
 124:         files[attr] = hashlib.sha256(content.encode("utf-8")).hexdigest()
 ```
 
-<a id="b23"></a>
-**B23**
+### B23
 
 ```powershell
 rg -n '^def test_.*(stock|retry|restart|unconfirmed_sale|terminal_skip)' tests/contract/test_transaction_processor.py | Select-Object -First 45
@@ -2573,8 +2550,7 @@ rg -n '^def test_.*(stock|retry|restart|unconfirmed_sale|terminal_skip)' tests/c
 1481:def test_repeated_update_after_same_nik_restart_is_terminal_without_retry():
 ```
 
-<a id="b24"></a>
-**B24**
+### B24
 
 ```powershell
 rg -n 'def db_case|tmp_path|open\(' tests/contract/test_db_sync_lifecycle.py tests/contract/test_database_setup_lifecycle.py tests/contract/test_monthly_quota_lifecycle.py tests/unit/test_database_report_payload_lifecycle.py
@@ -2585,8 +2561,7 @@ tests/contract/test_db_sync_lifecycle.py:43:def db_case(monkeypatch, tmp_path):
 tests/contract/test_db_sync_lifecycle.py:121:    path = tmp_path / "items.jsonl"
 ```
 
-<a id="b25"></a>
-**B25**
+### B25
 
 ```powershell
 rg -n 'def .*|MASK' src/privacy.py | Select-Object -First 30
@@ -2597,8 +2572,7 @@ rg -n 'def .*|MASK' src/privacy.py | Select-Object -First 30
 41:def display_nik(value: object) -> str:
 ```
 
-<a id="b26"></a>
-**B26**
+### B26
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B -c "from importlib.util import find_spec; print({k: bool(find_spec(k)) for k in ('pyfakefs', 'fsspec', 'psutil', 'pytest')})"
@@ -2608,8 +2582,7 @@ rg -n 'def .*|MASK' src/privacy.py | Select-Object -First 30
 {'pyfakefs': False, 'fsspec': False, 'psutil': False, 'pytest': True}
 ```
 
-<a id="b27"></a>
-**B27**
+### B27
 
 ```powershell
 rg -n '\.(open|touch|mkdir|replace|rename|glob|exists|is_dir|stat|write_text)\(|\bopen\(' src/web/reporter.py src/infrastructure/reporting/file_writer.py | Select-Object -First 60
@@ -2622,8 +2595,7 @@ src/web/reporter.py:920:        self.run_dir.mkdir(parents=True, exist_ok=True)
 src/infrastructure/reporting/file_writer.py:74:        with self.csv_path.open("a", newline="", encoding="utf-8") as file_handle:
 ```
 
-<a id="b28"></a>
-**B28**
+### B28
 
 ```powershell
 @'
@@ -2643,8 +2615,7 @@ for n in [*range(40,58), *range(144,158)]:
 152:     first._record_row(dataset("single")[0])
 ```
 
-<a id="b29"></a>
-**B29**
+### B29
 
 ```powershell
 @'
@@ -2681,8 +2652,7 @@ raise SystemExit(pytest.main([*opts,"--collect-only","-qq"], plugins=[Count()]))
 inventory: [('contract', 306), ('integration', 40), ('unit', 1073)] total 1419
 ```
 
-<a id="b30"></a>
-**B30**
+### B30
 
 ```powershell
 @'
@@ -2729,8 +2699,7 @@ raise SystemExit(pytest.main([*opts,*chosen]))
 146 passed in 0.78s
 ```
 
-<a id="b31"></a>
-**B31**
+### B31
 
 ```powershell
 @'
@@ -2822,8 +2791,7 @@ raise SystemExit(pytest.main([*opts, mod+"test_legacy_outputs", mod+"test_two_op
 19 passed in 0.38s
 ```
 
-<a id="b32"></a>
-**B32**
+### B32
 
 ```powershell
 @'
@@ -2846,8 +2814,7 @@ for m in sorted(Path("reports").glob("*/*/*/20261123_*/run_meta.json")):
 skip category ['customer quota limit']
 ```
 
-<a id="b33"></a>
-**B33**
+### B33
 
 ```powershell
 rg -n -A 20 '^class OperatorRecord|def from_report_payload|def _record_row\(' src/infrastructure/database/operator_store.py src/web/reporter.py | Select-Object -First 68
@@ -2860,8 +2827,7 @@ src/web/reporter.py-1095-        self.rows.append(row)
 src/web/reporter.py-1097-            self.file_writer.append_row(row)
 ```
 
-<a id="b34"></a>
-**B34**
+### B34
 
 ```powershell
 @'
@@ -2882,8 +2848,7 @@ for i,line in enumerate(s,1):
 311:             status_code=status_mapping.status_code,
 ```
 
-<a id="b35"></a>
-**B35**
+### B35
 
 ```powershell
 @'
@@ -3029,8 +2994,7 @@ file manifest sha256 4bb7e78e669bc0db72c7882bd46f31b483aafec3f56c97f20b8f6d1bf52
 DB payload list sha256 395eccbb90006bbd867d2918adff045d8c81eb6d2935235703652c4360df2527
 ```
 
-<a id="b36"></a>
-**B36**
+### B36
 
 ```powershell
 foreach ($phaseRows in @(224, 1036)) {
@@ -3211,8 +3175,7 @@ sampled peak working set MiB [49.52, 49.59, 49.62, 49.89, 49.55] median 49.59
 process lifetime peak MiB 49.89
 ```
 
-<a id="b37"></a>
-**B37**
+### B37
 
 ```powershell
 @'
@@ -3317,8 +3280,7 @@ raise SystemExit(pytest.main([*opts,*mods],plugins=[TempInMemory()]))
 E   AttributeError: module 'main' has no attribute 'OperatorDatabaseManager'
 ```
 
-<a id="b38"></a>
-**B38**
+### B38
 
 ```powershell
 @'
@@ -3443,8 +3405,7 @@ raise SystemExit(rc)
 FileNotFoundError: [Errno 2] No usable temporary directory found in ['C:\\Users\\user\\AppData\\Local\\Temp', 'C:\\Users\\user\\AppData\\Local\\Temp', 'C:\\Users\\user\\AppData\\Local\\Temp', 'C:\\windows\\Temp', 'c:\\temp', 'c:\\tmp', '\\temp', '\\tmp', 'D:\\MyProject\\TaskBot']
 ```
 
-<a id="b39"></a>
-**B39**
+### B39
 
 ```powershell
 rg -n 'taskbot_main\.(OperatorDatabaseManager|OperatorTargets|OperatorDatabase|DatabaseConfig|DatabaseReportSyncer|_DatabaseReportSyncer)|setattr\(taskbot_main|from src.infrastructure.database|from src.application' tests/unit/test_database_report_syncer.py tests/contract/test_db_sync_lifecycle.py main.py | Select-Object -First 39
@@ -3456,8 +3417,7 @@ tests/contract/test_db_sync_lifecycle.py:106:    monkeypatch.setattr(taskbot_mai
 main.py:19:from src.infrastructure.database.report_syncer import (
 ```
 
-<a id="b40"></a>
-**B40**
+### B40
 
 ```powershell
 @'
@@ -3584,8 +3544,7 @@ passed 233 test failures 7 fixture errors 43
 43 setup AttributeError: module 'main' has no attribute 'OperatorDatabaseManager' | tests/contract/test_db_sync_lifecycle.py::test_one_off_success_lifecycle
 ```
 
-<a id="b41"></a>
-**B41**
+### B41
 
 ```powershell
 @'
@@ -3604,8 +3563,7 @@ for f,a,b in [("tests/unit/test_database_report_syncer.py",205,255),("main.py",9
 240:             assert main._DATABASE_SETUP_LOCK is report_syncer._DATABASE_SETUP_LOCK
 ```
 
-<a id="b42"></a>
-**B42**
+### B42
 
 ```powershell
 @'
@@ -3742,8 +3700,7 @@ passed 233 test failures 7 fixture errors 43
 43 setup AttributeError: module 'main' has no attribute 'OperatorDatabaseManager' | tests/contract/test_db_sync_lifecycle.py::test_one_off_success_lifecycle
 ```
 
-<a id="b43"></a>
-**B43**
+### B43
 
 ```powershell
 @'
@@ -3782,8 +3739,7 @@ _DATABASE_SETUP_LOCK main False syncer module True
 _database_report_payload main False syncer module True
 ```
 
-<a id="b44"></a>
-**B44**
+### B44
 
 ```powershell
 @'
@@ -3828,8 +3784,7 @@ FAILED tests/unit/test_database_report_syncer.py::test_fresh_import_identity_and
 1 failed in 0.96s
 ```
 
-<a id="b45"></a>
-**B45**
+### B45
 
 ```powershell
 rg -n 'from .*report_syncer|DatabaseReportSyncer|OperatorDatabaseManager|_DATABASE_SETUP_LOCK' main.py src/infrastructure/database/report_syncer.py | Select-Object -First 22
@@ -3842,8 +3797,7 @@ src/infrastructure/database/report_syncer.py:9:from src.infrastructure.database.
 src/infrastructure/database/report_syncer.py:14:_DATABASE_SETUP_LOCK = Lock()
 ```
 
-<a id="b46"></a>
-**B46**
+### B46
 
 ```powershell
 @'
@@ -3866,8 +3820,7 @@ operator 1 rows 15 fields 18 field differences 0
 operator 2 rows 15 fields 18 field differences 0
 ```
 
-<a id="b47"></a>
-**B47**
+### B47
 
 ```powershell
 @'
@@ -3888,8 +3841,7 @@ reports/2026/11/23/20261123_062628_be17/operators/operator_01/items.csv
 reports/2026/11/23/20261123_062628_be17/operators/operator_02/items.csv
 ```
 
-<a id="b48"></a>
-**B48**
+### B48
 
 ```powershell
 @'
@@ -3915,8 +3867,7 @@ print("8 findings, outcomes, benchmark, reference sizes, file links and identifi
 re.PatternError: multiple repeat at position 17
 ```
 
-<a id="b49"></a>
-**B49**
+### B49
 
 ```powershell
 git diff --stat
@@ -3927,8 +3878,7 @@ git diff --stat
  1 file changed, 5 insertions(+), 1 deletion(-)
 ```
 
-<a id="b50"></a>
-**B50**
+### B50
 
 ```powershell
 git status --short --branch --untracked-files=all
@@ -3941,8 +3891,7 @@ git status --short --branch --untracked-files=all
 ?? docs/MODERNIZATION_PLAN.md
 ```
 
-<a id="b51"></a>
-**B51**
+### B51
 
 ```powershell
 @'
@@ -4016,4 +3965,3 @@ tests/contract/test_transaction_processor.py
 The graph returned `excluded/not_tracked` for 169 paths and `no_recorded_issue/metadata_changed` for 17. B09, B13, B18, B32 and B46 read the archive from disk. The conclusions about code use direct source reads and executed tests.
 
 </details>
-
