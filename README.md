@@ -94,7 +94,7 @@ Known unhappy paths use semantic text or roles rather than generated Mantine/CSS
 
 ## Workflow catalogue
 
-The six sequences above are examples. The tables below also cover NIB reminders, immediate updates, stops and recovery. The independent outcome check decides whether a sale counts. [Local branch checks](docs/2026-11-24-phase-5-reader-guide.md#branch-checks)
+The six sequences above are examples. The tables below also cover NIB reminders, immediate updates, stops and recovery. The independent outcome check decides whether a sale counts. [Local branch checks](docs/activities/2026-11-24-phase-5-reader-guide.md#branch-checks)
 
 TaskBot treats the customer pages as a state machine, not as one fixed page
 sequence. Its precheck result is one of:
@@ -387,7 +387,7 @@ File-based manual sync needs an unmasked report produced with `MASK=0`; a masked
 
 With database sync enabled, a successful terminal-file write queues the row for a one-row database transaction. A failed file write can prevent that delivery. A skipped or unresolved DB row is treated as a sync failure rather than acknowledged. The pending row remains available for final retry and the account is marked unsuccessful if persistence still fails. Consent, update, restart, workflow, and retry events never enter the transaction table.
 
-The quota journal can keep a confirmed sale pending across a process exit. On Windows its default root is `%LOCALAPPDATA%\TaskBot\quota-recovery`. A repeated delivery of the same receipt should leave the quota unchanged. [Journal location](src/infrastructure/database/quota_journal.py#L12) · [Recovery procedure](docs/2026-11-23-quota-crash-recovery.md)
+The quota journal can keep a confirmed sale pending across a process exit. On Windows its default root is `%LOCALAPPDATA%\TaskBot\quota-recovery`. A repeated delivery of the same receipt should leave the quota unchanged. [Journal location](src/infrastructure/database/quota_journal.py#L12) · [Recovery procedure](docs/activities/2026-11-23-quota-crash-recovery.md)
 
 ## Run
 
@@ -505,7 +505,7 @@ Focused page objects live in `src/infrastructure/browser/page_objects/`. The pre
 
 ## Development
 
-Run these checks in a clean test checkout with dotenv loading disabled and only the separate local test database configured. The Phase 1 procedure covers the dummy shop, database and report comparison. [Test procedure](docs/MODERNIZATION_PLAN.md#phase-1-acceptance-procedure)
+Run these checks in a clean test checkout with dotenv loading disabled and only the separate local test database configured. The Phase 1 procedure covers the dummy shop, database and report comparison. [Test procedure](docs/plans/2026-11-23-plan-modernization.md#phase-1-acceptance-procedure)
 
 ```powershell
 $env:PYTHONPATH = (Get-Location).Path

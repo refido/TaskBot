@@ -1,6 +1,6 @@
 # Lint and format TaskBot with Ruff in the terminal and VS Code
 
-TaskBot passes `ruff check` and `ruff format --check` on all 142 Python files. The terminal and VS Code now use the same binary: the project's own Ruff 0.17.6 in `.venv`. [Dependency](../pyproject.toml#L23) · [Ruff settings](../pyproject.toml#L33-L36)
+TaskBot passes `ruff check` and `ruff format --check` on all 142 Python files. The terminal and VS Code now use the same binary: the project's own Ruff 0.17.6 in `.venv`. [Dependency](../../pyproject.toml#L23) · [Ruff settings](../../pyproject.toml#L33-L36)
 
 The Ruff extension only checks files that are visible in an editor tab, and none of its settings change that. A VS Code task fills that gap by running Ruff on the whole project and listing the results in the Problems panel. F100 covers the extension's limit. F101 and F102 explain why each fix keeps behavior unchanged.
 
@@ -17,7 +17,7 @@ The Ruff extension only checks files that are visible in an editor tab, and none
 
    **Never combine `--fix` with a partial `--select`** while the unused-suppression rule `RUF100` is active. Rules left out of the selection make the existing `# noqa` comments look unused, and Ruff deletes them. See F101.
 
-2. **VS Code.** Use the **Ruff** extension (`charliermarsh.ruff`) with `.venv` as the selected interpreter. `.vscode/` is git-ignored ([.gitignore:173](../.gitignore#L173)), so each developer adds this to `.vscode/settings.json`:
+2. **VS Code.** Use the **Ruff** extension (`charliermarsh.ruff`) with `.venv` as the selected interpreter. `.vscode/` is git-ignored ([.gitignore:173](../../.gitignore#L173)), so each developer adds this to `.vscode/settings.json`:
 
    ```json
    "ruff.importStrategy": "fromEnvironment"
@@ -66,7 +66,7 @@ The Ruff extension only checks files that are visible in an editor tab, and none
 
    The task's results are a snapshot, so rerun it after large edits or a `git pull`. A file that is open and has a problem is listed twice: live by the extension ("Ruff") and by the task ("Ruff (workspace)").
 
-3. **Suppressing a finding.** Fix the code when the fix doesn't change behavior. Otherwise follow the project convention `# noqa: CODE - reason.`, for example [session_state.py:19](../src/web/session_state.py#L19):
+3. **Suppressing a finding.** Fix the code when the fix doesn't change behavior. Otherwise follow the project convention `# noqa: CODE - reason.`, for example [session_state.py:19](../../src/web/session_state.py#L19):
 
    ```python
    except Exception:  # noqa: BLE001, S110 - login detection is best effort.
@@ -111,15 +111,15 @@ The Ruff extension only checks files that are visible in an editor tab, and none
 
 | Rule | Resolution | Why behavior is unchanged |
 | --- | --- | --- |
-| `BLE001` ×17, `S110`, `S112` | `# noqa` with a reason at each site, e.g. [transaction_processor.py:413](../src/orchestration/transaction_processor.py#L413), [db_management.py:92](../scripts/db_management.py#L92) | Each is a deliberate catch-all: a fallback, a cleanup step, error capture, a CLI boundary, or a test helper passing failures back to the test thread. Narrowing them would change behavior. The code already had 46 inline suppressions in this style, 45 of them for `BLE001`. |
-| `RUF046` ×32 | Disabled for `src/vision/**` and `src/pipelines/slider/**` only ([pyproject.toml:33-36](../pyproject.toml#L33-L36)) | No code changed. With NumPy 2, `round()` returns a Python `int` for `float32`, `float64` and `int64` scalars, so most casts are currently redundant. Proving that for all 32 sites would mean tracing every value's type. |
+| `BLE001` ×17, `S110`, `S112` | `# noqa` with a reason at each site, e.g. [transaction_processor.py:413](../../src/orchestration/transaction_processor.py#L413), [db_management.py:92](../../scripts/db_management.py#L92) | Each is a deliberate catch-all: a fallback, a cleanup step, error capture, a CLI boundary, or a test helper passing failures back to the test thread. Narrowing them would change behavior. The code already had 46 inline suppressions in this style, 45 of them for `BLE001`. |
+| `RUF046` ×32 | Disabled for `src/vision/**` and `src/pipelines/slider/**` only ([pyproject.toml:33-36](../../pyproject.toml#L33-L36)) | No code changed. With NumPy 2, `round()` returns a Python `int` for `float32`, `float64` and `int64` scalars, so most casts are currently redundant. Proving that for all 32 sites would mean tracing every value's type. |
 | `I001` ×11 | Ruff's safe fix | Imports were only rewrapped or had an extra blank line removed; none was reordered. In `main.py`, the aliased import became four statements that bind the same four names from the same module, in the same order. Ruff's `combine-as-imports` option would avoid the split but raises the `I001` count from 11 to 18. |
-| `PLC0414` ×3 | `# noqa` ([main.py:20](../main.py#L20), [26](../main.py#L26), [29](../main.py#L29)) | `X as X` marks compatibility re-exports, per the comment above them. Removing the alias could let the unused-import fix delete names other modules use. |
+| `PLC0414` ×3 | `# noqa` ([main.py:20](../../main.py#L20), [26](../../main.py#L26), [29](../../main.py#L29)) | `X as X` marks compatibility re-exports, per the comment above them. Removing the alias could let the unused-import fix delete names other modules use. |
 | `UP006`, `UP035`, `UP037`, `UP045` | Ruff's safe fixes | They only change type annotations and where `Iterator` is imported from. Nothing reads these annotations at runtime: the three `signature()` calls target other functions, and loguru doesn't inspect annotations. `puzzle_solver.py` and `analytics.py` use `from __future__ import annotations`. |
 | `C408` ×4 (tests) | Ruff's fix, marked unsafe, applied after review | `dict(a=1)` and `{"a": 1}` build the same dict, with the same keys in the same order. |
 | `PLW1510` ×4 (tests) | Added `check=False` | `False` is already the default. These tests check `returncode` themselves. |
 | `RUF022` | `__all__` sorted in `src/vision/puzzle/__init__.py` | Only the order of names in `__all__` changes. |
-| `RUF034` | `# noqa` ([matching.py:532](../src/vision/puzzle/matching.py#L532)) | Keeps the per-mode weights table explicit. |
+| `RUF034` | `# noqa` ([matching.py:532](../../src/vision/puzzle/matching.py#L532)) | Keeps the per-mode weights table explicit. |
 | `RUF100` | Removed an unused `# ruff: noqa: DTZ001` | `DTZ001` isn't enabled. Only that comment was removed: the `noqa` count went from 68 to 67. |
 
 **Suppressions nearly lost.** A preview with `--select C408,PLW1510,RUF022,RUF100,UP006,UP035,UP037,UP045 --fix --unsafe-fixes --diff` showed Ruff about to delete all 46 existing inline suppressions: 45 for `BLE001` and one `# noqa: TRY004`. Those rules weren't in the selection, so `RUF100` treated the comments as unused. It was only a preview, so nothing was written. The fix was then applied with the full rule set. Run against the current code, the same preview lists all 67 suppressions for deletion.
@@ -167,7 +167,7 @@ The test run used `--basetemp`, for the reason given in [the mypy guide](2026-11
 
 - **UNVERIFIED · Workspace task inside VS Code.** The task's command, patterns and JSON were checked, but it hasn't been run from VS Code yet.
 - **UNVERIFIED · Old-vs-new app output comparison.** Database rows and report files were not compared across paired whole-app runs.
-- **Log line numbers change.** `log_print` records the caller's line number ([logging_utils.py:263](../src/logging_utils.py#L263)). After reformatting, diagnostic logs show different line numbers for the same events.
+- **Log line numbers change.** `log_print` records the caller's line number ([logging_utils.py:263](../../src/logging_utils.py#L263)). After reformatting, diagnostic logs show different line numbers for the same events.
 - **Ruff's defaults change between versions.** Upgrading Ruff can enable new rules. Review `ruff check` output after an upgrade, or list the selected rules explicitly in `pyproject.toml`.
 - **Not committed at time of writing.** The Ruff work is unstaged: 75 files, including `pyproject.toml` and `uv.lock`. CLAUDE.md asks for formatting in its own commit, so commit the lint changes and the `ruff format` changes separately.
 - **Format on save is not enabled.** To keep files formatted while editing, set Ruff as the default Python formatter and turn on format on save in your local VS Code settings.
