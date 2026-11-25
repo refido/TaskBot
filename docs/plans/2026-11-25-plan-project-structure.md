@@ -1,18 +1,119 @@
-# Project structure plan · Where should I look?
+# Project structure plan · One folder per service, named for its job
 
-- **First step.** Give the next developer a one-page map. Someone looking for a button, a sale rule or a missing report should be able to find the right file before we move anything.
-- **Suggested layout.** Keep browser pages, sale decisions, puzzle results, database writes and reports easy to find in one Python project. Use the existing folders where they already describe their job.
-- **Later.** Prepare a way to read a run summary from either the CLI or a future API. Build a server or GUI only after choosing its first user and task.
-- **Open.** Agree on names, supported imports and commands, report readers, and what a future API may show. S1–S5 are proposed steps with behavior preserved. S6 is a separate feature decision. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Modernization closeout](2026-11-23-plan-modernization.md)
+- **Goal.** Make the project readable at a glance: one top-level folder per service, each named for its job. The services are web page automation, business workflow, puzzle solving, database, reporting and a future API. Behavior stays the same in every phase.
+- **Why.** Today the folder names do not say what lives inside. `src/web/` holds the reporter and rate limiting, and the puzzle code is spread over three folders. Imports cross between layers in both directions ([F132](#f132--verified--folder-names-do-not-say-what-lives-inside)–[F134](#f134--verified--imports-cross-the-layers-in-both-directions)).
+- **How.** Eleven small phases, R0 to R10. Each phase moves one service, keeps the old import path working, and passes the full gate and the golden master. Splitting big files and removing old paths are separate, later phases.
+- **Status.** Brainstorming only. No code has moved. Every phase waits for owner approval. Phase R0 starts once Q1–Q4 are answered.
+- **Related.** [Database plan](2026-11-25-plan-database-customer-selection.md) · [Modernization plan](2026-11-23-plan-modernization.md) · [Agent rules](../../AGENTS.md)
+
+## Waiting on the owner
+
+### Not finished
+
+- All phases, R0 to R10, are proposals. None has started.
+- The earlier S1–S6 phases are replaced by R0–R10 ([mapping](#how-the-earlier-s1s6-phases-map-to-the-new-phases)).
+
+### Questions
+
+- [Q1 · Which service names should the folders use?](#questions-and-answers)
+- [Q2 · English or Indonesian names for shop pages?](#questions-and-answers)
+- [Q3 · May a move update the import lines in existing tests?](#questions-and-answers)
+- [Q4 · Is a changed module name in `application.jsonl` acceptable?](#questions-and-answers)
+- [Q5 · Who still uses the old import paths and commands?](#questions-and-answers)
+- [Q6 · Which files are read outside TaskBot?](#questions-and-answers)
+- [Q7 · What is the first API operation for, and who may call it?](#questions-and-answers)
+- [Q8 · How should allowed imports be enforced?](#questions-and-answers)
+- [Q9 · Where is the mypy strict list?](#questions-and-answers)
+- [Q10 · Which service moves first?](#questions-and-answers)
+- [Q11 · How long do old import paths stay?](#questions-and-answers)
+- [Q12 · Keep `src` as the package name?](#questions-and-answers)
+
+### Confirmations
+
+- Confirm that moving a file and splitting a big file never happen in the same phase.
+- Confirm that each phase is its own branch, documented in its own activity doc and approved before the next phase starts.
+- Confirm that the future API starts read-only (run summaries only) and never starts a sale.
 
 ## Questions and answers
 
-1. **S-Q1. Which words make the folders easiest to find?** Suggested map labels: “Browser pages”, “Sales workflow”, “Puzzle result”, “Database and quota”, “Reports”, “Run from CLI” and, later, “API”. Keep familiar names such as NIK and KUOTA in field descriptions. **A. Open.** As a reader check, find where a button lives, where a skip is decided and where one customer’s result is saved.
-2. **S-Q2. Which old entry points do people still use?** Does anyone import modules directly, start a scheduled command, run a recovery or session export command, or keep a tool outside this checkout? **A. Open.** Suggest retaining old commands and import paths while collecting actual callers. A function without an internal caller may be a manual entry point.
-3. **S-Q3. Which files are read outside TaskBot?** Who uses per-customer CSV/JSONL, run summaries, session exports, diagnostics, rotated logs or browser profiles? Are exact paths or bytes required by other tools? **A. Open.** Suggest keeping the existing outputs and privacy rules throughout the moves. Record an owner and a sample use before retiring any format.
-4. **S-Q4. What is the first screen or API call for?** Read an existing run, preview the next-customer list, start a run or recover one? Who may see totals, individual results or customer numbers? What if a user clicks Start twice? **A. Open.** Suggest read-only totals for a completed run first. Starting a sale needs separate authorization, concurrency and restart decisions.
-5. **S-Q5. How far should each iteration go?** Is a one-page map enough where a folder already reads clearly? Who will try the navigation questions after each move? **A. Open.** Suggest one responsibility per change and a short reader check. Give an import a replacement and support period before removing it.
-6. **S-Q6. Which work goes first?** Is easier navigation or replacing the manual list the immediate priority? **A. Open.** S1 and DB1 can proceed independently. Keep a folder move separate from changing the database schema, the customer list or when a sale is counted.
+Each question has a suggested answer. Replace `*open*` with your answer, or write “agree” to take the suggestion.
+
+- **Q1 · Which service names should the folders use?** (was S-Q1) The proposed folder names are `web_automation`, `business_workflow`, `puzzle_solving`, `database`, `reporting`, `api`, `command_line`, `session_export` and `shared`. Alternatives are shorter names (`web`, `workflow`, `puzzle`, `db`, `reports`) or Indonesian names. **Suggested answer:** use the proposed English names. They are full words, they say the job, and they do not clash with today’s `src/web/` while both exist. **Owner answer:** *open*
+- **Q2 · English or Indonesian names for shop pages?** The shop pages are named after their Indonesian titles today: `penjualan_page.py` (sales) and `cek_penjualan_page.py` (check sales). Options: (a) keep the Indonesian names, (b) use English module names and write the Indonesian page title in the docstring and the glossary, (c) both, with an English alias. **Suggested answer:** (b). The English name explains the job. The docstring keeps the link to what the operator sees on screen. **Owner answer:** *open*
+- **Q3 · May a move update the import lines in existing tests?** Tests swap out names on the module where the code looks them up ([F135](#f135--verified--tests-swap-out-names-on-the-module-that-uses-them)). After a move, a test that still swaps the name on the old path changes the old module only, so the swap no longer reaches the code under test. The agent rules say “do not modify existing tests to make them pass”. **Suggested answer:** allow one narrow exception for restructuring phases. A test may change *only* its import lines and the module it swaps names on, to the new path. No assertion, test data or expected value may change. Each such test is listed in the phase doc with its diff. **Owner answer:** *open*
+- **Q4 · Is a changed module name in `application.jsonl` acceptable?** The JSON log files store the Python module name, function, file and line of every log call ([F136](#f136--verified--json-logs-record-the-python-module-name)). Moving a module changes the `name`, `module` and `file` fields. Phase 1’s diagnostic rule compares log events, severity, counts and order, not these fields. **Suggested answer:** accept the change of these four fields (`name`, `module`, `file`, `line`) in the JSON logs only. The text log and all business reports must stay byte-identical. Record the old → new module name in each phase doc. **Owner answer:** *open*
+- **Q5 · Who still uses the old import paths and commands?** (was S-Q2) Does anyone import TaskBot modules directly, start a scheduled command, run `scripts/db_management.py`, `user_sessions.py`, `nik_parser.py` or the quota recovery command, or keep a tool outside this checkout? **Suggested answer:** keep every existing command and import path working through R0–R9. Collect the actual callers before Phase R10 removes anything. **Owner answer:** *open*
+- **Q6 · Which files are read outside TaskBot?** (was S-Q3) Who uses per-customer CSV/JSONL files, run summaries, session exports, diagnostics, rotated logs or browser profiles? Do other tools need the exact paths or bytes? **Suggested answer:** no output path or format changes in this plan. A format change gets its own decision with a named owner and a sample use. **Owner answer:** *open*
+- **Q7 · What is the first API operation for, and who may call it?** (was S-Q4) Options: read a finished run’s totals, preview the next-customer list, start a run, recover a run. Who may see totals, individual results or customer numbers? What if someone presses Start twice? **Suggested answer:** the first operation is “read a finished run’s totals”, with no customer numbers, for the owner only, on the local machine. Starting or recovering a sale is a separate decision with its own safety tests. **Owner answer:** *open*
+- **Q8 · How should allowed imports be enforced?** Options: (a) a new pytest test that reads every module’s imports with the standard library `ast` module and checks them against the allowed-imports table, with no new dependency, (b) the `import-linter` tool, which is a new dev dependency, (c) review only. **Suggested answer:** (a). It is enforced on every run, needs no dependency approval, and a new test does not modify existing ones. **Owner answer:** *open*
+- **Q9 · Where is the mypy strict list?** The agent rules say new modules join the mypy strict list in `pyproject.toml`, but that list does not exist yet ([F139](#f139--contradicted--the-mypy-strict-list-the-rules-describe-does-not-exist)). Restructuring creates many new modules. Options: (a) create the list in Phase R1 with the strict flags written out one by one (never `strict = true`), empty at first, (b) leave it out of this plan. **Suggested answer:** (a). It needs your approval because it changes `pyproject.toml`. New modules are added as they pass. **Owner answer:** *open*
+- **Q10 · Which service moves first?** (was S-Q6) **Suggested answer:** the order in the phase table, starting with the shared helpers and ending with the business workflow. It goes from the least-connected code to the most-connected. Restructuring and the database plan can run in parallel, but never in the same phase or branch. If replacing the manual customer list is more urgent, start the database plan first. **Owner answer:** *open*
+- **Q11 · How long do old import paths stay?** (was S-Q5) **Suggested answer:** until Phase R10. They are removed only after Q5 has a list of callers and nothing outside the repo uses them. A one-line deprecation note goes in each old module’s docstring. There is no runtime warning, because a warning would change stderr. **Owner answer:** *open*
+- **Q12 · Keep `src` as the package name?** Every import starts with `src.`. A real package name (for example `taskbot`) is common best practice, but it changes every import line and every command. **Suggested answer:** keep `src` in this plan and decide on a rename after R9, when the inside is clear. **Owner answer:** *open*
+
+## Proposed target layout
+
+A path below becomes real only in its approved phase. The old path keeps working until Phase R10 ([F137](#f137--verified--old-import-paths-already-have-a-safety-test)).
+
+```text
+main.py                          Command-line entry point. Stays at the root, gets thinner.
+src/
+├── command_line/                Read settings, build the run, start it, print the run summary
+├── business_workflow/           BUSINESS WORKFLOW SERVICE: what happens to each customer, and why
+│   ├── operator_run/            Run one operator account from login to the last customer
+│   ├── customer_transaction/    Prechecks, sale, outcome and skip decisions for one customer
+│   ├── session_recovery/        Recover an expired shop session
+│   ├── pacing/                  Skip and customer-update rate limits
+│   └── service_interfaces.py    What the workflow needs from the other services (typing Protocols)
+├── web_automation/              WEB PAGE AUTOMATION SERVICE: the only place that knows the shop's DOM
+│   ├── browser_session/         Start and stop Playwright, detect the login page
+│   ├── pages/                   One module per shop page: login, dashboard, sales, sales check, customer update, consent
+│   ├── dialogs/                 One module per pop-up: customer type, warnings, update required/confirm/success
+│   ├── puzzle_capture/          Read the puzzle images and the slider from the page
+│   └── page_observation/        Precheck observer and interaction diagnostics
+├── puzzle_solving/              PUZZLE SOLVING SERVICE: images in, slider movement out
+│   ├── puzzle_solving_service.py  The one entry the business workflow calls
+│   ├── image_matching/          Find where the piece fits (OpenCV/NumPy)
+│   └── slider_movement/         Turn the match into a drag and check success
+├── database/                    DATABASE SERVICE: PostgreSQL reads and writes
+│   ├── operator_quota_store/    Operator tables, quota rules, monthly reset
+│   └── quota_delivery/          Report-to-database sync, quota journal, receipts, recovery
+├── reporting/                   REPORT SERVICE: what is written about a run
+│   ├── transaction_report_coordinator.py  Today's reporter: stage, write files, queue database sync
+│   ├── report_files/            CSV/JSONL writing and reading
+│   └── run_summaries/           Analytics, classification, console summary, run metadata
+├── api/                         API SERVICE (prepared, not served): read-only operations and response models
+├── session_export/              The user-session export tool
+└── shared/                      Settings, logging, privacy masking, path helpers, glossary
+```
+
+### Which service may import which
+
+The arrow means “may import”. Every service may import `shared`. No other import is allowed, and the test from Q8 enforces it.
+
+| Service | May import | Must never import |
+| --- | --- | --- |
+| `command_line` | every service | — |
+| `business_workflow` | `web_automation`, `puzzle_solving`, `database`, `reporting` (later only through `service_interfaces.py`) | `api`, `command_line` |
+| `web_automation` | — | every other service. Today page objects import workflow models ([F134](#f134--verified--imports-cross-the-layers-in-both-directions)). Those models move to a neutral place first. |
+| `puzzle_solving` | — | `web_automation` (it receives images, it does not read the page) |
+| `database` | — | `reporting`. Today the database sync imports the reporter ([F134](#f134--verified--imports-cross-the-layers-in-both-directions)). |
+| `reporting` | — | `database`, `web_automation` |
+| `api` | `reporting`, `database` (read side only) | `web_automation`, `business_workflow`. An API read can never start a sale. |
+
+### Where today’s modules go
+
+| Today | Target service | Note |
+| --- | --- | --- |
+| `src/config.py`, `src/infrastructure/config/`, `src/logging_utils.py`, `src/privacy.py`, `src/path_utils.py` | `shared` | Moved first, because everything imports them. |
+| `src/infrastructure/browser/`, `src/web/pages/` (old paths), `src/web/session_state.py`, `src/infrastructure/interaction_diagnostics.py` | `web_automation` | `src/web/pages/` already re-exports the page objects. |
+| `src/web/helpers.py` (`Helpers`) | `web_automation/puzzle_capture` | It saves puzzle images from the page. The class name `Helpers` gets an expressive name, such as `PuzzleImageCapture`. |
+| `src/application/services/puzzle_service.py`, `src/vision/`, `src/pipelines/` | `puzzle_solving` | Three folders become one ([F133](#f133--verified--the-puzzle-code-lives-in-three-folders)). |
+| `src/infrastructure/database/`, `scripts/db_management.py` (command stays) | `database` | The folder already reads clearly. The sync’s reporter import is removed first. |
+| `src/web/reporter.py`, `src/infrastructure/reporting/` | `reporting` | Keep the order: stage → CSV → JSONL → queue database ([F124](#f124--verified--the-order-of-saving-a-result-matters)). |
+| `src/orchestration/`, `src/application/services/` (rest), `src/application/use_cases/process_account.py`, `src/application/models/`, `src/web/rate_limiter.py` | `business_workflow` | Moved last, because it imports everything else. |
+| `src/application/use_cases/export_session.py`, `src/infrastructure/sessions/`, `user_sessions.py` (command stays) | `session_export` | A separate tool with its own command. |
+| — | `api` | New, in Phase R9. |
 
 ## F123 · VERIFIED · The CLI already connects the pieces
 
@@ -26,75 +127,217 @@ In `_build_account_runner`, the CLI passes `browser_session_factory=BrowserSessi
 | Where do quota and recovery live? | [Operator store](../../src/infrastructure/database/operator_store.py#L300), [DB sync](../../src/infrastructure/database/report_syncer.py#L22) and [quota journal](../../src/infrastructure/database/quota_journal.py#L33) | The store constructs a quota delta, the syncer manages report-row delivery, and the journal has a destination/operator context. The operator SQL already has its own module. [Quota arithmetic](../../src/infrastructure/database/_operator_sql.py#L93) |
 | Who saves the customer result? | [Reporter](../../src/web/reporter.py#L1134) and [file writer](../../src/infrastructure/reporting/file_writer.py#L60) | The reporter stages quota delivery, calls the file writer and queues the DB sync. The writer appends CSV and then JSONL. Moving the reporter changes several callers even though its folder says “web”. |
 
+Rechecked at `741166c`: the cited lines are unchanged, and no file under `src/` or `main.py` changed since `db5e95a` (see [How to check](#how-to-check)).
+
 ## F124 · VERIFIED · The order of saving a result matters
 
 In the reporter, `self.file_writer.append_row(row)` precedes `self._queue_row_for_batch_sync(row)`. A named contract test covers persistence, sync and summary order. A separate test covers an unconfirmed sale and prevents retrying it. These are starting checks for any move near those boundaries. [Write and queue](../../src/web/reporter.py#L1134) · [Persistence contract](../../tests/contract/test_reporting_and_main.py#L65) · [Unconfirmed-sale contract](../../tests/contract/test_transaction_processor.py#L855)
 
-## Proposed navigation map
+## F132 · VERIFIED · Folder names do not say what lives inside
 
-These are suggested destinations. A new path becomes real only in its approved phase.
+`src/web/` holds the 1,483-line reporter, the rate limiter, the login-page check and a puzzle-image class named `Helpers`. The pages in `src/web/pages/` are 3-line re-exports of `src/infrastructure/browser/page_objects/`. The customer loop lives in `src/orchestration/`, but the precheck and puzzle steps it calls live in `src/application/services/`. A reader looking for “the web part” or “the business part” has to open several folders.
 
 ```text
-main.py                              Start from the CLI and connect the pieces
-src/application/sales/               Run an operator, process one customer, decide outcomes
-src/infrastructure/browser/          Open a session, observe pages and act on named DOM elements
-src/application/puzzle/              Give the sales workflow the existing puzzle-stage result
-src/infrastructure/database/         Read/write PostgreSQL, apply quota rules and recover delivery
-src/infrastructure/reporting/        Write and read report files and summaries
-src/infrastructure/config/           Read settings and today’s configured customer list
-src/interfaces/api/                  Possible later entry point, only when an API is approved
+$ wc -l src/web/*.py src/web/pages/dashboard.py
+   185 src/web/helpers.py        216 src/web/rate_limiter.py
+  1483 src/web/reporter.py        35 src/web/session_state.py
+     3 src/web/pages/dashboard.py
 ```
 
-Keep three distinctions visible in the map. A browser page reports what it sees. The sales workflow chooses whether to continue, skip, stop or record an uncertain outcome. The reporter and DB store make the result durable in their existing order. Document puzzle inputs and result fields at the boundary. Keep the current image-processing implementation in place during a folder move. [Precheck decisions](../../src/application/services/transaction_prechecks.py#L167) · [Puzzle result](../../src/application/services/puzzle_service.py#L13) · [Persistence order](../../src/web/reporter.py#L1134)
+[Old dashboard import](../../src/web/pages/dashboard.py#L1) · [`Helpers` class](../../src/web/helpers.py#L36)
 
-**Options.** A map alone has the least risk and might solve the reader’s problem. Moving one confusing responsibility at a time improves names while retaining the current CLI and working modules. Splitting into independent network services now would add deployment, failure and recovery decisions before we know which API operation is needed. Recommend starting with the map and using the second option wherever a reader still gets lost (F123–F124, S-Q1–Q5).
+The biggest modules are the candidates for the later split phase (R8). Line counts are from `wc -l` at `741166c`: `dashboard_page.py` 2,154 · `reporter.py` 1,483 · `operator_store.py` 1,297 · `transaction_prechecks.py` 1,162 · `puzzle_solver.py` 897 · `interaction_diagnostics.py` 875 · `transaction_processor.py` 850.
+
+## F133 · VERIFIED · The puzzle code lives in three folders
+
+The puzzle step has its entry in `src/application/services/puzzle_service.py`, the image matching in `src/vision/` (`puzzle_solver.py` plus `src/vision/puzzle/`) and the slider drag in `src/pipelines/slider/`. The customer loop imports both the slider function and the solver class directly:
+
+```python
+# src/orchestration/transaction_processor.py:L31-L33
+from src.pipelines.solve_slider import solve_slider_with_puzzle
+from src.privacy import artifact_nik
+from src.vision.puzzle_solver import PuzzleSolver
+```
+
+[Imports](../../src/orchestration/transaction_processor.py#L31) · [Slider calls the solver](../../src/pipelines/slider/solver.py#L125)
+
+## F134 · VERIFIED · Imports cross the layers in both directions
+
+The `infrastructure` folder should not depend on `application` or `web`, but it does:
+
+```text
+src/infrastructure/browser/page_objects/base_page.py:6:from src.web.session_state import SessionExpiredError, is_login_page
+src/infrastructure/browser/page_objects/cek_penjualan_page.py:6:from src.application.models.transaction_outcome import TransactionOutcome
+src/infrastructure/browser/page_objects/customer_update_page.py:7:from src.application.models.customer_workflow import (
+src/infrastructure/database/report_syncer.py:17:from src.web.reporter import TransactionReporter
+```
+
+`src/application/__init__.py` loads its services lazily to avoid an import cycle with the page objects. Its comment says: “Importing an application model must not eagerly import services that depend on the page object currently importing that model.” [Lazy exports](../../src/application/__init__.py#L3) · [Database sync imports the reporter](../../src/infrastructure/database/report_syncer.py#L17)
+
+This is why the phases move the shared outcome models to a neutral place *before* they move the services that use them. Import order has side effects here (agent rules §2), so a cycle is a stop condition.
+
+## F135 · VERIFIED · Tests swap out names on the module that uses them
+
+Tests replace functions with `monkeypatch.setattr(<module>, "<name>", …)`. No test uses a dotted string path. Counts, from the command in [How to check](#how-to-check):
+
+```text
+     31 monkeypatch.setattr(taskbot_main
+     19 monkeypatch.setattr(transaction_processor
+     19 monkeypatch.setattr(reporter
+     10 monkeypatch.setattr(export
+      8 monkeypatch.setattr(reporting
+      6 monkeypatch.setattr(operator_store
+```
+
+If `transaction_processor.py` moves and the old path only re-exports it, `monkeypatch.setattr(old_module, …)` changes the old module, which the moved code no longer reads. The test then runs the real function instead of the stand-in. Depending on the test, it fails or, worse, passes without testing what it claims. Every move must therefore audit these swaps (question Q3).
+
+## F136 · VERIFIED · JSON logs record the Python module name
+
+The two JSON log sinks use `serialize=True` ([sinks](../../src/logging_utils.py#L193)). Loguru 0.7.3 then writes the full record, including the module name, file, function and line. Command run in an isolated process with dotenv loading disabled:
+
+```powershell
+$env:PYTHON_DOTENV_DISABLED=1; uv run --locked python -c "import io, json; from loguru import logger; logger.remove(); b=io.StringIO(); logger.add(b, serialize=True, format='{message}'); logger.info('x'); r=json.loads(b.getvalue())['record']; print(sorted(r))"
+```
+
+```text
+['elapsed', 'exception', 'extra', 'file', 'function', 'level', 'line', 'message', 'module', 'name', 'process', 'thread', 'time']
+```
+
+The text log format has no module field: `"{extra[timestamp_iso]} | {level:<8} | {extra[event]} | " …` ([format](../../src/logging_utils.py#L161)). Moving a module therefore changes `application.jsonl` and `database/database_events.jsonl`, but not `application.log` (question Q4).
+
+## F137 · VERIFIED · Old import paths already have a safety test
+
+Earlier moves left re-export modules behind: `src/web/pages/*`, `src/orchestration/browser_session.py` and `src/pipelines/solve_slider.py`. A contract test runs in a fresh Python process and checks that each old name *is* the same object as the new one:
+
+```python
+# tests/contract/test_import_initialization.py:L105-L107
+legacy = getattr(importlib.import_module("src.web.pages." + filename), name)
+assert legacy is getattr(pages, name) is getattr(legacy_pages, name) is getattr(browser, name)
+```
+
+Every phase below extends this pattern. A new test is added for each old path, and the existing test stays as it is. [Contract test](../../tests/contract/test_import_initialization.py#L91)
+
+## F138 · CONTRADICTED · The earlier “How to check” commands do not run
+
+The previous revision of this plan used `uv run --locked rg …`. On this machine `rg` is not a program that `uv run` can start:
+
+```text
+$ uv run --locked rg --version
+error: Failed to spawn: `rg`
+  Caused by: program not found
+```
+
+The [How to check](#how-to-check) section now uses PowerShell `Select-String`, which ships with Windows.
+
+## F139 · CONTRADICTED · The mypy strict list the rules describe does not exist
+
+The agent rules (§5) say that the strict list is the `[[tool.mypy.overrides]]` block with the strict flags. `pyproject.toml` has one override, which only covers `psycopg2`:
+
+```toml
+# pyproject.toml:L31-L33
+[[tool.mypy.overrides]]
+module = ["psycopg2", "psycopg2.*"]
+follow_untyped_imports = true
+```
+
+`Select-String -Path pyproject.toml -Pattern 'strict|disallow'` finds no match. New modules created by a move therefore have no strict list to join yet (question Q9).
 
 ## Phases, proof and rollback
 
-| Phase | Proposed work and documentation | Accept it when | How to undo or stop |
-| --- | --- | --- | --- |
-| **S1 · Draw the map** | Make a one-page “where to look” guide. Include the CLI entry, links to actual files, who calls whom, optional branches, and where to look after a failure. Mark manual utilities, compatibility imports and unknown callers separately. | A reader can find a button, business skip, confirmed result, DB write and final file using only the guide. Every link opens the named symbol. No source move. | Correct the map using reader feedback. |
-| **S2 · Make the browser boundary clear** | Start with one page that already has a compatibility import. Keep selectors and browser timing together. Keep business outcomes in their present workflow. Document old path → current path and audit callers and test patch paths. | Both import paths return the same object. Existing page and precheck tests pass. Confirm ready, skip and stop outcomes against the local dummy shop golden. No new click, retry or timing change. | Revert the one move and its import wiring. Keep the old path usable. |
-| **S3 · Name the sales and puzzle boundaries** | Move one workflow responsibility per iteration, beginning with the customer loop. Then document the existing puzzle result as a separate input to the sale decision. Keep branch order, counts and exception handling. | Check ordinary sale, optional onboarding, skip, stock stop and unknown confirmation. Compare the ordered customer outcomes, attempts and quota deltas. An uncertain result never causes a second sale attempt. Use the existing contract and the Phase 1 golden. | Revert the individual move. Do not replay a sale to test rollback. |
-| **S4 · Put the reporter where readers expect it** | Move reporting coordination behind its old import in a dedicated change, leaving file writing and DB delivery in their existing modules. Document the order of stage → write CSV/JSONL → queue DB and the recovery path. | Compare golden report bytes, DB rows and receipts. Interrupt between the two files, between files and DB, and after a DB commit. Check the exact exception and recovery state. Recheck old imports and output paths. | Revert the move and its import changes. Keep existing recovery records readable. |
-| **S5 · Prepare a read-only API boundary** | After S-Q4, define the smallest reusable operation for reading a completed run summary. Specify fields, source, missing-run and partial-run behavior, privacy and who may call it. Reuse existing report readers where possible. Document CLI → reader and future UI → API → same reader. | Dummy examples match existing summary counts, handle missing/partial files and reveal only approved fields. CLI output and golden files remain identical. No server, network dependency or database switch is needed for this step. | Remove the new internal reader if unused. Leave report writers and CLI intact. |
-| **S6 · Future API and GUI** | Only after approval, expose the agreed read-only operation and build a screen around it. Treat previewing customers or starting/recovering runs as separate capabilities. Decide access control, duplicate requests and run ownership before accepting commands. | Owner can complete the named task without opening the project. Check permissions, field visibility and failure messages. A read has no sale or quota side effects. Any later command requires its own dummy-shop safety test. | Disable the new interface. Keep the existing CLI and data recoverable. |
+Every phase follows the [per-move checklist](#per-move-checklist), runs on its own branch and ends with its own activity doc. A phase moves code. It never changes what the code does.
 
-For S2–S5, run the locked format, lint, type and test gates in order, then the Phase 1 golden for code changes. Keep a dated record of moved paths, checks, output comparisons, remaining callers and rollback. Record suspected dead code as “no internal caller found” until searches, imports, CLI usage and the owner’s answer support removal. Removing an entry point or changing a report format needs its own decision. [Project gates](../../AGENTS.md) · [Phase 1 acceptance](../activities/2026-11-23-phase-1-behavior-baseline.md#12-phase-1-acceptance)
+| Phase | Work and documentation | Done when | How to undo |
+| --- | --- | --- | --- |
+| **R0 · Agree on names and the map** | Answer Q1–Q4. Write a glossary of domain terms (`NIK`, `KUOTA`, page titles) in `shared/`’s README, plus a one-page “where to look” guide for *today’s* layout. Documentation only. | A new reader can find a button, a skip decision, a confirmed result, a database write and the final report file using only the guide. Every link opens the named symbol. | Edit the docs. |
+| **R1 · Add the safety rails** | Add the allowed-imports test (Q8) with today’s violations listed as known exceptions. Create the mypy strict list (Q9). Record the golden master at the starting revision. No file moves. | The full gate passes. The new test fails when a deliberate forbidden import is added on a scratch branch. Golden master recorded twice, with the two runs identical. | Revert the test and the `pyproject.toml` commit. |
+| **R2 · Move the shared helpers** | Move settings, logging, privacy and path helpers to `shared/`. Leave a re-export at each old path. | Gate and golden master pass. Old and new paths return the same object (new contract test). `application.log` is byte-identical. | Revert the move commit. |
+| **R3 · Make the puzzle service one folder** | Move `vision/`, `pipelines/slider/` and `puzzle_service.py` into `puzzle_solving/`. Keep the current OpenCV code, flags and NumPy types exactly as they are. The workflow keeps calling the same functions. | Gate and golden master pass. Puzzle tests pass with the same results. Saved puzzle diagnostics have the same names and bytes. | Revert the move commit. |
+| **R4 · Make the database service independent** | Move `infrastructure/database/` to `database/`. First remove the sync’s import of the reporter by passing the needed function in. That is a design change, so it gets its own commit and proof. | The database sync imports nothing from reporting. Database rows, receipts and recovery records match the golden master after success, failure and restart. | Revert each commit separately. |
+| **R5 · Make the report service one folder** | Move `web/reporter.py` and `infrastructure/reporting/` to `reporting/`. Keep the order stage → CSV → JSONL → queue database ([F124](#f124--verified--the-order-of-saving-a-result-matters)). | Report bytes, database rows and receipts match. Interrupting between the two files, between files and database, and after a commit gives the same state as before. | Revert the move commit. |
+| **R6 · Make the web page automation one folder** | Move the outcome models that page objects import to a neutral place (`shared/` or `business_workflow/outcomes`, decided in R0). Then move the browser session, pages, dialogs, puzzle capture and diagnostics to `web_automation/`. | `web_automation` imports no other service. Page and precheck tests pass. In the local dummy shop, the ready, skip and stop outcomes match the golden master. No new click, wait or retry. | Revert the move commits. Old paths keep working. |
+| **R7 · Make the business workflow one folder** | Move the customer loop, prechecks, account runner, session recovery and rate limiting to `business_workflow/`. Add `service_interfaces.py` with typing Protocols that describe what the workflow uses from the other services. They are descriptions only, and no call changes. | Golden master covers ordinary sale, optional onboarding, skip, stock stop and unknown confirmation. The ordered outcomes, attempts and quota changes match. An uncertain result never causes a second sale attempt. | Revert the move commit. Never replay a sale to test rollback. |
+| **R8 · Split the largest modules** | One module per iteration, starting with `dashboard_page.py` (F132). Split by job (for example one module per dashboard area), with no logic change. | Same as the phase that moved the module. Each new module has a docstring and joins the strict list. | Revert that one split. |
+| **R9 · Prepare the read-only API boundary** | After Q7: one operation, “read a finished run’s totals”, as a plain Python function in `api/` with a typed response model. It reuses the existing report readers. No server and no new dependency. Document the fields, missing-run and partial-run behavior and the privacy rule. | Dummy examples match existing summary counts, handle missing and partial runs, and show only approved fields. CLI output and golden files are unchanged. | Delete `api/`. Nothing else uses it. |
+| **R10 · Remove old import paths** | Only after Q5 and Q11: remove the re-export modules whose callers are all updated. One path per commit. | No caller left in the repo or in the list from Q5. Gate and golden master pass. | Restore the re-export module. |
+
+**After this plan.** Serving the API over HTTP, a GUI and any command that starts or recovers a sale are separate features. Each needs its own plan, with access control, duplicate-request handling and dummy-shop safety tests.
+
+### How the earlier S1–S6 phases map to the new phases
+
+| Earlier phase | Now |
+| --- | --- |
+| S1 · Draw the map | R0 |
+| S2 · Make the browser boundary clear | R6 |
+| S3 · Name the sales and puzzle boundaries | R3 and R7 |
+| S4 · Put the reporter where readers expect it | R5 |
+| S5 · Prepare a read-only API boundary | R9 |
+| S6 · Future API and GUI | After this plan |
+
+### Per-move checklist
+
+1. Before the move, run the gate and the golden master on the starting revision. If anything fails, stop and report it (agent rules §3).
+2. Move with `git mv` in a commit that changes nothing else, so `git log --follow` keeps the history.
+3. Leave a re-export module at the old path. Its docstring names the new path and Phase R10.
+4. Update the imports in `src/` and in entry points. Update test imports only under the rule agreed in Q3.
+5. List every `monkeypatch.setattr` on the moved module and confirm that each one now targets the module the code reads ([F135](#f135--verified--tests-swap-out-names-on-the-module-that-uses-them)).
+6. Add a contract test that checks old path `is` new path ([F137](#f137--verified--old-import-paths-already-have-a-safety-test)).
+7. Give every module a docstring that says what it is for and who calls it. Add new modules to the strict list.
+8. Run the gate in order, then the golden master. Business reports and `application.log` must be byte-identical. JSON log changes are limited to what Q4 allows.
+9. Write the phase doc: moved paths, test import changes, checks, golden-master result, remaining callers and rollback.
+
+### Risks
+
+| Risk | Evidence | Likelihood | Impact | Mitigation |
+| --- | --- | --- | --- | --- |
+| A test silently stops replacing a function after a move. | F135 | High | High | Checklist step 5, and the rule from Q3. |
+| An import cycle or a changed import order changes startup behavior. | F134 | Medium | High | Move neutral models first (R6), and add the fresh-process import test. Stop on any cycle. |
+| JSON log records change module names. | F136 | Certain | Low | Owner rule from Q4. Byte-compare the text log. |
+| An outside script or scheduled task uses an old path. | Q5 open | Unknown | Medium | Keep re-exports until R10. |
+| A move and a logic change get mixed in one commit, so the golden master cannot show which one broke. | Agent rules §7 | Medium | High | One concern per commit. Splits happen only in R8. |
+| A new layer of interfaces makes the code harder to read, not easier. | — | Medium | Medium | Protocols only in R7, only for calls that exist today, each with a docstring. |
+| The API grows into a way to start sales without safety tests. | Q7 | Low | High | API stays read-only in this plan, and the allowed-imports test forbids `api` → `web_automation`. |
 
 ## How to check
 
-Source revision `db5e95a`, Python 3.14.2. From the project root:
+Revision `741166c`, Python 3.14.2, loguru 0.7.3, Windows PowerShell 5.1. From the project root:
 
 ```powershell
-uv run --locked rg -n "browser_session_factory=BrowserSession|transaction_processor_factory=TransactionProcessor|report_syncer=DatabaseReportSyncer" main.py
-uv run --locked rg -n "self.file_writer.append_row\(row\)|self._queue_row_for_batch_sync\(row\)" src/web/reporter.py
-uv run --locked rg -n "def test_terminal_row_persists_then_syncs_before_summary|def test_unconfirmed_sale_never_completes_or_retries" tests/contract
+git rev-parse --short HEAD
+git log --oneline db5e95a..HEAD -- src main.py | Measure-Object -Line | Select-Object -ExpandProperty Lines
+Select-String -Path main.py -Pattern 'browser_session_factory=BrowserSession|transaction_processor_factory=TransactionProcessor|report_syncer=DatabaseReportSyncer' | ForEach-Object { "$($_.LineNumber): $($_.Line.Trim())" }
+Select-String -Path src/web/reporter.py -Pattern 'self.file_writer.append_row\(row\)|self._queue_row_for_batch_sync\(row\)' | ForEach-Object { "$($_.LineNumber): $($_.Line.Trim())" }
+Get-ChildItem src/infrastructure -Recurse -Filter *.py | Select-String -Pattern '^from src\.(application|web)' | ForEach-Object { "$($_.Filename):$($_.LineNumber)" }
+Get-ChildItem tests -Recurse -Filter *.py | Select-String -Pattern 'monkeypatch\.setattr\(\s*[a-z_]+' -AllMatches | ForEach-Object { $_.Matches.Value } | Group-Object | Sort-Object Count -Descending | Select-Object -First 6 | ForEach-Object { "$($_.Count) $($_.Name)" }
+"strict matches: " + (Select-String -Path pyproject.toml -Pattern 'strict|disallow' | Measure-Object).Count
 ```
 
-Relevant output, trimmed:
+Output of the run for this plan:
 
 ```text
-115:        browser_session_factory=BrowserSession,
-116:        transaction_processor_factory=TransactionProcessor,
-117:        report_syncer=DatabaseReportSyncer(),
-1139:            self.file_writer.append_row(row)
-1150:            self._queue_row_for_batch_sync(row)
-tests/contract\test_reporting_and_main.py:65:def test_terminal_row_persists_then_syncs_before_summary(
-tests/contract\test_transaction_processor.py:855:def test_unconfirmed_sale_never_completes_or_retries(confirmed_sale_processor, outcome):
+741166c
+0
+115: browser_session_factory=BrowserSession,
+116: transaction_processor_factory=TransactionProcessor,
+117: report_syncer=DatabaseReportSyncer(),
+1139: self.file_writer.append_row(row)
+1150: self._queue_row_for_batch_sync(row)
+base_page.py:6
+cek_penjualan_page.py:6
+customer_update_page.py:7
+report_syncer.py:17
+31 monkeypatch.setattr(taskbot_main
+19 monkeypatch.setattr(reporter
+19 monkeypatch.setattr(transaction_processor
+10 monkeypatch.setattr(export
+8 monkeypatch.setattr(reporting
+6 monkeypatch.setattr(target
+strict matches: 0
 ```
 
-The documentation check used an isolated copy without operational dotenv files and the separate PostgreSQL 18 test instance. Recorded results for both plans:
-
-| Command | Relevant output |
-| --- | --- |
-| `uv run --locked ruff format --check .` | `158 files already formatted` |
-| `uv run --locked ruff check .` | `All checks passed!` |
-| `uv run --locked mypy .` | `Success: no issues found in 144 source files` |
-| `uv run --locked pytest` | `1450 passed` |
-
-Tool versions were Ruff 0.17.6, mypy 2.4.1 and pytest 9.0.2. Golden comparison **NOT RUN** for this planning task because the changes are Markdown only. New module moves, a server and UI were **NOT RUN**. They remain proposals for later review.
+The `0` on the second line means no file under `src/` or `main.py` changed since `db5e95a`, so the line links in F123–F124 still hold. Line counts in F132 and the imports in F133 came from `wc -l` and `grep` in Git Bash at the same revision. The gate and the golden master were **NOT RUN**: this task changes Markdown only, and no code moved.
 
 ## Open items
 
-Answer S-Q1 and S-Q2 to start the map. S-Q3–Q6 cover later readers, interfaces, work order and approvals.
+- Q1–Q4 gate Phase R0. Q8–Q9 gate Phase R1. Q5, Q6 and Q11 gate Phase R10. Q7 gates Phase R9.
+- **UNVERIFIED:** whether any tool outside this checkout imports TaskBot modules (Q5). This can be checked by asking the owner and searching any scheduled tasks on the operator machine.
+- **UNVERIFIED:** whether the allowed-imports test can list today’s violations as exceptions without an import cycle at test time. This is checked in Phase R1.

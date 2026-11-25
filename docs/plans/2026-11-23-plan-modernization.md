@@ -1,16 +1,40 @@
 # TaskBot modernization plan
 
 - **Phases 1–5 are complete for the local dummy-shop scope.** On November 25 the owner confirmed that the revised operator guide is clear. [Owner acceptance, F125](../activities/2026-11-25-operator-quick-guide.md#f125--verified--the-owner-accepted-the-revised-guide) · [Phase 5 technical checks](../activities/2026-11-24-phase-5-reader-guide.md)
-- **Next decision.** Use six imaginary customers to agree on who goes first tomorrow. Separately, try a one-page guide to where the code lives. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
+- **Next decision.** Use six imaginary customers to agree on who goes first tomorrow. Separately, agree on one folder per service for the code. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
 - **Still open.** Customer selection, schema and index changes, new interfaces, compatibility with outside tools and deployment measurements belong to future work.
+
+## Waiting on the owner
+
+### Not finished
+
+- Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED** (Q1).
+- Customer selection from the database: phases DB1–DB6, none started. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
+- Restructuring into one folder per service: phases R0–R10, none started. [Project structure plan](2026-11-25-plan-project-structure.md#waiting-on-the-owner)
+- Pinned tools and CI are approved for later but not planned yet (Q5).
+
+### Questions
+
+- [Q2 · Who should be selected tomorrow?](#questions-and-answers) (partly answered)
+- [Q3 · What must keep working for other people?](#questions-and-answers)
+- [Q4 · What should become easier first?](#questions-and-answers)
+- [Q5 · What evidence would justify more performance or tooling work?](#questions-and-answers) (partly answered)
+- [Q6 · Should the agent rules describe a mypy strict list that does not exist yet?](#questions-and-answers)
+
+### Confirmations
+
+- Confirm that the database plan and the project structure plan never change the same code in the same branch or phase.
 
 ## Questions and answers
 
-1. **M-Q1. What closes the original plan?** **A. Answered.** The owner accepted the revised guide: “yes. the guide is clear for me now.” The local test evidence and the reader’s answer close Phase 5. The owner also reported successful daily runs. Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED**. No practice shop is available according to the owner. Keep local and operational results labeled separately.
-2. **M-Q2. Who should be selected tomorrow?** **A. Partly answered.** The owner identified the Operator 1 Lowokwaru recipe and stock/monthly retry priorities. Still open: outside-area behavior per operator, who waits or re-enters, exact ties, unfinished customers, quotas at 5/6, date and restart rules. Suggest answering the dummy examples first. [DB-Q1–Q5](2026-11-25-plan-database-customer-selection.md#questions-and-answers)
-3. **M-Q3. What must keep working for other people?** **A. Open.** Identify users of old schemas, SQL utilities, CLI/import paths, report files, session/profile/trace/log outputs and recovery commands. Decide what history must be retained before removing or unifying anything. [DB-Q6–Q7](2026-11-25-plan-database-customer-selection.md#questions-and-answers) · [S-Q2–Q3](2026-11-25-plan-project-structure.md#questions-and-answers)
-4. **M-Q4. What should become easier first?** **A. Open.** Choose the first reader of the code map, and later the first task for a GUI or API. Suggested starting points are finding a sale decision and reading a finished run’s totals. Decide audience and access before exposing customer-level data. [S-Q1, S-Q4–Q6](2026-11-25-plan-project-structure.md#questions-and-answers)
-5. **M-Q5. What evidence would justify more performance or tooling work?** **A. Partly answered.** The owner approved tooling and CI for later. Still open: representative dummy data sizes, time/memory targets, external checks, CI environment and which stricter checks bring enough benefit. Keep runtime guards and compare measured results before adopting a change. [Phase 5 tooling evidence](../activities/2026-11-24-phase-5-reader-guide.md#f117--verified--which-pyproject-settings-earned-their-place) · [DB-Q8](2026-11-25-plan-database-customer-selection.md#questions-and-answers)
+Each question has a suggested answer. Replace `*open*` with your answer, or write “agree” to take the suggestion. Q1–Q5 were called M-Q1–M-Q5 before. Their numbers did not change.
+
+- **Q1 · What closes the original plan?** **Owner answer:** answered. The owner accepted the revised guide: “yes. the guide is clear for me now.” The local test evidence and the reader’s answer close Phase 5. The owner also reported successful daily runs. Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED**. No practice shop is available according to the owner. Keep local and operational results labeled separately.
+- **Q2 · Who should be selected tomorrow?** **Owner answer so far:** the owner identified the Operator 1 Lowokwaru recipe and stock/monthly retry priorities. **Still open:** outside-area behavior per operator, who waits or re-enters, exact ties, unfinished customers, quotas at 5/6, date, clock and restart rules. **Suggested answer:** answer the dummy examples first. [Database plan Q1–Q5 and Q9](2026-11-25-plan-database-customer-selection.md#questions-and-answers) **Owner answer:** *open* for the rest
+- **Q3 · What must keep working for other people?** Identify users of old schemas, SQL utilities, CLI/import paths, report files, session/profile/trace/log outputs and recovery commands. **Suggested answer:** decide what history must be retained before removing or unifying anything. [Database plan Q6–Q7](2026-11-25-plan-database-customer-selection.md#questions-and-answers) · [Structure plan Q5–Q6](2026-11-25-plan-project-structure.md#questions-and-answers) **Owner answer:** *open*
+- **Q4 · What should become easier first?** Choose the first reader of the code map, and later the first task for a GUI or API. **Suggested answer:** start with finding a sale decision and reading a finished run’s totals. Decide audience and access before exposing customer-level data. [Structure plan Q1, Q7 and Q10](2026-11-25-plan-project-structure.md#questions-and-answers) **Owner answer:** *open*
+- **Q5 · What evidence would justify more performance or tooling work?** **Owner answer so far:** tooling and CI are approved for later. **Still open:** representative dummy data sizes, time/memory targets, external checks, CI environment and which stricter checks bring enough benefit. **Suggested answer:** keep runtime guards and compare measured results before adopting a change. [Phase 5 tooling evidence](../activities/2026-11-24-phase-5-reader-guide.md#f117--verified--which-pyproject-settings-earned-their-place) · [Database plan Q8](2026-11-25-plan-database-customer-selection.md#questions-and-answers) **Owner answer:** *open* for the rest
+- **Q6 · Should the agent rules describe a mypy strict list that does not exist yet?** The rules (§5) describe a strict list in `pyproject.toml`, but there is none ([structure plan F139](2026-11-25-plan-project-structure.md#f139--contradicted--the-mypy-strict-list-the-rules-describe-does-not-exist)). **Suggested answer:** create the empty list in structure Phase R1 (structure plan Q9), so the rule becomes true. **Owner answer:** *open*
 
 ## Earlier phase results
 
@@ -750,6 +774,8 @@ The [database plan](2026-11-25-plan-database-customer-selection.md) and [project
 **Phase 5.** The owner accepted the revised operator 2 example, closing the reader check. [Owner confirmation](../activities/2026-11-25-operator-quick-guide.md#f125--verified--the-owner-accepted-the-revised-guide) The full proposed mypy configuration also flags five expressions, including runtime guards. [Evidence and open items](../activities/2026-11-24-phase-5-reader-guide.md#open-items)
 
 Likelihood and impact are planning estimates, grounded in the cited findings.
+
+Risks of the follow-up work have their own tables: [project structure risks](2026-11-25-plan-project-structure.md#risks) (F132–F139) and [database risks](2026-11-25-plan-database-customer-selection.md#risks) (F140–F141). [Review of both plans](../activities/2026-11-25-plan-review-structure-and-database.md)
 
 | Risk | Evidence | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- | --- |
