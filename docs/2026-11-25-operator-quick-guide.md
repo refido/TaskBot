@@ -18,6 +18,10 @@ The example follows `NIK_{suffix}` for the input, `operator_{int(suffix):02d}` f
 
 The baseline was `beb593e` with Ruff 0.17.6, mypy 2.4.1 and pytest 9.0.2. The clean documentation snapshot passed `uv run --locked pytest` (`1450 passed in 50.32s`). The golden comparison was **NOT RUN** because the change only affects Markdown.
 
+## F125 · VERIFIED · The owner accepted the revised guide
+
+On 2026-11-25 the owner answered the reader check with “yes. the guide is clear for me now.” This closes the open readability check for Phase 5. The accepted guide uses operator 2 for the configured input, per-customer result and quota lookup. [README example](../README.md#find-an-operators-input-result-and-quota) · [Phase 5 technical evidence](2026-11-24-phase-5-reader-guide.md#f118--verified--local-acceptance)
+
 ## Open items
 
-**PARTIAL.** The first reader check led to this rewrite. The owner has yet to say whether the new version is easier to read.
+The reader check is complete. Future work has its own [database questions](2026-11-25-database-plan.md#questions-and-answers) and [project structure questions](2026-11-25-project-structure-plan.md#questions-and-answers).

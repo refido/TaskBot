@@ -88,4 +88,4 @@ The baseline and candidate golden runs each printed `PASS 7 pairs, 56 business f
 
 Live-site and production database verification were **NOT RUN**. The local results describe the dummy shop and test data.
 
-**PARTIAL · Reader acceptance.** The owner read the first version and requested clearer points. [The November 25 follow-up](2026-11-25-operator-quick-guide.md) records the revision. How easily the revised wording reads is **UNVERIFIED**.
+The owner requested clearer points after reading the first version. On November 25 the owner accepted the revised guide. [F125 and the owner's answer](2026-11-25-operator-quick-guide.md#f125--verified--the-owner-accepted-the-revised-guide)
