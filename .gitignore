@@ -176,3 +176,5 @@ backup/
 .env.local
 AGENTS.md
 CLAUDE.md
+# Node dev tools (package.json / package-lock.json are tracked)
+node_modules/
