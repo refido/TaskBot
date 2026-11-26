@@ -14,7 +14,7 @@
 - Operator 2's open quota event `b13ecd89…` still needs the shop receipt check, then `operator_02 confirmed` or `operator_02 no-sale`. [Recovery guide](../activities/2026-11-23-quota-crash-recovery.md#what-to-do-after-an-interruption)
 
 - Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED** (Q1).
-- Customer selection from the database: DB1 examples ready for review. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
+- Customer selection from the database: six DB1 queues passed locally. Owner review and independent replay are pending. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
 - Restructuring into one folder per service: phases R0–R10, none started. [Project structure plan](2026-11-25-plan-project-structure.md#waiting-on-the-owner)
 - Pinned tools and CI are approved for later but not planned yet (Q5).
 - A test plan is wanted after the restructuring: list every test a move broke and fix them in their own phase (Q7).
