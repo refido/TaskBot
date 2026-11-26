@@ -2,7 +2,7 @@
 
 - **What this is.** The one place for every owner question, answer and confirmation of the three plans. The plan files keep only the plan itself: phases, findings, risks and checks. [Modernization plan](2026-11-23-plan-modernization.md) · [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
 - **How the questions are named.** Each question keeps its number from the plan it came from, with the plan’s name in front: **Modernization Q8** is Q8 of the modernization plan. Inside a plan file, “Q8” still means that plan’s Q8.
-- **Status.** The owner answered every listed question and confirmed all nine proposals. The outcome of the individual recovery case still needs receipt evidence.
+- **Status.** The owner answered every listed question up to Modernization Q10 and confirmed all nine proposals. Modernization Q11 is new and open. The outcome of the individual recovery case still needs receipt evidence.
 - **First database deliverable.** [DB1 dummy queues and recovery evidence](../activities/2026-11-26-db1-owner-decisions.md).
 
 ## Waiting on the owner
@@ -10,10 +10,13 @@
 ### Not finished
 
 - Review the DB1 dummy examples before advancing to the database preview. Verify the individual recovery case in Rekap Penjualan.
+- Approve structure Phase R0, and check the English meanings in the [glossary](../guides/glossary.md). [R0 activity doc](../activities/2026-11-26-structure-r0-glossary-and-code-map.md)
 
 ### Questions
 
 No outstanding policy question blocks the DB1 examples.
+
+- [Modernization Q11 · How should Ruff treat Python code blocks inside the Markdown docs?](#modernization-plan-questions)
 
 ### Confirmations
 
@@ -33,6 +36,7 @@ Already confirmed by the owner:
 
 - **All plans (2026-11-26):** the database plan and the project structure plan never change the same code in the same branch or phase.
 - **Structure plan (2026-11-26, Structure Q7):** the future API starts read-only. It is consumed only by the owner’s GUI and never starts a sale.
+- **Structure plan (2026-11-26, Phase R0):** the glossary and the where-to-look guide live in `docs/guides/`. `src/shared/` is not created before Phase R2, which then links to the glossary from its README. Chosen by the owner when R0 started. [R0 activity doc](../activities/2026-11-26-structure-r0-glossary-and-code-map.md#f159--verified--the-shared-folder-is-not-created-before-phase-r2)
 
 ## Questions and answers
 
@@ -50,6 +54,7 @@ From the [modernization plan](2026-11-23-plan-modernization.md). Q1–Q5 were ca
 - **Modernization Q8 · How much customer detail should the recovery `list` show?** Today it shows the last four digits of the customer number (NIK) and one time ([F150](../activities/2026-11-26-quota-recovery-tool-findings.md#f150--verified--list-shows-too-little-to-find-the-customer-in-the-shop)). Options: (a) also print the customer's name and type from the operator table, the start time and the finished time, and which run it came from; (b) the same, plus the full customer number; (c) keep the masked number and add only the run and times. More detail makes the shop lookup faster, but puts more customer data on the screen, and (a) and (b) need a database read during `list`. **Suggested answer:** (a). The name plus four digits is enough to find the receipt, and the full number stays off the screen. **Owner answer:** Use customer number in user-facing text and current documentation. Show the full number in the local recovery list with name, type, run and times. Mask the number in the final confirmation prompt. Preserve machine-readable names pending a separate migration.
 - **Modernization Q9 · Should `confirmed` check the receipt time?** Today any time with a time zone is accepted, even one before TaskBot started the customer ([F149](../activities/2026-11-26-quota-recovery-tool-findings.md#f149--verified--confirmed-accepts-any-receipt-time-that-has-a-time-zone)). Options: (a) refuse a time before the start or in the future; (b) also ask "Record a sale at … for the customer ending …? [y/N]" before writing; (c) no check. A check can't prove the time is right, only catch obvious mistakes. **Suggested answer:** (a) and (b). There is no undo, and F151 shows how easily an example time gets in. **Owner answer:** Reject times before the attempt or in the future. Require explicit confirmation of the masked customer number and receipt time.
 - **Modernization Q10 · What if operator 1's recovered sale was not a sale?** Event `4c6ed10e…` was recorded with an example time ([F151](../activities/2026-11-26-quota-recovery-tool-findings.md#f151--unverified--one-recovered-sale-may-have-the-wrong-time-or-may-not-be-a-sale)). Options: (a) the shop shows the sale, so leave it, or fix only the time; (b) the shop shows no sale, so correct that customer's quota and remove the row and its database receipt in a separate, reviewed task, against a backup first; (c) leave it as it is. **Suggested answer:** check the shop first. If there was no sale, (b), because the customer otherwise loses one unit of quota this month. **Owner answer:** Use the terminal items.jsonl record as a quick reference and Rekap Penjualan to verify the sale when uncertain. The owner observed completion in the DOM. The specific sale and server outcome remain unverified.
+- **Modernization Q11 · How should Ruff treat Python code blocks inside the Markdown docs?** Ruff 0.17.6 also formats fenced `python` blocks in `.md` files. `ruff format --check .` fails on two such blocks in older docs, which hold recorded evidence and a quoted test line ([F160](../activities/2026-11-26-structure-r0-glossary-and-code-map.md#f160--verified--ruff-format-already-fails-on-two-python-blocks-in-older-docs)). Gate step 1 therefore fails on every commit, even a docs-only one. Options: (a) exclude `docs` from Ruff with `extend-exclude = ["docs"]` under `[tool.ruff]` in `pyproject.toml`: a config change, so it needs your approval; Python code is still checked, and recorded evidence stays word for word; (b) let Ruff reformat the two blocks: the evidence and the quote no longer match what was recorded, which the rule “never rewrite an old finding” forbids; (c) change the two blocks to `text`: no config change, but two old documents are edited and lose Python highlighting. **Suggested answer:** (a). Code blocks in `docs/` are records, not code that runs. The task that makes the change shows `ruff format --check .` before and after. **Owner answer:** *open*
 
 ### Database plan questions
 

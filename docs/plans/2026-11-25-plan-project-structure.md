@@ -3,14 +3,15 @@
 - **Goal.** Make the project readable at a glance: one top-level folder per service, each named for its job. The services are web page automation, business workflow, puzzle solving, database, reporting and a future API. Behavior stays the same in every phase.
 - **Why.** Today the folder names do not say what lives inside. `src/web/` holds the reporter and rate limiting, and the puzzle code is spread over three folders. Imports cross between layers in both directions ([F132](#f132--verified--folder-names-do-not-say-what-lives-inside)–[F134](#f134--verified--imports-cross-the-layers-in-both-directions)).
 - **How.** Eleven small phases, R0 to R10. Each phase moves one service, keeps the old import path working, and passes the agreed checks and the golden master. Splitting big files and removing old paths are separate, later phases.
-- **Status.** R0 can start. Use focused existing tests and the golden master. Keep Ruff and mypy. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
+- **Status.** R0 is done and waits for owner approval: [glossary](../guides/glossary.md) and [where to look guide](../guides/where-to-look.md) ([R0 activity doc](../activities/2026-11-26-structure-r0-glossary-and-code-map.md)). R1 starts after that approval. Use focused existing tests and the golden master. Keep Ruff and mypy. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
 - **Related.** [Database plan](2026-11-25-plan-database-customer-selection.md) · [Modernization plan](2026-11-23-plan-modernization.md) · [Agent rules](../../AGENTS.md)
 
 ## Waiting on the owner
 
 ### Not finished
 
-- All phases, R0 to R10, are proposals. None has started.
+- **R0 · Agree on names and the map:** done on 2026-11-26, waiting for owner approval and a check of the glossary’s English meanings. [R0 activity doc](../activities/2026-11-26-structure-r0-glossary-and-code-map.md)
+- R1 to R10 are proposals. None has started.
 - The earlier S1–S6 phases are replaced by R0–R10 ([mapping](#how-the-earlier-s1s6-phases-map-to-the-new-phases)).
 - The agent rules (§4 and §5) still require `pytest` in every commit’s gate. The approved Q13 exception still needs to be reflected in the rules.
 
@@ -235,6 +236,8 @@ Every phase follows the [per-move checklist](#per-move-checklist), runs on its o
 | **R9 · Prepare the read-only API boundary** | After Q7: one operation, “read a finished run’s totals”, as a plain Python function in `api/` with a typed response model. It reuses the existing report readers. No server and no new dependency. Document the fields, missing-run and partial-run behavior and the privacy rule. | Dummy examples match existing summary counts, handle missing and partial runs, and show only approved fields. CLI output and golden files are unchanged. | Delete `api/`. Nothing else uses it. |
 | **R10 · Remove old import paths** | Only after Q5 and Q11: remove the re-export modules whose callers are all updated. One path per commit. | No caller left in the repo or in the list from Q5. Gate and golden master pass. | Restore the re-export module. |
 
+**R0 result (2026-11-26).** The glossary and the guide live in `docs/guides/`, not in `shared/`’s README, because `src/shared/` is created only in R2 (owner choice). R2 adds `src/shared/README.md` with a link to the glossary. [R0 activity doc](../activities/2026-11-26-structure-r0-glossary-and-code-map.md)
+
 **After this plan.** Serving the API over HTTP, a GUI and any command that starts or recovers a sale are separate features. Each needs its own plan, with access control, duplicate-request handling and dummy-shop safety tests.
 
 ### How the earlier S1–S6 phases map to the new phases
@@ -314,5 +317,6 @@ The `0` on the second line means no file under `src/` or `main.py` changed since
 ## Open items
 
 - Q13–Q14 gate Phase R1. Q15 gates Phase R10. Phase R0 has no open question.
+- `ruff format --check .` already fails on two Python blocks in older Markdown docs, so gate step 1 fails for every commit until Modernization Q11 is answered ([F160](../activities/2026-11-26-structure-r0-glossary-and-code-map.md#f160--verified--ruff-format-already-fails-on-two-python-blocks-in-older-docs)).
 - **UNVERIFIED:** whether any tool outside this checkout imports TaskBot modules (Q5). This can be checked by asking the owner and searching any scheduled tasks on the operator machine.
 - Record the import-boundary review in R1 (Q14).

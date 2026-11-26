@@ -504,6 +504,8 @@ main.py -> shared RunContext + CustomerUpdateRateLimiter
 
 Focused page objects live in `src/infrastructure/browser/page_objects/`. The precheck service owns orchestration; the dashboard object does not own the whole update workflow.
 
+New to the code? Start with [Where to look in today’s code](docs/guides/where-to-look.md). Shop and database terms are explained in the [glossary](docs/guides/glossary.md).
+
 ## Development
 
 Run these checks in a clean test checkout with dotenv loading disabled and only the separate local test database configured. The Phase 1 procedure covers the dummy shop, database and report comparison. [Test procedure](docs/plans/2026-11-23-plan-modernization.md#phase-1-acceptance-procedure)
