@@ -3,17 +3,17 @@
 - **Goal.** Let the database choose tomorrow’s customer list instead of a hand-made list, without changing what a run does with the list it gets.
 - **Owner answers recorded (2026-11-26).** Q1–Q24 are answered. The [agreed rules](#rules-agreed-with-the-owner) turn them into one ordering, and the [proposed selection formula](#proposed-selection-formula) answers your request for a better formula.
 
-- **Status.** DB1 dummy examples are ready for review. DB6 still requires explicit approval. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
+- **Status.** Six DB1 queues passed on SQLite and the local PostgreSQL test cluster. [DB1 evidence](../activities/2026-11-26-db1-owner-decisions.md#f157--verified--the-day-and-month-boundaries-give-the-expected-queues-on-both-engines) DB6 still requires explicit approval. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
 - **Related.** [Project structure plan](2026-11-25-plan-project-structure.md) (the database code moves in its Phase R4) · [Modernization plan](2026-11-23-plan-modernization.md)
 
 ## Waiting on the owner
 
 ### Not finished
 
-- DB1 examples are ready for review. DB2–DB6 are pending.
+- The owner’s review of the six queues and another developer’s replay are pending. DB2–DB6 are pending.
 - The saved query gives some customers priority. It does not remember where yesterday’s operator stopped ([F120](#f120--verified--eligibility-comes-before-priority)).
 - Two area headings disagree with their filters ([F121](#f121--verified--two-area-labels-disagree-with-their-filters)).
-- The repeatable example runs on one machine only ([F140](#f140--partial--the-dummy-example-can-be-repeated-on-one-machine-only)).
+- The legacy reference launcher is machine-specific ([F140](#f140--partial--the-dummy-example-can-be-repeated-on-one-machine-only)).
 - The overlap cleanup remains a separate approval.
 
 ### Questions
@@ -264,6 +264,6 @@ This is the original evidence from revision `db5e95a`, kept as it was recorded. 
 
 - Review the [DB1 examples](../activities/2026-11-26-db1-owner-decisions.md).
 - **UNVERIFIED:** whether the live schema matches the export (F122). Check it with a schema-only export compared with `db_query/schema backup.sql`.
-- **UNVERIFIED:** whether the operator machine and the database session both use WIB (F141, Q9). Check with `Get-TimeZone` and `SHOW TimeZone;`.
+- **PARTIAL:** the development machine and local test database clocks were checked in [DB1](../activities/2026-11-26-db1-owner-decisions.md). The operational machine and its database session remain unverified (F141, Q9). Check with `Get-TimeZone` and `SHOW TimeZone;`.
 - **UNVERIFIED:** whether the dummy example repeats on another machine (F140).
 - **UNVERIFIED:** whether a restart re-processes customers today (F144, Q20).

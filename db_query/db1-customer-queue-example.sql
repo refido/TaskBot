@@ -1,29 +1,32 @@
--- DB1 paper example. All inputs are fictional. Reads no application tables.
-WITH customers(label, area, last_outcome, updated_day) AS (
-    VALUES ('A', 'inside', 'out of stock', 0),
-           ('B', 'inside', 'registration limit', 0),
-           ('C', 'inside', 'new', 0),
-           ('D', 'inside', 'maximum yesterday', 0),
-           ('E', 'inside', 'older success', -2),
-           ('F', 'inside', 'untouched by last run', -2),
-           ('G', 'outside', 'older success', -3)
-), scenarios(scenario, month_start, area, finished_today) AS (
-    VALUES ('ordinary', 0, 'inside', ''),
-           ('month start', 1, 'inside', ''),
-           ('restart after C', 1, 'inside', 'C'),
-           ('outside eligible', 0, 'outside', '')
+-- DB1 paper example for one operator. All labels and WIB dates are fictional.
+WITH customers(label, area, outcome, updated_on, last_sale_on) AS (
+    VALUES ('A', 'inside', 'out of stock',       '2026-10-30', NULL),
+           ('B', 'inside', 'registration limit', '2026-10-30', NULL),
+           ('C', 'inside', '',                   '2026-10-30', NULL),
+           ('D', 'inside', 'maximum quota',      '2026-10-30', NULL),
+           ('F', 'inside', 'ordinary',           '2026-10-28', NULL),
+           ('E', 'inside', 'completed',          '2026-10-28', '2026-10-28'),
+           ('G', 'outside', 'completed',         '2026-10-27', '2026-10-27')
+), scenarios(scenario, business_day, month_start, first_processing_day, area, finished_today) AS (
+    VALUES ('same day',             '2026-10-30', '2026-10-01', 0, 'inside',  ''),
+           ('ordinary',             '2026-10-31', '2026-10-01', 0, 'inside',  ''),
+           ('month start',          '2026-11-02', '2026-11-01', 1, 'inside',  ''),
+           ('later in the month',   '2026-11-03', '2026-11-01', 0, 'inside',  ''),
+           ('restart after C',      '2026-11-02', '2026-11-01', 1, 'inside',  'C'),
+           ('outside eligible',     '2026-10-31', '2026-10-01', 0, 'outside', '')
 )
 SELECT scenario, label
 FROM scenarios
 JOIN customers ON customers.area = scenarios.area
 WHERE label <> finished_today
-  AND (last_outcome <> 'maximum yesterday' OR month_start = 1)
+  AND (outcome <> 'maximum quota' OR updated_on < month_start)
+  AND (outcome NOT IN ('out of stock', 'registration limit') OR updated_on < business_day)
 ORDER BY scenario,
          CASE
-             WHEN last_outcome = 'new' THEN 0
-             WHEN last_outcome = 'out of stock' THEN 1
-             WHEN last_outcome = 'registration limit' THEN 2
-             WHEN last_outcome = 'maximum yesterday' THEN 3
+             WHEN outcome = '' AND last_sale_on IS NULL THEN 0
+             WHEN outcome = 'out of stock' THEN 1
+             WHEN outcome = 'registration limit' THEN 2
+             WHEN outcome = 'maximum quota' AND first_processing_day = 1 THEN 3
              ELSE 4
          END,
-         updated_day, label;
+         updated_on, label;
