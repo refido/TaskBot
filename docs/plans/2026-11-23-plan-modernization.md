@@ -3,10 +3,14 @@
 - **Phases 1–5 are complete for the local dummy-shop scope.** On November 25 the owner confirmed that the revised operator guide is clear. [Owner acceptance, F125](../activities/2026-11-25-operator-quick-guide.md#f125--verified--the-owner-accepted-the-revised-guide) · [Phase 5 technical checks](../activities/2026-11-24-phase-5-reader-guide.md)
 - **Next decision.** Use six imaginary customers to agree on who goes first tomorrow. Separately, agree on one folder per service for the code. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
 - **Still open.** Customer selection, schema and index changes, new interfaces, compatibility with outside tools and deployment measurements belong to future work.
+- **Quota recovery is hard to use correctly.** The first real recovery found five problems (F147–F151). The guide is rewritten; tool fixes are proposed as Phase QR and wait on Q8–Q10. [Findings](../activities/2026-11-26-quota-recovery-tool-findings.md)
 
 ## Waiting on the owner
 
 ### Not finished
+
+- **Phase QR · Make quota recovery easier to verify:** proposed, not started. Waits on Q8–Q10. [Phase QR](#4-phases-and-acceptance-gates)
+- Operator 2's open quota event `b13ecd89…` still needs the shop receipt check, then `operator_02 confirmed` or `operator_02 no-sale`. [Recovery guide](../activities/2026-11-23-quota-crash-recovery.md#what-to-do-after-an-interruption)
 
 - Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED** (Q1).
 - Customer selection from the database: phases DB1–DB6, none started. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
@@ -21,12 +25,16 @@
 - [Q4 · What should become easier first?](#questions-and-answers)
 - [Q5 · What evidence would justify more performance or tooling work?](#questions-and-answers) (partly answered)
 - [Q7 · How are tests handled while the code is restructured?](#questions-and-answers) (blocks structure Phase R1)
+- [Q8 · How much customer detail should the recovery `list` show?](#questions-and-answers) (blocks Phase QR)
+- [Q9 · Should `confirmed` check the receipt time?](#questions-and-answers) (blocks Phase QR)
+- [Q10 · What if operator 1's recovered sale was not a sale?](#questions-and-answers)
 
 Answered: Q1 and Q6. Partly answered: Q2 and Q5.
 
 ### Confirmations
 
 - **Confirmed by the owner (2026-11-26):** the database plan and the project structure plan never change the same code in the same branch or phase.
+- **Proposed, needs a yes/no:** Phase QR changes what the recovery tool prints and its exit codes. That is a behavior change under the agent rules (§2), limited to the recovery command. Shop runs, reports and database writes stay the same. Approve Phase QR as a behavior-changing task?
 
 ## Questions and answers
 
@@ -39,6 +47,9 @@ Each question has a suggested answer. Replace `*open*` with your answer, or writ
 - **Q5 · What evidence would justify more performance or tooling work?** **Owner answer so far:** tooling and CI are approved for later. **Still open:** representative dummy data sizes, time/memory targets, external checks, CI environment and which stricter checks bring enough benefit. **Suggested answer:** keep runtime guards and compare measured results before adopting a change. [Phase 5 tooling evidence](../activities/2026-11-24-phase-5-reader-guide.md#f117--verified--which-pyproject-settings-earned-their-place) · [Database plan Q8](2026-11-25-plan-database-customer-selection.md#questions-and-answers) **Owner answer:** *Yes, as suggested.* for the rest
 - **Q6 · Should the agent rules describe a mypy strict list that does not exist yet?** The rules (§5) describe a strict list in `pyproject.toml`, but there is none ([structure plan F139](2026-11-25-plan-project-structure.md#f139--contradicted--the-mypy-strict-list-the-rules-describe-does-not-exist)). **Suggested answer:** create the empty list in structure Phase R1 (structure plan Q9), so the rule becomes true. **Owner answer:** *Yes, as suggested.*
 - **Q7 · How are tests handled while the code is restructured?** The owner asked to skip tests during restructuring and the database work, and to write a test plan afterwards. The full question, with the difference between *running* existing tests and *fixing or writing* them, is [structure plan Q13](2026-11-25-plan-project-structure.md#questions-and-answers). **Suggested answer:** no new or fixed tests. Existing tests run as a report only, and the golden master stays blocking. **Owner answer:** *open*
+- **Q8 · How much customer detail should the recovery `list` show?** Today it shows the last four digits of the customer number (NIK) and one time ([F150](../activities/2026-11-26-quota-recovery-tool-findings.md#f150--verified--list-shows-too-little-to-find-the-customer-in-the-shop)). Options: (a) also print the customer's name and type from the operator table, the start time and the finished time, and which run it came from; (b) the same, plus the full customer number; (c) keep the masked number and add only the run and times. More detail makes the shop lookup faster, but puts more customer data on the screen, and (a) and (b) need a database read during `list`. **Suggested answer:** (a). The name plus four digits is enough to find the receipt, and the full number stays off the screen. **Owner answer:** *open*
+- **Q9 · Should `confirmed` check the receipt time?** Today any time with a time zone is accepted, even one before TaskBot started the customer ([F149](../activities/2026-11-26-quota-recovery-tool-findings.md#f149--verified--confirmed-accepts-any-receipt-time-that-has-a-time-zone)). Options: (a) refuse a time before the start or in the future; (b) also ask "Record a sale at … for the customer ending …? [y/N]" before writing; (c) no check. A check can't prove the time is right, only catch obvious mistakes. **Suggested answer:** (a) and (b). There is no undo, and F151 shows how easily an example time gets in. **Owner answer:** *open*
+- **Q10 · What if operator 1's recovered sale was not a sale?** Event `4c6ed10e…` was recorded with an example time ([F151](../activities/2026-11-26-quota-recovery-tool-findings.md#f151--unverified--one-recovered-sale-may-have-the-wrong-time-or-may-not-be-a-sale)). Options: (a) the shop shows the sale, so leave it, or fix only the time; (b) the shop shows no sale, so correct that customer's quota and remove the row and its database receipt in a separate, reviewed task, against a backup first; (c) leave it as it is. **Suggested answer:** check the shop first. If there was no sale, (b), because the customer otherwise loses one unit of quota this month. **Owner answer:** *open*
 
 ## Earlier phase results
 
@@ -681,6 +692,14 @@ Effort and risk are estimates. Recommendations apply to the current compatibilit
 
 **Crash recovery for pending quota.** F92–F94 cover the private journal, the PostgreSQL receipt and recovery after a hard stop. The operator guide includes the commands for confirmed and uncertain sales. [Quota recovery](../activities/2026-11-23-quota-crash-recovery.md)
 
+**Phase QR · Make quota recovery easier to verify (proposed, not started).** On 2026-11-26 the guide was rewritten in 5W1H form, with separate steps for `list`, `confirmed`, `no-sale` and `drain`. The tool is unchanged. [F147–F151](../activities/2026-11-26-quota-recovery-tool-findings.md) Proposed tool changes, each in its own commit, after Q8–Q10 and the confirmation above:
+
+- `list` shows enough to find the customer in the shop: the detail chosen in Q8, which run the item came from, and the start and finish times with labels (F150).
+- `drain` with a **needs receipt check** item still open delivers the rest, then prints a short message naming the event and the next command, instead of a traceback (F147).
+- An unknown event ID says whether the event belongs to another operator, is already settled, or doesn't exist, and names the operator to use (F148).
+- `confirmed` checks the receipt time as chosen in Q9 (F149).
+- Proof: new tests in `tests/contract/test_quota_crash_recovery.py`; the gate; and a check that the shop run, report files and database writes are unchanged. Only the recovery command's stdout, stderr and exit codes change. They are listed in the task doc.
+
 **Phase 2 passed the local acceptance checks.** F84–F88 record the code change, test results, database and file comparisons, and one known partial-write risk. The reader guide’s README corrections (F16) belong in the documentation phase. [Phase 2 closeout](../activities/2026-11-23-phase-2-reporting.md)
 
 For each implementation phase, capture the full suite before and after, including the exact command, named relevant tests, output, and exit status. Compare the baseline and candidate DB rows and report files, and include `git diff --stat`. Record pre-existing failures against their revision. An unexplained or unapproved difference blocks acceptance. Apply the owner-approved rule below to each comparison. [Phase 1 closeout](../activities/2026-11-23-phase-1-behavior-baseline.md#12-phase-1-acceptance)
@@ -1032,6 +1051,7 @@ Risks of the follow-up work have their own tables: [project structure risks](202
 | Operational identity or session data enters a golden. | F9–F12, F22 | Medium | High | Generate synthetic inputs, session data and browser fixtures. Keep operational outputs out of the baseline. |
 | A performance refactor breaks an existing incremental path. | F20, F27 | Medium | Medium | Retain fallback and history-visit tests, equality comparisons and whole-fixture benchmarks. |
 | A green unit suite is presented as deployed workflow evidence. | F7, F15 | High | High | Publish separate outcomes for tests, local end-to-end execution and separately authorized deployed verification. |
+| An operator settles a quota event wrongly during recovery: an unchecked `confirmed`, a wrong time or the wrong operator. There is no undo. | F147–F151 | Medium | High | Follow the revised guide; check the shop receipt before `confirmed` or `no-sale`. Phase QR adds clearer output and time checks (Q8–Q9). |
 
 **What the owner has already answered.** PostgreSQL 18 and Python 3.14.2 are the proposed test baseline. `.env.test` is mostly dummy/example data. The supplied PostgreSQL 18.4 schema export is the reference for the existing table layout (F39/F41). F31 records historical timing; F2 records the uv migration date. Tooling and CI are approved for later. Other historical layouts and external report consumers are still unknown.
 
