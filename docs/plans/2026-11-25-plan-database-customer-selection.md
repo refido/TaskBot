@@ -1,28 +1,28 @@
 # Database plan · Who goes next?
 
 - **Goal.** Let the database choose tomorrow’s customer list instead of a hand-made list, without changing what a run does with the list it gets.
-- **Owner answers recorded (2026-11-26).** Q1–Q13 are answered. The [agreed rules](#rules-agreed-with-the-owner) turn them into one ordering, and the [proposed selection formula](#proposed-selection-formula) answers your request for a better formula.
-- **New questions.** Your answers raised Q14–Q24. Most are about the order of the first buckets, the anomaly rule, the share outside Lowokwaru and restart. Two answers conflict with the saved query or with today’s code ([F145](#f145--verified--the-saved-query-and-the-owners-month-start-example-disagree), [F144](#f144--partial--a-restarted-run-does-not-read-the-earlier-runs-itemsjsonl)).
-- **Status.** No database or code change yet. DB1 (rules and dummy examples, documentation only) can start now and will absorb Q14–Q24. DB6 would change daily operation and needs your explicit go-ahead.
+- **Owner answers recorded (2026-11-26).** Q1–Q24 are answered. The [agreed rules](#rules-agreed-with-the-owner) turn them into one ordering, and the [proposed selection formula](#proposed-selection-formula) answers your request for a better formula.
+
+- **Status.** DB1 dummy examples are ready for review. DB6 still requires explicit approval. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
 - **Related.** [Project structure plan](2026-11-25-plan-project-structure.md) (the database code moves in its Phase R4) · [Modernization plan](2026-11-23-plan-modernization.md)
 
 ## Waiting on the owner
 
 ### Not finished
 
-- DB1–DB6 are proposals. None has started.
+- DB1 examples are ready for review. DB2–DB6 are pending.
 - The saved query gives some customers priority. It does not remember where yesterday’s operator stopped ([F120](#f120--verified--eligibility-comes-before-priority)).
 - Two area headings disagree with their filters ([F121](#f121--verified--two-area-labels-disagree-with-their-filters)).
 - The repeatable example runs on one machine only ([F140](#f140--partial--the-dummy-example-can-be-repeated-on-one-machine-only)).
-- `db_query/deduplicate.sql` is referenced in Q6 but not reviewed yet. Review it in DB1 without printing any row.
+- The overlap cleanup remains a separate approval.
 
 ### Questions
 
-Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#database-plan-questions). Answered: Q1–Q13. Open: Q14–Q24. DB1 can start now and absorbs them.
+Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#database-plan-questions). Database Q1–Q24 are answered.
 
 ### Confirmations
 
-Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). Open for this plan: the configured list stays until DB6, schema changes are rehearsed first, the 100-unit stop target, and the proposed selection formula.
+Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). The owner confirmed all four database proposals.
 
 ## Questions and answers
 
@@ -131,20 +131,20 @@ The reset sets `KUOTA = 0` where `date_trunc('month', UPDATED_TIME)` is before t
 
 ## Rules agreed with the owner
 
-From Q1–Q13 (2026-11-26). Times are WIB (Asia/Jakarta).
+From Q1–Q24 (2026-11-26). Times are WIB (Asia/Jakarta).
 
 | Rule | Owner’s answer |
 | --- | --- |
 | Area | Lowokwaru (six-digit prefix) is the default source. Outside Lowokwaru is a second option, used only when Lowokwaru is exhausted. It should stay at or below 30% of the month, and never above 50%. The prefix decides, not where the customer lives. (Q2) |
 | Order | Oldest `UPDATED_TIME` first, so every customer comes around in turn. (Q3) |
-| Out-of-stock | The customer who hit out-of-stock yesterday is first the next day, because the run stopped there. (Q1) |
+| Out-of-stock | Yesterday’s out-of-stock retry follows new customers and precedes registration-limit retries. (Q1) |
 | New customers | New data is processed first, then the usual order. (Q5) |
 | Maximum quota | Customers who hit the maximum quota last month come early on the first day of the new month only. Doing it every day would disrupt regular customers. (Q1) |
-| Anomaly | A customer who hits the maximum quota for 3–6 months in a row without one successful sale is flagged and removed from the daily list. (Q1) |
+| Anomaly | A customer who hits the maximum quota for three consecutive calendar months in a row without one successful sale is flagged and removed from the daily list. (Q1) |
 | Quota | Quota is 0 for everyone from the start of each month. `MAX_KUOTA` is the highest quota ever reached. The normal cap is 4 a month. (Q4) |
 | Stop | Today’s stop-on-stock behavior stays. (Q5) |
 | Restart | Do not process again a customer who already has a final status. (Q5) |
-| Identity | No duplicate customers. The customer number is the only identifier. (Q6) |
+| Identity | Exclusive operator ownership. Customer counts are split 50:50 per area. Transfers require operator and owner approval. (Q6) |
 | History | Report history is archived once a year, on 1 January. Old pgAdmin queries, spreadsheets and exports are not used outside this project. (Q7) |
 | Clock | WIB, Asia/Jakarta. (Q9) |
 | Safety | Read-only preview account (Q10), numbered SQL files with undo files (Q11), dummy example in the repo (Q12), preview visible to the operator only (Q13). |
@@ -157,8 +157,9 @@ You asked for a better formula. This one combines all the rules above into one s
 | --- | --- | --- |
 | 0 | New customers: no sale time and no status yet (Q14) | Every day |
 | 1 | “Sellable stock unavailable”, last updated before today | Every day |
-| 2 | “Max kuota reached”, last updated before this month, not an anomaly | First processing day of the month only (Q15). On other days these customers fall into bucket 3. |
-| 3 | Every other eligible customer | Every day |
+| 2 | Registration request limit reached before today | Every day |
+| 3 | “Max kuota reached”, last updated before this month, not an anomaly | First processing day of the month only (Q15). On other days these customers fall into bucket 4. |
+| 4 | Every other eligible customer | Every day |
 | — | Excluded: the five blocked descriptions, anomalies (Q16), customers with a final status updated today (Q20), customers over the quota filter (Q18) | Shown in a separate review list, never processed |
 
 Area is a filter on top of the buckets. The Lowokwaru list is built first. The outside list is offered only when the Lowokwaru list is empty and the month’s outside share allows it (Q17).
@@ -261,7 +262,7 @@ This is the original evidence from revision `db5e95a`, kept as it was recorded. 
 
 ## Open items
 
-- Answer Q14–Q24. They become the rules and dummy examples of DB1.
+- Review the [DB1 examples](../activities/2026-11-26-db1-owner-decisions.md).
 - **UNVERIFIED:** whether the live schema matches the export (F122). Check it with a schema-only export compared with `db_query/schema backup.sql`.
 - **UNVERIFIED:** whether the operator machine and the database session both use WIB (F141, Q9). Check with `Get-TimeZone` and `SHOW TimeZone;`.
 - **UNVERIFIED:** whether the dummy example repeats on another machine (F140).

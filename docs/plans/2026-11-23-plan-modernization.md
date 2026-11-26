@@ -3,7 +3,7 @@
 - **Phases 1–5 are complete for the local dummy-shop scope.** On November 25 the owner confirmed that the revised operator guide is clear. [Owner acceptance, F125](../activities/2026-11-25-operator-quick-guide.md#f125--verified--the-owner-accepted-the-revised-guide) · [Phase 5 technical checks](../activities/2026-11-24-phase-5-reader-guide.md)
 - **Next decision.** Use six imaginary customers to agree on who goes first tomorrow. Separately, agree on one folder per service for the code. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
 - **Still open.** Customer selection, schema and index changes, new interfaces, compatibility with outside tools and deployment measurements belong to future work.
-- **Quota recovery is hard to use correctly.** The first real recovery found five problems (F147–F151). The guide is rewritten; tool fixes are proposed as Phase QR and wait on Q8–Q10. [Findings](../activities/2026-11-26-quota-recovery-tool-findings.md)
+- **Status.** The owner approved the recovery scope and terminology. The individual sale still needs receipt evidence. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
 - **Owner questions are in one file.** Every question and confirmation of all plans moved to [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md). [Task doc](../activities/2026-11-26-centralize-owner-questions.md)
 
 ## Waiting on the owner
@@ -14,18 +14,18 @@
 - Operator 2's open quota event `b13ecd89…` still needs the shop receipt check, then `operator_02 confirmed` or `operator_02 no-sale`. [Recovery guide](../activities/2026-11-23-quota-crash-recovery.md#what-to-do-after-an-interruption)
 
 - Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED** (Q1).
-- Customer selection from the database: phases DB1–DB6, none started. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
+- Customer selection from the database: DB1 examples ready for review. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
 - Restructuring into one folder per service: phases R0–R10, none started. [Project structure plan](2026-11-25-plan-project-structure.md#waiting-on-the-owner)
 - Pinned tools and CI are approved for later but not planned yet (Q5).
 - A test plan is wanted after the restructuring: list every test a move broke and fix them in their own phase (Q7).
 
 ### Questions
 
-Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions). Open: Q7–Q10. Q8–Q10 block Phase QR. Q7 is the same decision as structure Q13 and blocks structure Phase R1. Q2–Q5 carry answers, and their status waits on a confirmation.
+Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions). Modernization Q1–Q10 are answered. Q2–Q5 are confirmed closed.
 
 ### Confirmations
 
-Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). Open for this plan: Phase QR as a behavior-changing task, and whether Q2–Q5 are closed.
+Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). The owner confirmed the recovery scope and closure of Q2–Q5.
 
 ## Questions and answers
 
@@ -672,7 +672,7 @@ Effort and risk are estimates. Recommendations apply to the current compatibilit
 
 **Crash recovery for pending quota.** F92–F94 cover the private journal, the PostgreSQL receipt and recovery after a hard stop. The operator guide includes the commands for confirmed and uncertain sales. [Quota recovery](../activities/2026-11-23-quota-crash-recovery.md)
 
-**Phase QR · Make quota recovery easier to verify (proposed, not started).** On 2026-11-26 the guide was rewritten in 5W1H form, with separate steps for `list`, `confirmed`, `no-sale` and `drain`. The tool is unchanged. [F147–F151](../activities/2026-11-26-quota-recovery-tool-findings.md) Proposed tool changes, each in its own commit, after Q8–Q10 and the confirmation above:
+**Phase QR · Make quota recovery easier to verify (proposed, not started).** On 2026-11-26 the guide was rewritten in 5W1H form, with separate steps for `list`, `confirmed`, `no-sale` and `drain`. The tool is unchanged. [F147–F151](../activities/2026-11-26-quota-recovery-tool-findings.md) Proposed tool changes, each in its own commit, under the approved scope and latest Q8–Q10 answers:
 
 - `list` shows enough to find the customer in the shop: the detail chosen in Q8, which run the item came from, and the start and finish times with labels (F150).
 - `drain` with a **needs receipt check** item still open delivers the rest, then prints a short message naming the event and the next command, instead of a traceback (F147).

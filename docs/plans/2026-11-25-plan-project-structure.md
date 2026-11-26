@@ -3,7 +3,7 @@
 - **Goal.** Make the project readable at a glance: one top-level folder per service, each named for its job. The services are web page automation, business workflow, puzzle solving, database, reporting and a future API. Behavior stays the same in every phase.
 - **Why.** Today the folder names do not say what lives inside. `src/web/` holds the reporter and rate limiting, and the puzzle code is spread over three folders. Imports cross between layers in both directions ([F132](#f132--verified--folder-names-do-not-say-what-lives-inside)–[F134](#f134--verified--imports-cross-the-layers-in-both-directions)).
 - **How.** Eleven small phases, R0 to R10. Each phase moves one service, keeps the old import path working, and passes the agreed checks and the golden master. Splitting big files and removing old paths are separate, later phases.
-- **Status (2026-11-26).** Q1–Q12 are answered. Phase R0 (glossary and map, documentation only) can start now. Phase R1 waits for Q13, the decision on how tests are handled while code moves.
+- **Status.** R0 can start. Use focused existing tests and the golden master. Keep Ruff and mypy. [Owner decisions](2026-11-26-plan-owner-questions-and-answers.md)
 - **Related.** [Database plan](2026-11-25-plan-database-customer-selection.md) · [Modernization plan](2026-11-23-plan-modernization.md) · [Agent rules](../../AGENTS.md)
 
 ## Waiting on the owner
@@ -12,15 +12,15 @@
 
 - All phases, R0 to R10, are proposals. None has started.
 - The earlier S1–S6 phases are replaced by R0–R10 ([mapping](#how-the-earlier-s1s6-phases-map-to-the-new-phases)).
-- The agent rules (§4 and §5) still require `pytest` in every commit’s gate. They change only after Q13 is answered.
+- The agent rules (§4 and §5) still require `pytest` in every commit’s gate. The approved Q13 exception still needs to be reflected in the rules.
 
 ### Questions
 
-Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#project-structure-plan-questions). Answered: Q1–Q12. Open: Q13 and Q14 (block R1), Q15 (blocks R10).
+Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#project-structure-plan-questions). Structure Q1–Q15 are answered. Q14 supersedes the earlier tool choice in Q8.
 
 ### Confirmations
 
-Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). Open for this plan: moves and splits never share a phase, and one branch, doc and approval per phase.
+Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). The owner confirmed separate move and split phases and one branch, document and approval per phase.
 
 ## Questions and answers
 
@@ -64,7 +64,7 @@ src/
 
 ### Which service may import which
 
-The arrow means “may import”. Every service may import `shared`. No other import is allowed. `import-linter` enforces it (Q8, Q14).
+The arrow means “may import”. Every service may import `shared`. No other import is allowed. Review imports against this table during each move (Q14).
 
 | Service | May import | Must never import |
 | --- | --- | --- |
@@ -224,7 +224,7 @@ Every phase follows the [per-move checklist](#per-move-checklist), runs on its o
 | Phase | Work and documentation | Done when | How to undo |
 | --- | --- | --- | --- |
 | **R0 · Agree on names and the map** | Answer Q1–Q4. Write a glossary of domain terms (`NIK`, `KUOTA`, page titles) in `shared/`’s README, plus a one-page “where to look” guide for *today’s* layout. Documentation only. | A new reader can find a button, a skip decision, a confirmed result, a database write and the final report file using only the guide. Every link opens the named symbol. | Edit the docs. |
-| **R1 · Add the safety rails** | Add `import-linter` with the allowed-imports contracts (Q8, Q14), listing today’s violations as ignored imports. Create the empty mypy strict list (Q9). Apply the test rule from Q13 to the agent rules. Record the golden master at the starting revision. No file moves. | The agreed gate passes. `lint-imports` fails when a deliberate forbidden import is added on a scratch branch. Golden master recorded twice, with the two runs identical. | Revert the test and the `pyproject.toml` commit. |
+| **R1 · Add the safety rails** | Review allowed imports and list existing violations (Q14). Keep Ruff and mypy. Create the empty mypy strict list (Q9). Apply the test rule from Q13 to the agent rules. Record the golden master at the starting revision. No file moves. | The agreed gate passes. Phase review records any forbidden imports. Golden master recorded twice, with the two runs identical. | Revert the test and the `pyproject.toml` commit. |
 | **R2 · Move the shared helpers** | Move settings, logging, privacy and path helpers to `shared/`. Leave a re-export at each old path. | Gate and golden master pass. Old and new paths return the same object (new contract test). `application.log` is byte-identical. | Revert the move commit. |
 | **R3 · Make the puzzle service one folder** | Move `vision/`, `pipelines/slider/` and `puzzle_service.py` into `puzzle_solving/`. Keep the current OpenCV code, flags and NumPy types exactly as they are. The workflow keeps calling the same functions. | Gate and golden master pass. Puzzle tests pass with the same results. Saved puzzle diagnostics have the same names and bytes. | Revert the move commit. |
 | **R4 · Make the database service independent** | Move `infrastructure/database/` to `database/`. First remove the sync’s import of the reporter by passing the needed function in. That is a design change, so it gets its own commit and proof. | The database sync imports nothing from reporting. Database rows, receipts and recovery records match the golden master after success, failure and restart. | Revert each commit separately. |
@@ -270,7 +270,7 @@ Every phase follows the [per-move checklist](#per-move-checklist), runs on its o
 | An outside script or scheduled task uses an old path. | Q5 open | Unknown | Medium | Keep re-exports until R10. |
 | A move and a logic change get mixed in one commit, so the golden master cannot show which one broke. | Agent rules §7 | Medium | High | One concern per commit. Splits happen only in R8. |
 | A new layer of interfaces makes the code harder to read, not easier. | — | Medium | Medium | Protocols only in R7, only for calls that exist today, each with a docstring. |
-| The API grows into a way to start sales without safety tests. | Q7 | Low | High | API stays read-only in this plan, and the `import-linter` contracts forbid `api` → `web_automation`. |
+| The API grows into a way to start sales without safety tests. | Q7 | Low | High | API stays read-only in this plan, and the allowed-imports table forbids `api` → `web_automation`. |
 
 ## How to check
 
@@ -315,4 +315,4 @@ The `0` on the second line means no file under `src/` or `main.py` changed since
 
 - Q13–Q14 gate Phase R1. Q15 gates Phase R10. Phase R0 has no open question.
 - **UNVERIFIED:** whether any tool outside this checkout imports TaskBot modules (Q5). This can be checked by asking the owner and searching any scheduled tasks on the operator machine.
-- **UNVERIFIED:** whether `import-linter` can express the allowed-imports table and today’s four violations, and which release to pin. Checked in Phase R1.
+- Record the import-boundary review in R1 (Q14).
