@@ -7,6 +7,7 @@ import pytest
 from nik_parser import load_region_mapping, parse_nik
 from src.application.models.customer_workflow import (
     CustomerState,
+    CustomerUpdateData,
     CustomerUpdateFailedError,
     CustomerUpdateLoopError,
     PrecheckAction,
@@ -19,7 +20,7 @@ from src.web.session_state import SessionExpiredError
 class Component:
     def __init__(self) -> None:
         self.calls = 0
-        self.customers = []
+        self.customers: list[CustomerUpdateData] = []
         self.visible_now = False
         self.on_action = None
 
@@ -52,8 +53,8 @@ class Component:
 
 class Reporter:
     def __init__(self) -> None:
-        self.events = []
-        self.skips = []
+        self.events: list[tuple[str, dict[str, object]]] = []
+        self.skips: list[tuple[str, str, str, dict[str, object]]] = []
 
     def record_workflow_event(self, nik: str, **payload) -> None:
         self.events.append((nik, payload))
@@ -79,7 +80,7 @@ class Dashboard:
             "ini. Silakan coba lagi di hari berikutnya."
         )
         self.registration_request_limit_close_calls = 0
-        self.reset_calls = []
+        self.reset_calls: list[dict[str, object]] = []
 
     def ensure_on_dashboard(self) -> None:
         self.home_calls += 1
@@ -101,9 +102,7 @@ class Dashboard:
             self.on_nib_reminder()
         return "continued"
 
-    def read_registration_request_limited_reason_if_present(
-        self, detect_timeout=6000
-    ):
+    def read_registration_request_limited_reason_if_present(self, detect_timeout=6000):
         if self.modal != "registration_request_limited":
             return None
         return self.registration_request_limit_reason
@@ -119,7 +118,7 @@ class Dashboard:
 class Page:
     def __init__(self) -> None:
         self.url = "https://app.test/customer"
-        self.timeouts = []
+        self.timeouts: list[int] = []
 
     def wait_for_timeout(self, timeout_ms: int) -> None:
         self.timeouts.append(timeout_ms)
@@ -210,11 +209,15 @@ def test_mismatch_proceeds_through_existing_state_resolution():
     service.dashboard.attempt_continue_nik_mismatch = Mock(side_effect=proceed)
     service.dashboard.dismiss_nik_mismatch_modal = Mock()
 
-    assert service.handle_pre_checks("3573051108720003", "start") is PrecheckAction.CONTINUE
+    assert (
+        service.handle_pre_checks("3573051108720003", "start")
+        is PrecheckAction.CONTINUE
+    )
     service.dashboard.attempt_continue_nik_mismatch.assert_called_once_with()
     service.dashboard.dismiss_nik_mismatch_modal.assert_not_called()
     assert [payload["event"] for _, payload in service.reporter.events] == [
-        "mismatch_detected", "mismatch_proceeded"
+        "mismatch_detected",
+        "mismatch_proceeded",
     ]
     assert service.reporter.skips == []
     assert service.limiter.skip_calls == 0
@@ -242,10 +245,15 @@ def test_mismatch_fallback_records_one_skip_and_requests_recovery(close_error):
     service.dashboard.attempt_continue_nik_mismatch.assert_called_once_with()
     service.dashboard.dismiss_nik_mismatch_modal.assert_called_once_with()
     assert service.reporter.skips == [
-        ("3573051108720003", "start", "nik_mismatch", {
-            "url": service.page.url,
-            "reason": "NIK mismatch - unable to proceed with sale",
-        })
+        (
+            "3573051108720003",
+            "start",
+            "nik_mismatch",
+            {
+                "url": service.page.url,
+                "reason": "NIK mismatch - unable to proceed with sale",
+            },
+        )
     ]
     assert service.limiter.skip_calls == 1
     events = [payload["event"] for _, payload in service.reporter.events]
@@ -272,7 +280,9 @@ def test_close_only_warning_persists_skip_before_close_and_requests_recovery(
         else "NIK teridentifikasi dengan status MENINGGAL sesuai Data Kependudukan."
     )
     setattr(
-        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=reason)
+        service.dashboard,
+        f"read_{modal_name}_reason_if_present",
+        Mock(return_value=reason),
     )
     service.dashboard.attempt_continue_nik_mismatch = Mock()
     error = {
@@ -297,9 +307,15 @@ def test_close_only_warning_persists_skip_before_close_and_requests_recovery(
     dismiss.assert_called_once_with()
     service.dashboard.attempt_continue_nik_mismatch.assert_not_called()
     assert service.reporter.skips == [
-        ("3573051108720003", "start", modal_name, {
-            "url": service.page.url, "reason": reason,
-        })
+        (
+            "3573051108720003",
+            "start",
+            modal_name,
+            {
+                "url": service.page.url,
+                "reason": reason,
+            },
+        )
     ]
     assert service.limiter.skip_calls == 1
     assert all(component.calls == 0 for component in components)
@@ -326,7 +342,9 @@ def test_close_only_warning_interrupts_customer_update_transition(
 
     components[2].on_action = open_update
     setattr(
-        service.dashboard, f"read_{modal_name}_reason_if_present", Mock(return_value=None)
+        service.dashboard,
+        f"read_{modal_name}_reason_if_present",
+        Mock(return_value=None),
     )
     setattr(service.dashboard, f"dismiss_{modal_name}_modal", Mock())
     assert (
@@ -672,7 +690,9 @@ def test_nib_close_records_skip_and_resets_without_closing_other_modal():
     service.dashboard.dismiss_perbarui_data_pelanggan_modal.assert_not_called()
     assert len(service.dashboard.reset_calls) == 1
     service.reporter.skip_needs_update.assert_called_once_with(
-        "3573051108720003", "start", url=service.page.url,
+        "3573051108720003",
+        "start",
+        url=service.page.url,
         reason=(
             "Segera Lengkapi NIB blocked the transaction; "
             "Tutup was clicked and the transaction was skipped."
@@ -681,23 +701,32 @@ def test_nib_close_records_skip_and_resets_without_closing_other_modal():
     assert service.limiter.skip_calls == 1
     assert all(component.calls == 0 for component in components)
     assert [event[1]["event"] for event in service.reporter.events] == [
-        "customer_nib_reminder_detected", "customer_nib_reminder_closed",
+        "customer_nib_reminder_detected",
+        "customer_nib_reminder_closed",
     ]
 
 
-@pytest.mark.parametrize("state", ["session_error", "login", "registration_limit", "other"])
+@pytest.mark.parametrize(
+    "state", ["session_error", "login", "registration_limit", "other"]
+)
 def test_nib_handler_exception_preserves_session_and_registration_handling(state):
     service, _ = build_live_service(
         login_page_detector=lambda *_args, **_kwargs: state == "login"
     )
-    error = SessionExpiredError("expired") if state == "session_error" else RuntimeError("click race")
+    error = (
+        SessionExpiredError("expired")
+        if state == "session_error"
+        else RuntimeError("click race")
+    )
 
     def fail():
         if state == "registration_limit":
             service.dashboard.modal = "registration_request_limited"
         raise error
 
-    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = Mock(side_effect=fail)
+    service.dashboard.attempt_continue_perbarui_data_nib_pelanggan = Mock(
+        side_effect=fail
+    )
 
     if state == "registration_limit":
         assert service._handle_nib_reminder("3573051108720003", "start") is True
@@ -707,7 +736,9 @@ def test_nib_handler_exception_preserves_session_and_registration_handling(state
         assert service.reporter.skips[0][2] == "registration_request_limited"
         assert service.limiter.skip_calls == 1
     else:
-        expected = SessionExpiredError if state in {"session_error", "login"} else RuntimeError
+        expected = (
+            SessionExpiredError if state in {"session_error", "login"} else RuntimeError
+        )
         with pytest.raises(expected) as caught:
             service._handle_nib_reminder("3573051108720003", "start")
         if state == "login":
@@ -735,8 +766,7 @@ def test_registration_request_limit_beats_stale_update_states():
         component.visible_now = True
 
     assert (
-        service.resolve_customer_state()
-        is CustomerState.REGISTRATION_REQUEST_LIMITED
+        service.resolve_customer_state() is CustomerState.REGISTRATION_REQUEST_LIMITED
     )
 
 

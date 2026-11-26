@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from playwright.sync_api import BrowserContext, Page
 
 import src.infrastructure.interaction_diagnostics as diagnostics_module
 from src.infrastructure.interaction_diagnostics import (
@@ -162,8 +164,8 @@ def build_diagnostics(
     monotonic=None,
 ) -> InteractionDiagnostics:
     return InteractionDiagnostics(
-        page=page or FakePage(),
-        context=context or FakeContext(),
+        page=cast(Page, page or FakePage()),
+        context=cast(BrowserContext, context or FakeContext()),
         run_dir=tmp_path,
         operator_id="operator_01",
         pause_enabled=pause_enabled,
@@ -351,7 +353,7 @@ def test_target_logging_captures_count_node_identity_and_center_hit_test(
 def test_polling_observes_full_twenty_seconds_and_logs_only_transitions(
     tmp_path,
     recording_logger,
-):
+) -> None:
     page = FakePage()
     diagnostics = build_diagnostics(tmp_path, page=page)
     observations = iter([False, False, True, *([True] * 78)])

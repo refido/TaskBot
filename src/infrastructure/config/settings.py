@@ -30,7 +30,9 @@ class AppSettings:
         if limit is not None and (
             isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
         ):
-            raise ValueError("MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset.")
+            raise ValueError(
+                "MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset."
+            )
 
     @classmethod
     def from_env(
@@ -73,7 +75,9 @@ class AppSettings:
         if not normalized:
             return None  # Preserve existing deployments unless a cap is configured.
         if re.fullmatch(r"[0-9]+", normalized) is None:
-            raise ValueError("MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset.")
+            raise ValueError(
+                "MAX_CONCURRENT_ACCOUNTS must be a positive integer or unset."
+            )
         return int(normalized)
 
     @classmethod

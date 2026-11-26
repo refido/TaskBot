@@ -14,10 +14,23 @@ CLOSED = "Perbarui Data Pelanggan closed; transaction skipped."
 @pytest.fixture
 def ui(monkeypatch):
     case = SimpleNamespace(
-        customer=False, customer_continue=False, nib=None, nik_visible=True,
-        nik="existing-nik", ready=False, home=False, clicks=[], fills=[], waits=[],
-        errors={}, wait_errors={}, logs=[], diagnostics=[], elapsed=0,
-        close_stays_visible=False, continue_stays_visible=False,
+        customer=False,
+        customer_continue=False,
+        nib=None,
+        nik_visible=True,
+        nik="existing-nik",
+        ready=False,
+        home=False,
+        clicks=[],
+        fills=[],
+        waits=[],
+        errors={},
+        wait_errors={},
+        logs=[],
+        diagnostics=[],
+        elapsed=0,
+        close_stays_visible=False,
+        continue_stays_visible=False,
     )
 
     class Locator:
@@ -96,7 +109,9 @@ def ui(monkeypatch):
 
     dashboard = dashboard_page.Dashboard.__new__(dashboard_page.Dashboard)
     dashboard.page = SimpleNamespace(
-        wait_for_timeout=lambda milliseconds: setattr(case, "elapsed", case.elapsed + milliseconds),
+        wait_for_timeout=lambda milliseconds: setattr(
+            case, "elapsed", case.elapsed + milliseconds
+        ),
         get_by_role=lambda *_args, **_kwargs: Locator("navigation"),
     )
     for name, kind in {
@@ -105,15 +120,22 @@ def ui(monkeypatch):
         "perbarui_data_nib_pelanggan_modal": "nib",
         "perbarui_data_nib_pelanggan_lanjut_nanti": "nib_continue",
         "perbarui_data_nib_pelanggan_tutup": "nib_close",
-        "nik_input": "nik", "catat_penjualan_tile": "home",
+        "nik_input": "nik",
+        "catat_penjualan_tile": "home",
     }.items():
         setattr(dashboard, name, Locator(kind))
-    dashboard._debug_interaction_checkpoint = lambda label, **_kwargs: case.diagnostics.append(label)
+    dashboard._debug_interaction_checkpoint = lambda label, **_kwargs: (
+        case.diagnostics.append(label)
+    )
     dashboard._debug_pause = lambda label: case.diagnostics.append(label)
-    dashboard._debug_poll_interaction_states = lambda label: case.diagnostics.append(label)
+    dashboard._debug_poll_interaction_states = lambda label: case.diagnostics.append(
+        label
+    )
     for module in (base_page, dashboard_page):
         monkeypatch.setattr(module, "expect", lambda locator: locator)
-        monkeypatch.setattr(module, "log_print", lambda *args, **_kwargs: case.logs.append(args))
+        monkeypatch.setattr(
+            module, "log_print", lambda *args, **_kwargs: case.logs.append(args)
+        )
     monkeypatch.setattr(base_page, "is_login_page", lambda *_args, **_kwargs: False)
     case.dashboard = dashboard
     return case
@@ -177,7 +199,9 @@ def test_reset_falls_back_to_dashboard_when_nik_input_is_absent(ui):
     assert ui.fills == []
 
 
-@pytest.mark.parametrize("error_type", [PlaywrightTimeoutError, PlaywrightError, RuntimeError])
+@pytest.mark.parametrize(
+    "error_type", [PlaywrightTimeoutError, PlaywrightError, RuntimeError]
+)
 def test_customer_dismiss_failure_propagates_without_reset(ui, error_type):
     ui.customer = True
     error = error_type("customer close failed")
@@ -226,11 +250,19 @@ def test_unrelated_nib_failure_cannot_abort_customer_cleanup(ui):
     [
         (PlaywrightTimeoutError, CLOSED),
         (AssertionError, CLOSED),
-        (PlaywrightError, "Perbarui Data Pelanggan cannot continue transaction; modal closed."),
-        (RuntimeError, "Perbarui Data Pelanggan cannot continue transaction; modal closed."),
+        (
+            PlaywrightError,
+            "Perbarui Data Pelanggan cannot continue transaction; modal closed.",
+        ),
+        (
+            RuntimeError,
+            "Perbarui Data Pelanggan cannot continue transaction; modal closed.",
+        ),
     ],
 )
-def test_customer_continue_failure_preserves_historical_reason_and_fallback(ui, error_type, reason):
+def test_customer_continue_failure_preserves_historical_reason_and_fallback(
+    ui, error_type, reason
+):
     ui.customer = ui.customer_continue = True
     error = error_type("customer continue failed")
     ui.errors["customer_continue"] = error

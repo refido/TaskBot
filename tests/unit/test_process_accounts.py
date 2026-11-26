@@ -47,7 +47,9 @@ def controlled_accounts(count, *, limit=None, failure=None, release_order=None):
             if failure == (index, "exception"):
                 raise RuntimeError("worker exploded")
             successful = failure != (index, "account")
-            outcomes[config.operator_id]["status"] = "completed" if successful else "failed"
+            outcomes[config.operator_id]["status"] = (
+                "completed" if successful else "failed"
+            )
             return config.operator_id, successful
         finally:
             with lock:
@@ -59,10 +61,13 @@ def controlled_accounts(count, *, limit=None, failure=None, release_order=None):
         try:
             kwargs = {} if limit is None else {"max_concurrent_accounts": limit}
             result["rows"] = use_case.process_accounts(
-                configs, run_account=partial(run, update_limiter=shared_limiter),
-                log=log, outcomes=outcomes, **kwargs,
+                configs,
+                run_account=partial(run, update_limiter=shared_limiter),
+                log=log,
+                outcomes=outcomes,
+                **kwargs,
             )
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - hand any failure back to the test thread.
             result["exception"] = exc
 
     controller = Thread(target=drive, daemon=True)
@@ -91,8 +96,12 @@ def controlled_accounts(count, *, limit=None, failure=None, release_order=None):
     assert Counter(calls) == Counter(range(count))
     assert all(value is shared_limiter for value in dependencies)
     return SimpleNamespace(
-        peak=peak, results=result["rows"], completion_order=completion_order,
-        configs=configs, outcomes=outcomes, log=log,
+        peak=peak,
+        results=result["rows"],
+        completion_order=completion_order,
+        configs=configs,
+        outcomes=outcomes,
+        log=log,
     )
 
 
@@ -100,9 +109,12 @@ def controlled_accounts(count, *, limit=None, failure=None, release_order=None):
 def test_zero_accounts_does_not_create_executor(monkeypatch, limit):
     executor, run = Mock(), Mock()
     monkeypatch.setattr(use_case, "ThreadPoolExecutor", executor)
-    assert use_case.process_accounts(
-        [], run_account=run, log=Mock(), max_concurrent_accounts=limit
-    ) == []
+    assert (
+        use_case.process_accounts(
+            [], run_account=run, log=Mock(), max_concurrent_accounts=limit
+        )
+        == []
+    )
     executor.assert_not_called()
     run.assert_not_called()
 
@@ -121,9 +133,7 @@ def test_one_account_runs_on_calling_thread(monkeypatch, successful, limit):
 
     assert use_case.process_accounts(
         [config], run_account=run, log=Mock(), max_concurrent_accounts=limit
-    ) == [
-        ("operator_0", successful)
-    ]
+    ) == [("operator_0", successful)]
     executor.assert_not_called()
 
 
@@ -132,7 +142,9 @@ def test_single_worker_exception_propagates(limit):
     failure = RuntimeError("single account failed")
     with pytest.raises(RuntimeError) as caught:
         use_case.process_accounts(
-            [object()], run_account=Mock(side_effect=failure), log=Mock(),
+            [object()],
+            run_account=Mock(side_effect=failure),
+            log=Mock(),
             max_concurrent_accounts=limit,
         )
     assert caught.value is failure
@@ -162,7 +174,10 @@ def test_failure_does_not_cancel_other_accounts(failure, limit):
         expected.pop(1)  # Existing contract: crash logged, tuple omitted.
         assert case.completion_order[1]["event"] == "account.thread.crashed"
     assert case.results == expected
-    assert taskbot_main._aggregate_run_status(case.configs, case.results, case.outcomes) == "failed"
+    assert (
+        taskbot_main._aggregate_run_status(case.configs, case.results, case.outcomes)
+        == "failed"
+    )
 
 
 @pytest.mark.parametrize("limit", [None, 1, 2])
@@ -183,10 +198,14 @@ def test_main_shares_one_limiter_through_every_account_runner(monkeypatch, limit
     monkeypatch.setattr(taskbot_main, "AccountRunner", Runner)
     monkeypatch.setattr(taskbot_main, "DatabaseReportSyncer", Mock())
     # Inspect the actual main.run_account -> AccountRunner limiter factory.
-    monkeypatch.setattr(taskbot_main, "SkipRateLimiter", lambda **kw: kw["customer_update_rate_limiter"])
+    monkeypatch.setattr(
+        taskbot_main, "SkipRateLimiter", lambda **kw: kw["customer_update_rate_limiter"]
+    )
     configs = [SimpleNamespace(operator_id=f"operator_{i}") for i in range(4)]
     results = use_case.process_accounts(
-        configs, run_account=partial(taskbot_main.run_account, update_limiter=limiter), log=Mock(),
+        configs,
+        run_account=partial(taskbot_main.run_account, update_limiter=limiter),
+        log=Mock(),
         max_concurrent_accounts=limit,
     )
     assert len(results) == len(seen) == len(configs)
@@ -199,11 +218,17 @@ def test_explicit_limit_bounds_peak_and_runs_every_account(count, limit):
     case = controlled_accounts(count, limit=limit)
     assert case.peak == min(count, limit)
     assert len(case.results) == count
-    startup = next(call.kwargs for call in case.log.bind.call_args_list
-                   if call.kwargs.get("event") == "app.concurrent_start")
+    startup = next(
+        call.kwargs
+        for call in case.log.bind.call_args_list
+        if call.kwargs.get("event") == "app.concurrent_start"
+    )
     assert startup["max_workers"] == min(count, limit)
     assert startup["max_concurrent_accounts"] == limit
-    assert taskbot_main._aggregate_run_status(case.configs, case.results, case.outcomes) == "completed"
+    assert (
+        taskbot_main._aggregate_run_status(case.configs, case.results, case.outcomes)
+        == "completed"
+    )
 
 
 def test_bounded_workers_preserve_out_of_order_completion():
@@ -220,7 +245,9 @@ def test_invalid_limit_rejected_before_starting_accounts(monkeypatch, count, lim
     monkeypatch.setattr(use_case, "ThreadPoolExecutor", executor)
     with pytest.raises(ValueError, match="max_concurrent_accounts.*positive integer"):
         use_case.process_accounts(
-            [object() for _ in range(count)], run_account=run, log=Mock(),
+            [object() for _ in range(count)],
+            run_account=run,
+            log=Mock(),
             max_concurrent_accounts=limit,
         )
     run.assert_not_called()
@@ -245,7 +272,9 @@ def test_submission_order_is_input_order(monkeypatch):
     monkeypatch.setattr(use_case, "ThreadPoolExecutor", executor)
     configs = [SimpleNamespace(operator_id=str(i)) for i in range(5)]
     use_case.process_accounts(
-        configs, run_account=lambda config: (config.operator_id, True), log=Mock(),
+        configs,
+        run_account=lambda config: (config.operator_id, True),
+        log=Mock(),
         max_concurrent_accounts=2,
     )
     assert submitted == configs

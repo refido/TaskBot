@@ -159,7 +159,7 @@ class XHRTracker:
                 "Network.getResponseBody",
                 {"requestId": request_id},
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - record the CDP error in the capture.
             entry["response_body_error"] = str(exc)
 
         request_event = entry.get("events", {}).get("requestWillBeSent", {})
@@ -169,7 +169,7 @@ class XHRTracker:
                     "Network.getRequestPostData",
                     {"requestId": request_id},
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - record the CDP error in the capture.
                 entry["request_post_data_error"] = str(exc)
 
     def _on_loading_failed(self, event: dict[str, Any]) -> None:

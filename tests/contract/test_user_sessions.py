@@ -1,8 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import user_sessions
 from src.application.use_cases import export_session as export_session_module
+from src.config import Config
 from src.infrastructure.sessions.export_service import SessionArtifacts
 
 
@@ -22,7 +24,7 @@ class DummyLogger:
         self.events.append(("exception", self._bound.copy(), message))
 
 
-def test_export_configured_sessions_limits_accounts_and_applies_cooldown():
+def test_export_configured_sessions_limits_accounts_and_applies_cooldown() -> None:
     config = SimpleNamespace(
         account_configs=lambda: [
             SimpleNamespace(email_user="one@example.com"),
@@ -53,7 +55,7 @@ def test_export_configured_sessions_limits_accounts_and_applies_cooldown():
 
     artifacts, failed_operators, resolved_output_dir = (
         export_session_module.export_configured_sessions(
-            config,
+            cast(Config, config),
             output_dir=output_dir,
             exporter=exporter,
             sleep_func=cooldowns.append,
@@ -80,12 +82,10 @@ def test_export_configured_sessions_limits_accounts_and_applies_cooldown():
         for call in log_print_calls
     )
     assert any(
-        call[1].get("event") == "user_sessions.cooldown"
-        for call in log_print_calls
+        call[1].get("event") == "user_sessions.cooldown" for call in log_print_calls
     )
     assert any(
-        call[1].get("event") == "user_sessions.summary.row"
-        for call in log_print_calls
+        call[1].get("event") == "user_sessions.summary.row" for call in log_print_calls
     )
 
 

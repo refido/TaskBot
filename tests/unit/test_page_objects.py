@@ -257,6 +257,7 @@ def test_dashboard_legacy_wrapper_preserves_perbarui_close_reason(
     dashboard.detect_perbarui_data_pelanggan_if_needed = lambda detect_timeout=6000: (
         True
     )
+
     class CustomerModal:
         def get_by_role(self, *_args, **_kwargs):
             return object()
@@ -412,7 +413,7 @@ def test_registration_request_limit_requires_revised_title_and_message():
             self.selector = selector
             self.role = role
             self.name = name
-            self.filters = []
+            self.filters: list[dict[str, object]] = []
 
         @property
         def first(self):
@@ -492,7 +493,11 @@ def test_supplied_unhappy_flow_markers_use_semantic_locator_wiring():
 
     class RecordingPage(RecordingLocator):
         def __init__(self) -> None:
-            recorder = {"selectors": [], "filters": [], "roles": []}
+            recorder: dict[str, list[object]] = {
+                "selectors": [],
+                "filters": [],
+                "roles": [],
+            }
             super().__init__(recorder)
 
         def get_by_text(self, *_args, **_kwargs):
@@ -646,7 +651,7 @@ def test_visible_nib_reminder_is_not_classified_as_perbarui_customer_data():
 def test_registration_request_limit_close_uses_scoped_tutup_once():
     class Modal:
         def __init__(self) -> None:
-            self.waits = []
+            self.waits: list[dict[str, object]] = []
 
         def wait_for(self, **kwargs) -> None:
             self.waits.append(kwargs)
@@ -677,9 +682,10 @@ def test_registration_request_limit_close_uses_scoped_tutup_once():
 
 def test_nib_reminder_continue_uses_renamed_locator_once():
     """Preserve the legacy primitive's single-click compatibility contract."""
+
     class Modal:
         def __init__(self) -> None:
-            self.waits = []
+            self.waits: list[dict[str, object]] = []
 
         def wait_for(self, **kwargs) -> None:
             self.waits.append(kwargs)
@@ -709,25 +715,35 @@ def test_nib_reminder_continue_uses_renamed_locator_once():
 
 def test_customer_type_pause_is_after_confirmed_selection_and_before_continue(
     monkeypatch,
-):
+) -> None:
     class Expectation:
         def to_be_visible(self, **_kwargs) -> None:
             return None
 
     dashboard = Dashboard.__new__(Dashboard)
-    dashboard.jenis_pelanggan_modal = object()
+    monkeypatch.setattr(dashboard, "jenis_pelanggan_modal", object(), raising=False)
     choice = object()
     events: list[tuple] = []
-    dashboard._find_customer_type_choice = lambda: ("Rumah Tangga", choice)
-    dashboard._select_customer_type_with_confirmation = lambda option, locator: (
-        events.append(("selected", option, locator))
+    monkeypatch.setattr(
+        dashboard, "_find_customer_type_choice", lambda: ("Rumah Tangga", choice)
     )
-    dashboard._debug_interaction_checkpoint = lambda label: events.append(
-        ("checkpoint", label)
+    monkeypatch.setattr(
+        dashboard,
+        "_select_customer_type_with_confirmation",
+        lambda option, locator: events.append(("selected", option, locator)),
     )
-    dashboard._debug_pause = lambda label: events.append(("pause", label))
-    dashboard._continue_jenis_pelanggan_with_confirmation = lambda option: (
-        events.append(("continue", option))
+    monkeypatch.setattr(
+        dashboard,
+        "_debug_interaction_checkpoint",
+        lambda label: events.append(("checkpoint", label)),
+    )
+    monkeypatch.setattr(
+        dashboard, "_debug_pause", lambda label: events.append(("pause", label))
+    )
+    monkeypatch.setattr(
+        dashboard,
+        "_continue_jenis_pelanggan_with_confirmation",
+        lambda option: events.append(("continue", option)),
     )
     monkeypatch.setattr(dashboard_module, "expect", lambda _locator: Expectation())
 

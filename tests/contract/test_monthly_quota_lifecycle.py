@@ -14,9 +14,13 @@ import main as taskbot_main
 from src.infrastructure.database import operator_store
 
 
-@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize(
+    "primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit]
+)
 @pytest.mark.parametrize("log_stage", ["bind", "exception"])
-def test_cleanup_logging_failure_preserves_operation(quota_case, primary_type, log_stage):
+def test_cleanup_logging_failure_preserves_operation(
+    quota_case, primary_type, log_stage
+):
     case = quota_case
     primary = primary_type("operation failed") if primary_type else None
     if primary:
@@ -25,7 +29,10 @@ def test_cleanup_logging_failure_preserves_operation(quota_case, primary_type, l
     log_error = RuntimeError("cleanup logger failed")
 
     def bind(**context):
-        if context.get("event") == "database.monthly_quota_reset.connection.close_failed":
+        if (
+            context.get("event")
+            == "database.monthly_quota_reset.connection.close_failed"
+        ):
             if log_stage == "bind":
                 raise log_error
             return Mock(exception=Mock(side_effect=log_error))
@@ -44,7 +51,10 @@ def test_cleanup_logging_failure_preserves_operation(quota_case, primary_type, l
 @pytest.fixture
 def quota_case(monkeypatch):
     case = SimpleNamespace(
-        connections=[], events=[], errors={}, rowcount=3,
+        connections=[],
+        events=[],
+        errors={},
+        rowcount=3,
         reference_time=datetime(2026, 6, 1),
     )
 
@@ -133,7 +143,11 @@ def quota_case(monkeypatch):
     monkeypatch.setattr(operator_store, "logger", case.log)
     case.manager = operator_store.OperatorDatabaseManager(
         operator_store.DatabaseConfig(
-            host="localhost", port=5432, name="taskbot", user="taskbot", password="test",
+            host="localhost",
+            port=5432,
+            name="taskbot",
+            user="taskbot",
+            password="test",
         ),
     )
     return case
@@ -144,15 +158,21 @@ def assert_reset_released(connection):
     assert connection.closed
 
 
-@pytest.mark.parametrize("rowcount", [3, 0, None], ids=["updated", "no-rows", "unknown-count"])
+@pytest.mark.parametrize(
+    "rowcount", [3, 0, None], ids=["updated", "no-rows", "unknown-count"]
+)
 def test_reset_success_transaction_query_and_resource_lifecycle(quota_case, rowcount):
     case = quota_case
     case.rowcount = rowcount
     assert case.manager.reset_monthly_quotas(case.reference_time) is None
     case.connect.assert_called_once_with(
-        host="localhost", port=5432, dbname="taskbot", user="taskbot", password="test",
+        host="localhost",
+        port=5432,
+        dbname="taskbot",
+        user="taskbot",
+        password="test",
     )
-    connection, = case.connections
+    (connection,) = case.connections
     connection.commit.assert_called_once_with()
     connection.rollback.assert_not_called()
     assert connection.cursor_instance.closed
@@ -161,7 +181,9 @@ def test_reset_success_transaction_query_and_resource_lifecycle(quota_case, rowc
     assert connection.pending == []
     assert len(connection.committed) == 2
     for table, (statement, params) in zip(
-        ("OPERATOR_1", "OPERATOR_2"), connection.cursor_instance.statements, strict=True,
+        ("OPERATOR_1", "OPERATOR_2"),
+        connection.cursor_instance.statements,
+        strict=True,
     ):
         assert params == (case.reference_time,)
         # Compare the full composable query, including predicates and columns.
@@ -180,7 +202,8 @@ def test_reset_success_transaction_query_and_resource_lifecycle(quota_case, rowc
         )
         assert statement == expected
     finished = [
-        call.kwargs for call in case.log.bind.call_args_list
+        call.kwargs
+        for call in case.log.bind.call_args_list
         if call.kwargs.get("event") == "database.monthly_quota_reset.finished"
     ]
     assert len(finished) == 1
@@ -188,14 +211,24 @@ def test_reset_success_transaction_query_and_resource_lifecycle(quota_case, rowc
     assert_reset_released(connection)
     assert case.events[-2:] == ["commit", "connection.close"]
     assert not any(
-        call.kwargs.get("event") == "database.monthly_quota_reset.connection.close_failed"
+        call.kwargs.get("event")
+        == "database.monthly_quota_reset.connection.close_failed"
         for call in case.log.bind.call_args_list
     )
 
 
-@pytest.mark.parametrize("stage", [
-    "transaction.enter", "cursor.open", "cursor.enter", "sql", "next.sql", "cursor.close", "commit",
-])
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "transaction.enter",
+        "cursor.open",
+        "cursor.enter",
+        "sql",
+        "next.sql",
+        "cursor.close",
+        "commit",
+    ],
+)
 def test_reset_failure_preserves_exception_and_transaction_behavior(quota_case, stage):
     case = quota_case
     error = RuntimeError(stage)
@@ -203,9 +236,11 @@ def test_reset_failure_preserves_exception_and_transaction_behavior(quota_case, 
     with pytest.raises(RuntimeError) as caught:
         case.manager.reset_monthly_quotas(case.reference_time)
     assert caught.value is error
-    connection, = case.connections
+    (connection,) = case.connections
     assert connection.commit.call_count == int(stage == "commit")
-    assert connection.rollback.call_count == int(stage not in ("transaction.enter", "commit"))
+    assert connection.rollback.call_count == int(
+        stage not in ("transaction.enter", "commit")
+    )
     assert connection.committed == []
     if stage == "next.sql":
         assert len(connection.cursor_instance.statements) == 1
@@ -238,13 +273,16 @@ def test_repeated_reset_owns_distinct_connections(quota_case):
 
 def test_reset_rollback_failure_keeps_existing_driver_precedence(quota_case):
     case = quota_case
-    sql_error, rollback_error = ValueError("SQL failed"), RuntimeError("rollback failed")
+    sql_error, rollback_error = (
+        ValueError("SQL failed"),
+        RuntimeError("rollback failed"),
+    )
     case.errors.update(sql=sql_error, rollback=rollback_error)
     with pytest.raises(RuntimeError) as caught:
         case.manager.reset_monthly_quotas(case.reference_time)
     assert caught.value is rollback_error
     assert caught.value.__context__ is sql_error
-    connection, = case.connections
+    (connection,) = case.connections
     connection.rollback.assert_called_once_with()
     connection.commit.assert_not_called()
     assert_reset_released(connection)
@@ -268,7 +306,7 @@ def test_reset_close_failure_precedence_and_logging(quota_case, stage, close_typ
         assert caught.value is expected
     else:
         assert case.manager.reset_monthly_quotas(case.reference_time) is None
-    connection, = case.connections
+    (connection,) = case.connections
     connection.close.assert_called_once_with()
     assert not connection.closed
     assert case.events[-1] == "connection.close"
@@ -276,7 +314,8 @@ def test_reset_close_failure_precedence_and_logging(quota_case, stage, close_typ
         assert len(connection.committed) == 2
     if stage or close_type is RuntimeError:
         assert any(
-            call.kwargs.get("event") == "database.monthly_quota_reset.connection.close_failed"
+            call.kwargs.get("event")
+            == "database.monthly_quota_reset.connection.close_failed"
             for call in case.log.bind.call_args_list
         )
         case.log.bind.return_value.exception.assert_called_once()
@@ -289,7 +328,7 @@ def test_reset_interrupt_still_rolls_back_and_closes(quota_case):
     with pytest.raises(KeyboardInterrupt) as caught:
         case.manager.reset_monthly_quotas(case.reference_time)
     assert caught.value is error
-    connection, = case.connections
+    (connection,) = case.connections
     connection.rollback.assert_called_once_with()
     assert connection.pending == connection.committed == []
     assert_reset_released(connection)
@@ -316,7 +355,9 @@ def test_full_setup_owns_three_temporary_connections_separate_from_syncer(quota_
     assert len(case.connections) == 3
     maintenance, tables, quotas = case.connections
     assert [connection.database for connection in case.connections] == [
-        case.manager.config.maintenance_name, "taskbot", "taskbot",
+        case.manager.config.maintenance_name,
+        "taskbot",
+        "taskbot",
     ]
     assert maintenance.autocommit is True
     maintenance.commit.assert_not_called()

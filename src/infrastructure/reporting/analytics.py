@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 from math import isfinite
-from typing import Any, DefaultDict
+from typing import Any
 
 from src.infrastructure.reporting.classification import (
     _APPLICATION_ERROR_LABEL,
@@ -20,14 +20,14 @@ class MetricsCalculator:
         self.rows = rows
         self._incremental = incremental
         if incremental:
-            self._counts = defaultdict(int)
-            self._durations = {}
-            self._puzzles = defaultdict(int)
-            self._skip_reasons = defaultdict(int)
-            self._error_types = defaultdict(int)
-            self._error_order = {}
-            self._top_error_types = []
-            self._error_labels = defaultdict(int)
+            self._counts: defaultdict[str, int] = defaultdict(int)
+            self._durations: dict[str | tuple[str, str], list[float]] = {}
+            self._puzzles: defaultdict[str, int] = defaultdict(int)
+            self._skip_reasons: defaultdict[str, int] = defaultdict(int)
+            self._error_types: defaultdict[str, int] = defaultdict(int)
+            self._error_order: dict[str, int] = {}
+            self._top_error_types: list[str] = []
+            self._error_labels: defaultdict[str, int] = defaultdict(int)
             for row in rows:
                 self._accumulate(row)
 
@@ -62,7 +62,9 @@ class MetricsCalculator:
         ):
             self._skip_reasons[row.reason] += 1
         if row.status == "error":
-            error_type = row.reason.split("\n")[0][:100] if row.reason else "unknown_error"
+            error_type = (
+                row.reason.split("\n")[0][:100] if row.reason else "unknown_error"
+            )
             self._error_order.setdefault(error_type, len(self._error_order))
             self._error_types[error_type] += 1
             self._error_labels[row.error_label or _APPLICATION_ERROR_LABEL] += 1
@@ -102,7 +104,7 @@ class MetricsCalculator:
         """Get count summary by status."""
         if self._incremental:
             return {**self._counts, "total": len(self.rows)}
-        counts: DefaultDict[str, int] = defaultdict(int)
+        counts: defaultdict[str, int] = defaultdict(int)
         for row in self.rows:
             counts[row.status] += 1
         counts["total"] = len(self.rows)
@@ -154,7 +156,9 @@ class MetricsCalculator:
 
     def _calculate_performance(self, run_started_at: str) -> dict[str, Any]:
         if self._incremental:
-            total_runtime, throughput = self._compute_runtime_and_throughput(run_started_at)
+            total_runtime, throughput = self._compute_runtime_and_throughput(
+                run_started_at
+            )
             stats = self._durations.get("all", [0, 0.0, 0.0, 0.0, 0.0])
             return {
                 "total_runtime_seconds": round(total_runtime, 2),
@@ -165,7 +169,9 @@ class MetricsCalculator:
                 "max_duration_seconds": round(stats[4], 3),
                 "avg_completed_duration_seconds": self._duration_average("completed"),
             }
-        durations = [row.duration_seconds for row in self.rows if row.duration_seconds > 0]
+        durations = [
+            row.duration_seconds for row in self.rows if row.duration_seconds > 0
+        ]
         completed_durations = [
             row.duration_seconds
             for row in self.rows
@@ -195,7 +201,7 @@ class MetricsCalculator:
                 len(self.rows) / (total_runtime / 60) if total_runtime > 0 else 0.0
             )
             return total_runtime, throughput
-        except Exception:
+        except Exception:  # noqa: BLE001 - metrics must not break reporting.
             return 0.0, 0.0
 
     def _calculate_puzzle_metrics(self) -> dict[str, Any]:
@@ -277,7 +283,7 @@ class MetricsCalculator:
                 }
                 for status, count in self._counts.items()
             }
-        breakdown: DefaultDict[str, dict[str, Any]] = defaultdict(
+        breakdown: defaultdict[str, dict[str, Any]] = defaultdict(
             lambda: {"count": 0, "durations": []}
         )
 
@@ -300,7 +306,7 @@ class MetricsCalculator:
     def _get_skip_reasons(self) -> dict[str, int]:
         if self._incremental:
             return dict(self._skip_reasons)
-        skip_reasons: DefaultDict[str, int] = defaultdict(int)
+        skip_reasons: defaultdict[str, int] = defaultdict(int)
         for row in self.rows:
             if (
                 row.status.startswith("skipped_")
@@ -320,13 +326,15 @@ class MetricsCalculator:
                 },
                 "error_labels": dict(sorted(self._error_labels.items())),
             }
-        error_types: DefaultDict[str, int] = defaultdict(int)
-        error_labels: DefaultDict[str, int] = defaultdict(int)
+        error_types: defaultdict[str, int] = defaultdict(int)
+        error_labels: defaultdict[str, int] = defaultdict(int)
         for row in self.rows:
             if row.status != "error":
                 continue
 
-            error_type = row.reason.split("\n")[0][:100] if row.reason else "unknown_error"
+            error_type = (
+                row.reason.split("\n")[0][:100] if row.reason else "unknown_error"
+            )
             error_types[error_type] += 1
             error_label = row.error_label or _APPLICATION_ERROR_LABEL
             error_labels[error_label] += 1
@@ -337,7 +345,9 @@ class MetricsCalculator:
             "error_frequency": dict(
                 sorted(error_types.items(), key=lambda item: item[1], reverse=True)[:10]
             ),
-            "error_labels": dict(sorted(error_labels.items(), key=lambda item: item[0])),
+            "error_labels": dict(
+                sorted(error_labels.items(), key=lambda item: item[0])
+            ),
         }
 
     @staticmethod

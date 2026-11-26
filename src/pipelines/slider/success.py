@@ -33,11 +33,11 @@ class SuccessDetector:
     def _wait_for_any_success_signal(self, page: Page, root: Locator) -> str | None:
         try:
             root_handle = root.element_handle(timeout=250)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - fall back to waiting for the root to hide.
             try:
                 root.wait_for(state="hidden", timeout=250)
                 return "root_hidden"
-            except Exception:
+            except Exception:  # noqa: BLE001 - no success signal is available.
                 log_print(f"[SuccessDetector] Root handle unavailable: {exc}")
                 return None
 
@@ -84,6 +84,6 @@ class SuccessDetector:
             )
             value = result.json_value()
             return str(value) if value else None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any wait failure means no signal.
             log_print(f"[SuccessDetector] Success wait timed out: {exc}")
             return None

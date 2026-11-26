@@ -16,9 +16,13 @@ from src.infrastructure.database.operator_store import OperatorDatabaseManager
 from src.web.reporter import TransactionRow
 
 
-@pytest.mark.parametrize("primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize(
+    "primary_type", [None, RuntimeError, KeyboardInterrupt, SystemExit]
+)
 @pytest.mark.parametrize("log_stage", ["bind", "exception"])
-def test_one_off_cleanup_logging_preserves_primary(monkeypatch, primary_type, log_stage):
+def test_one_off_cleanup_logging_preserves_primary(
+    monkeypatch, primary_type, log_stage
+):
     primary = primary_type("sync failed") if primary_type else None
     syncer = Mock(side_effect=primary)
     syncer.close = Mock(side_effect=OSError("close failed"))

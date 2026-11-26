@@ -11,7 +11,7 @@ def mismatch_html(buttons):
     return (
         '<section role="dialog"><h6>NIK Pelanggan Tidak Padan</h6>'
         f'{buttons}<button onclick="this.parentElement.remove()">Tutup</button>'
-        '</section>'
+        "</section>"
     )
 
 
@@ -31,11 +31,13 @@ def local_dashboard(page):
 def test_mismatch_exact_title_and_visible_modal_scope(page):
     page.set_content(
         '<button onclick="window.wrongClick = true">LANJUTKAN Penjualan</button>'
-        '<section hidden><h6>NIK Pelanggan Tidak Padan</h6>'
-        '<button>LANJUTKAN Penjualan</button></section>'
-        '<div aria-hidden="true">' + mismatch_html(
+        "<section hidden><h6>NIK Pelanggan Tidak Padan</h6>"
+        "<button>LANJUTKAN Penjualan</button></section>"
+        '<div aria-hidden="true">'
+        + mismatch_html(
             '<button onclick="this.parentElement.remove()">LANJUTKAN Penjualan</button>'
-        ) + '</div>'
+        )
+        + "</div>"
     )
     dashboard = local_dashboard(page)
 
@@ -46,23 +48,32 @@ def test_mismatch_exact_title_and_visible_modal_scope(page):
     assert page.evaluate("window.wrongClick === undefined")
 
 
-@pytest.mark.parametrize("content", [
-    '<button>LANJUTKAN Penjualan</button>',
-    '<section role="dialog"><h6>NIK Pelanggan Tidak Padan Lain</h6></section>',
-    '<section role="dialog"><h6 hidden>NIK Pelanggan Tidak Padan</h6><button>Tutup</button></section>',
-    '<div hidden>' + mismatch_html('<button>LANJUTKAN Penjualan</button>') + '</div>',
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<button>LANJUTKAN Penjualan</button>",
+        '<section role="dialog"><h6>NIK Pelanggan Tidak Padan Lain</h6></section>',
+        '<section role="dialog"><h6 hidden>NIK Pelanggan Tidak Padan</h6><button>Tutup</button></section>',
+        "<div hidden>"
+        + mismatch_html("<button>LANJUTKAN Penjualan</button>")
+        + "</div>",
+    ],
+)
 def test_no_visible_exact_mismatch_keeps_normal_detection(page, content):
     page.set_content(content)
     assert Dashboard(page).get_visible_precheck_modal() is None
 
 
-@pytest.mark.parametrize("button", [
-    '',
-    '<button hidden>LANJUTKAN Penjualan</button>',
-    '<button disabled>LANJUTKAN Penjualan</button>',
-    '<button style="pointer-events:none">LANJUTKAN Penjualan</button>',
-], ids=["absent", "hidden", "disabled", "not-clickable"])
+@pytest.mark.parametrize(
+    "button",
+    [
+        "",
+        "<button hidden>LANJUTKAN Penjualan</button>",
+        "<button disabled>LANJUTKAN Penjualan</button>",
+        '<button style="pointer-events:none">LANJUTKAN Penjualan</button>',
+    ],
+    ids=["absent", "hidden", "disabled", "not-clickable"],
+)
 def test_unavailable_proceed_uses_scoped_tutup(page, button):
     page.set_content(
         '<button onclick="window.wrongClose = true">Tutup</button>'
@@ -82,7 +93,9 @@ def test_continue_requires_modal_transition_and_preserves_unexpected_errors():
     dashboard = Dashboard.__new__(Dashboard)
     dashboard.nik_mismatch_continue = object()
     dashboard.nik_mismatch_modal = Mock()
-    dashboard.nik_mismatch_modal.wait_for.side_effect = PlaywrightTimeoutError("still visible")
+    dashboard.nik_mismatch_modal.wait_for.side_effect = PlaywrightTimeoutError(
+        "still visible"
+    )
     dashboard.click_locator = Mock()
     assert dashboard.attempt_continue_nik_mismatch() is False
     dashboard.click_locator.assert_called_once()

@@ -37,7 +37,7 @@ class ElementResolver:
                 root = containers.filter(has=bg_el).first
                 if root.count() > 0:
                     return root
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - fall back to the background locator.
                 log_print(f"[ElementResolver] Filter error: {exc}")
 
         return bg_el.locator(
@@ -65,12 +65,12 @@ class ElementResolver:
             root.scroll_into_view_if_needed(timeout=1000)
             root.hover()
             page.wait_for_timeout(120)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - preparation is best effort.
             log_print(f"[ElementResolver] Preparation error: {exc}")
 
         control.wait_for(state="visible", timeout=self._CTRL_VISIBLE_TIMEOUT_MS)
 
         try:
             knob.wait_for(state="visible", timeout=self._KNOB_VISIBLE_TIMEOUT_MS)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - knob visibility is best effort.
             log_print(f"[ElementResolver] Knob visibility error: {exc}")

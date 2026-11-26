@@ -4,28 +4,48 @@ from src.infrastructure.browser.page_objects.cek_penjualan_page import CekPenjua
 from src.pipelines.slider.success import SuccessDetector
 from src.pipelines.slider.types import SliderConfig
 
-
-SUCCESS = '<button>KEMBALI KE HALAMAN UTAMA</button>'
+SUCCESS = "<button>KEMBALI KE HALAMAN UTAMA</button>"
 BLOCKER = (
     '<section role="dialog"><h2>Terlalu banyak permintaan</h2>'
-    '<p>Terdapat beberapa data yang belum lengkap. Lengkapi data dahulu '
-    'untuk melanjutkan transaksi.</p><button>TUTUP</button></section>'
+    "<p>Terdapat beberapa data yang belum lengkap. Lengkapi data dahulu "
+    "untuk melanjutkan transaksi.</p><button>TUTUP</button></section>"
 )
 
 
-@pytest.mark.parametrize("html,status,reason", [
-    (SUCCESS, "completed", ""),
-    (BLOCKER, "blocked", "customer_data_required"),
-    (SUCCESS + BLOCKER, "blocked", "customer_data_required"),
-    ("<p>Waiting for server</p>", "unknown", "confirmation_timeout"),
-    ('<section role="dialog">Terlalu banyak permintaan<p>Try later</p></section>',
-     "unknown", "confirmation_timeout"),
-    ('<div hidden>' + BLOCKER + '</div>' + SUCCESS, "completed", ""),
-    ('<section role="dialog">Data Pelanggan berhasil diperbarui' + SUCCESS + '</section>',
-     "unknown", "customer_update_result"),
-], ids=["success", "customer-data", "blocker-priority", "timeout", "different-warning",
-        "stale-hidden-warning", "customer-update-is-not-sale"])
-def test_hidden_captcha_requires_independent_transaction_result(page, html, status, reason):
+@pytest.mark.parametrize(
+    "html,status,reason",
+    [
+        (SUCCESS, "completed", ""),
+        (BLOCKER, "blocked", "customer_data_required"),
+        (SUCCESS + BLOCKER, "blocked", "customer_data_required"),
+        ("<p>Waiting for server</p>", "unknown", "confirmation_timeout"),
+        (
+            '<section role="dialog">Terlalu banyak permintaan<p>Try later</p></section>',
+            "unknown",
+            "confirmation_timeout",
+        ),
+        ("<div hidden>" + BLOCKER + "</div>" + SUCCESS, "completed", ""),
+        (
+            '<section role="dialog">Data Pelanggan berhasil diperbarui'
+            + SUCCESS
+            + "</section>",
+            "unknown",
+            "customer_update_result",
+        ),
+    ],
+    ids=[
+        "success",
+        "customer-data",
+        "blocker-priority",
+        "timeout",
+        "different-warning",
+        "stale-hidden-warning",
+        "customer-update-is-not-sale",
+    ],
+)
+def test_hidden_captcha_requires_independent_transaction_result(
+    page, html, status, reason
+):
     # Entirely local DOM reproduction; no merchant account or live transaction.
     page.set_content('<div class="rc-slider-captcha" hidden></div>' + html)
     captcha_finished = SuccessDetector(SliderConfig()).check_success(

@@ -4,9 +4,14 @@ from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict
 from threading import Lock
-from typing import Any
+from typing import Any, cast
 
-from src.infrastructure.database.operator_store import OperatorDatabaseManager
+from src.infrastructure.database.operator_store import (
+    OperatorDatabaseManager,
+    OperatorTargets,
+    counts_toward_quota,
+)
+from src.infrastructure.database.quota_journal import QuotaJournal, recovery_directory
 from src.logging_utils import logger
 from src.privacy import sanitize_text
 from src.web.reporter import TransactionReporter
@@ -17,11 +22,80 @@ _DATABASE_SETUP_LOCK = Lock()
 class DatabaseReportSyncer:
     """Lazily initialize one database manager and sync only supplied report rows."""
 
+    _journal: QuotaJournal | None = None
+    _receipts_ready = False
+
     def __init__(self) -> None:
         self._manager: OperatorDatabaseManager | None = None
         self._database_ready = False
         self._configuration_error: str | None = None
         self._connection: Any | None = None
+
+    def open_journal(
+        self, operator_id: str, manager: OperatorDatabaseManager
+    ) -> QuotaJournal:
+        config = manager.config
+        # Both startup and manual recovery construct the manager with required targets.
+        target = cast(OperatorTargets, manager.targets).resolve(operator_id)
+        self._manager = manager
+        self._journal = QuotaJournal(
+            recovery_directory(),
+            (
+                config.host.casefold(),
+                config.port,
+                config.name,
+                target.table_name,
+                target.operator_id,
+            ),
+            target.operator_id,
+        )
+        return self._journal
+
+    def prepare_delivery(self, reporter: TransactionReporter) -> bool:
+        manager = self._get_manager(reporter.jsonl_path)
+        if manager is None:
+            return False
+        journal = self.open_journal(reporter.operator_id, manager)
+        recovered = journal.drain(self._deliver_event)
+        journal.require_resolved()
+        reporter.configure_quota_journal(
+            begin=journal.begin,
+            confirm=journal.confirm,
+            stage=self._stage_row,
+            check=journal.require_resolved,
+        )
+        return recovered > 0
+
+    def finish_delivery(self) -> None:
+        if self._journal is not None:
+            self._journal.drain(self._deliver_event)
+
+    def _stage_row(self, row, source: str) -> None:
+        # prepare_delivery registers this callback after open_journal sets the journal.
+        if not counts_toward_quota(row.status):
+            # Invalid customer IDs can be reportable skips. Keep zero-quota
+            # rows on the ordinary sync path so they cannot block sale recovery.
+            cast(QuotaJournal, self._journal).finish_without_quota(row.nik)
+            return
+        payload = _database_report_payload(row)
+        # Only store fields consumed by OperatorDbRecord, never login or URL data.
+        keys = (
+            "operator_id",
+            "nik",
+            "status",
+            "finished_at",
+            "nama_pengguna",
+            "jenis_pengguna",
+            "reason",
+            "error_label",
+            "error",
+        )
+        cast(QuotaJournal, self._journal).stage(
+            {key: payload[key] for key in keys}, source
+        )
+
+    def _deliver_event(self, event_id, source, payload) -> None:
+        self._sync(self._manager, source, [payload], event_id=event_id)
 
     def __call__(
         self,
@@ -46,6 +120,16 @@ class DatabaseReportSyncer:
         if manager is None:
             return
 
+        if self._journal is not None and rows is not None:
+            for row in rows:
+                if counts_toward_quota(row.status):
+                    self._journal.drain(self._deliver_event)
+                else:
+                    self._sync(manager, report_path, [row])
+            return
+        self._sync(manager, report_path, rows)
+
+    def _sync(self, manager, report_path, rows, *, event_id=None):
         batch_size = len(rows) if rows is not None else None
 
         logger.bind(
@@ -65,10 +149,19 @@ class DatabaseReportSyncer:
                     connection=connection,
                 )
             else:
+                if event_id is not None and not self._receipts_ready:
+                    manager.ensure_delivery_receipts(connection)
+                    self._receipts_ready = True
+                payloads = (
+                    rows
+                    if event_id is not None
+                    else (_database_report_payload(row) for row in rows)
+                )
                 summary = manager.sync_report_payloads(
-                    (_database_report_payload(row) for row in rows),
+                    payloads,
                     source=str(report_path),
                     connection=connection,
+                    **({"delivery_id": event_id} if event_id is not None else {}),
                 )
 
                 expected_rows = len(rows)
@@ -178,7 +271,12 @@ class DatabaseReportSyncer:
     def close(self) -> None:
         """Release database resources owned by this syncer."""
 
-        self._discard_connection()
+        try:
+            self._discard_connection()
+        finally:
+            if self._journal is not None:
+                self._journal.close()
+                self._journal = None
 
     def _ensure_database(self, manager: OperatorDatabaseManager) -> None:
         if self._database_ready:

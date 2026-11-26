@@ -14,34 +14,22 @@ import psycopg2
 from psycopg2 import sql
 
 from src.infrastructure.config.environment import load_environment
+from src.infrastructure.database import _operator_sql
+from src.infrastructure.database._operator_sql import (
+    normalize_table_name as _normalize_table_name,
+)
 from src.logging_utils import logger
 from src.privacy import register_private_values
 
 OPERATOR_TABLE_NAMES = ("OPERATOR_1", "OPERATOR_2")
 TIMESTAMP_FORMAT = "%Y%m%d %H%M%S"
 
-_OPERATOR_TABLE_PATTERN = re.compile(r"^OPERATOR_\d+$")
 _NUMBERED_TARGET_KEY_PATTERN = re.compile(
     r"^(?:NAME_OPERATORS|EMAIL|PIN|NIK)_(\d+)$|^OPERATOR_(\d+)_ID$"
 )
 _NUMBERED_ACCOUNT_KEY_PATTERN = re.compile(r"^(?:EMAIL|PIN|NIK)_(\d+)$")
 
-_COLUMN_NAMES = (
-    "OPERATOR",
-    "NIK",
-    "NAMA_KONSUMER",
-    "JENIS_PENGGUNA",
-    "KUOTA",
-    "MAX_KUOTA",
-    "CONFLICT",
-    "STATUS_CODE",
-    "STATUS_CODE_DESCRIPTION",
-    "PROBLEM",
-    "LAST_TRANSACTION_TIME",
-    "PREVIOUS_TRANSACTION_TIME",
-    "UPDATED_TIME",
-    "CREATED_TIME",
-)
+_COLUMN_NAMES = _operator_sql.COLUMN_NAMES
 _NAME_FIELDS = (
     "nama_pengguna",
     "NAMA_PENGGUNA",
@@ -74,7 +62,9 @@ _STATUS_MAPPINGS = {
     "successful": ReportStatusMapping(200, "Transaction successful"),
     "skipped_max_kuota": ReportStatusMapping(409, "Max kuota reached"),
     "skipped_out_of_stock": ReportStatusMapping(409, "Sellable stock unavailable"),
-    "skipped_cannot_transact": ReportStatusMapping(409, "Unable to perform transaction"),
+    "skipped_cannot_transact": ReportStatusMapping(
+        409, "Unable to perform transaction"
+    ),
     "skipped_fraud": ReportStatusMapping(409, "NIK blocked due to suspected fraud"),
     "skipped_not_registered": ReportStatusMapping(404, "Consumer not registered"),
     "skipped_registration_request_limited": ReportStatusMapping(
@@ -292,7 +282,7 @@ class OperatorDbRecord:
         target: OperatorTarget,
     ) -> OperatorDbRecord:
         status = _normalize_status(payload.get("status"))
-        is_successful = status in _SUCCESS_STATUSES
+        is_successful = counts_toward_quota(status)
         status_mapping = _map_report_status(status)
         problem = "" if is_successful else _build_problem(payload)
         event_time = _parse_report_datetime(
@@ -531,7 +521,9 @@ class OperatorDatabaseManager:
                     logger.bind(
                         event="database.monthly_quota_reset.connection.close_failed",
                         **self._log_context(connection_database=self.config.name),
-                    ).exception("Failed to close monthly quota reset database connection")
+                    ).exception(
+                        "Failed to close monthly quota reset database connection"
+                    )
         logger.bind(
             event="database.monthly_quota_reset.finished",
             row_counts=row_counts,
@@ -555,6 +547,33 @@ class OperatorDatabaseManager:
             connection=connection,
         )
 
+    def ensure_delivery_receipts(self, connection) -> None:
+        with connection, connection.cursor() as cursor:
+            cursor.execute("SHOW fsync")
+            if cursor.fetchone() != ("on",):
+                raise RuntimeError("Quota delivery needs PostgreSQL fsync enabled")
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('taskbot_quota_receipts'))"
+            )
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS public.taskbot_quota_receipts (
+                    event_id uuid PRIMARY KEY, operator_table text NOT NULL,
+                    nik bigint NOT NULL, event_time timestamptz NOT NULL, status text NOT NULL
+                )
+            """)
+            for relation in (
+                "public.taskbot_quota_receipts",
+                *(f'"{table}"' for table in self._operator_table_names()),
+            ):
+                cursor.execute(
+                    "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid=to_regclass(%s)",
+                    (relation,),
+                )
+                if cursor.fetchone() != ("p",):
+                    raise RuntimeError(
+                        f"Quota delivery requires a permanent logged table: {relation}"
+                    )
+
     def sync_report_payloads(
         self,
         payloads: Iterable[Mapping[str, Any]],
@@ -562,6 +581,7 @@ class OperatorDatabaseManager:
         source: str,
         table_name: str | None = None,
         connection: Any | None = None,
+        delivery_id: str | None = None,
     ) -> SyncSummary:
         """
         Synchronize one ordered batch of report payloads.
@@ -588,7 +608,7 @@ class OperatorDatabaseManager:
 
         owns_connection = connection is None
         db_connection = (
-            self._connect(self.config.name) if owns_connection else connection
+            self._connect(self.config.name) if connection is None else connection
         )
 
         sync_completed = False
@@ -603,17 +623,30 @@ class OperatorDatabaseManager:
             #
             # It does NOT close a caller-owned persistent connection.
             with db_connection, db_connection.cursor() as cursor:
+                if delivery_id is not None:
+                    cursor.execute("SET LOCAL synchronous_commit = on")
                 for payload in payloads:
                     processed += 1
+                    if delivery_id is not None and processed != 1:
+                        raise ValueError(
+                            "A quota delivery must contain exactly one event"
+                        )
 
                     try:
                         previous_transaction = self.upsert_report_payload(
                             payload,
                             cursor=cursor,
                             table_name=table_name,
+                            **(
+                                {"delivery_id": delivery_id}
+                                if delivery_id is not None
+                                else {}
+                            ),
                         )
 
                     except ValueError as exc:
+                        if delivery_id is not None:
+                            raise  # Roll back the receipt together with an invalid row.
                         skipped += 1
 
                         logger.bind(
@@ -636,6 +669,8 @@ class OperatorDatabaseManager:
                         previous_transactions.append(previous_transaction)
 
                     changed += 1
+                if delivery_id is not None and not processed:
+                    raise ValueError("An empty quota delivery cannot be acknowledged")
 
             sync_completed = True
         except Exception:
@@ -705,18 +740,61 @@ class OperatorDatabaseManager:
         *,
         cursor,
         table_name: str | None = None,
+        delivery_id: str | None = None,
     ) -> PreviousTransactionReport | None:
         if self.targets is None:
             raise ValueError("Operator targets are required to sync report payloads.")
 
         target = self._resolve_payload_target(payload, table_name=table_name)
         record = OperatorDbRecord.from_report_payload(payload, target)
-        return self.upsert_record(
+        if delivery_id is not None:
+            receipt_time = datetime.fromisoformat(payload["finished_at"])
+            if receipt_time.utcoffset() is None:
+                raise ValueError("Quota delivery requires a timestamp with a time zone")
+            identity = (
+                target.table_name,
+                record.nik,
+                receipt_time,
+                str(payload["status"]),
+            )
+            cursor.execute(
+                """
+                INSERT INTO public.taskbot_quota_receipts(event_id, operator_table, nik, event_time, status)
+                VALUES (%s, %s, %s, %s, %s) ON CONFLICT (event_id) DO NOTHING RETURNING event_id
+            """,
+                (delivery_id, *identity),
+            )
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    """
+                    SELECT operator_table, nik, event_time, status
+                    FROM public.taskbot_quota_receipts WHERE event_id=%s
+                """,
+                    (delivery_id,),
+                )
+                if cursor.fetchone() != identity:
+                    raise ValueError("Quota receipt does not match this delivery")
+                return None
+        result = self.upsert_record(
             target.table_name,
             record,
             cursor=cursor,
             operator_id=target.operator_id,
+            **({"distinct_sale": True} if delivery_id and record.kuota_delta else {}),
         )
+        # A delayed sale belongs to its sale month, even when recovered after reset.
+        if delivery_id and record.kuota_delta:
+            month_start = datetime.now().replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+            if record.event_time < month_start:
+                cursor.execute(
+                    sql.SQL(
+                        'UPDATE {} SET "KUOTA"=0 WHERE "NIK"=%s AND "UPDATED_TIME"<%s'
+                    ).format(sql.Identifier(target.table_name)),
+                    (record.nik, month_start),
+                )
+        return result
 
     def _resolve_payload_target(
         self,
@@ -777,6 +855,7 @@ class OperatorDatabaseManager:
         *,
         cursor,
         operator_id: str | None = None,
+        distinct_sale: bool = False,
     ) -> PreviousTransactionReport | None:
         normalized_table = _normalize_table_name(table_name)
         event_time = _normalize_datetime(record.event_time)
@@ -793,7 +872,7 @@ class OperatorDatabaseManager:
             else None
         )
         cursor.execute(
-            self._upsert_sql(normalized_table),
+            self._upsert_sql(normalized_table, distinct_sale=distinct_sale),
             (
                 record.operator,
                 record.nik,
@@ -963,46 +1042,7 @@ class OperatorDatabaseManager:
 
     @staticmethod
     def _create_table_sql(table_name: str):
-        identifiers = {
-            column_name.lower(): sql.Identifier(column_name)
-            for column_name in _COLUMN_NAMES
-        }
-        return sql.SQL(
-            """
-            CREATE TABLE IF NOT EXISTS {table} (
-                {operator} TEXT NOT NULL DEFAULT '',
-                {nik} BIGINT PRIMARY KEY,
-                {nama_konsumer} TEXT NOT NULL DEFAULT '',
-                {jenis_pengguna} TEXT NOT NULL DEFAULT '',
-                {kuota} INTEGER NOT NULL DEFAULT 0,
-                {max_kuota} INTEGER NOT NULL DEFAULT 0,
-                {conflict} BOOLEAN NOT NULL DEFAULT FALSE,
-                {status_code} INTEGER NOT NULL DEFAULT 0,
-                {status_code_description} TEXT NOT NULL DEFAULT '',
-                {problem} TEXT NOT NULL DEFAULT '',
-                {last_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
-                {previous_transaction_time} TIMESTAMP WITHOUT TIME ZONE,
-                {updated_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                {created_time} TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        ).format(
-            table=sql.Identifier(_normalize_table_name(table_name)),
-            operator=identifiers["operator"],
-            nik=identifiers["nik"],
-            nama_konsumer=identifiers["nama_konsumer"],
-            jenis_pengguna=identifiers["jenis_pengguna"],
-            kuota=identifiers["kuota"],
-            max_kuota=identifiers["max_kuota"],
-            conflict=identifiers["conflict"],
-            status_code=identifiers["status_code"],
-            status_code_description=identifiers["status_code_description"],
-            problem=identifiers["problem"],
-            last_transaction_time=identifiers["last_transaction_time"],
-            previous_transaction_time=identifiers["previous_transaction_time"],
-            updated_time=identifiers["updated_time"],
-            created_time=identifiers["created_time"],
-        )
+        return _operator_sql.create_table_sql(table_name)
 
     @staticmethod
     def _migrate_table_schema(cursor, table_name: str) -> None:
@@ -1093,185 +1133,8 @@ class OperatorDatabaseManager:
             )
 
     @staticmethod
-    def _upsert_sql(table_name: str):
-        table = sql.Identifier(_normalize_table_name(table_name))
-        operator = sql.Identifier("OPERATOR")
-        nik = sql.Identifier("NIK")
-        jenis_pengguna = sql.Identifier("JENIS_PENGGUNA")
-        nama_konsumer = sql.Identifier("NAMA_KONSUMER")
-        kuota = sql.Identifier("KUOTA")
-        max_kuota = sql.Identifier("MAX_KUOTA")
-        conflict = sql.Identifier("CONFLICT")
-        status_code = sql.Identifier("STATUS_CODE")
-        status_code_description = sql.Identifier("STATUS_CODE_DESCRIPTION")
-        problem = sql.Identifier("PROBLEM")
-        last_transaction_time = sql.Identifier("LAST_TRANSACTION_TIME")
-        previous_transaction_time = sql.Identifier("PREVIOUS_TRANSACTION_TIME")
-        updated_time = sql.Identifier("UPDATED_TIME")
-        created_time = sql.Identifier("CREATED_TIME")
-
-        next_kuota = sql.SQL(
-            """
-            CASE
-                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
-                    THEN target.{kuota}
-                WHEN date_trunc('month', target.{updated_time})
-                     < date_trunc('month', EXCLUDED.{updated_time})
-                    THEN EXCLUDED.{kuota}
-                WHEN EXCLUDED.{kuota} > 0
-                    THEN target.{kuota} + EXCLUDED.{kuota}
-                ELSE target.{kuota}
-            END
-            """
-        ).format(updated_time=updated_time, kuota=kuota)
-
-        next_max_kuota = sql.SQL(
-            """
-            CASE
-                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
-                    THEN target.{max_kuota}
-                WHEN EXCLUDED.{kuota} > 0
-                    THEN GREATEST(target.{max_kuota}, {next_kuota})
-                ELSE GREATEST(target.{max_kuota}, target.{kuota})
-            END
-            """
-        ).format(
-            updated_time=updated_time,
-            max_kuota=max_kuota,
-            kuota=kuota,
-            next_kuota=next_kuota,
-        )
-
-        next_last_transaction_time = sql.SQL(
-            """
-            CASE
-                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
-                    THEN target.{last_transaction_time}
-                WHEN EXCLUDED.{kuota} > 0
-                    THEN EXCLUDED.{last_transaction_time}
-                ELSE target.{last_transaction_time}
-            END
-            """
-        ).format(
-            updated_time=updated_time,
-            kuota=kuota,
-            last_transaction_time=last_transaction_time,
-        )
-
-        next_previous_transaction_time = sql.SQL(
-            """
-            CASE
-                WHEN EXCLUDED.{updated_time} <= target.{updated_time}
-                    THEN target.{previous_transaction_time}
-                WHEN EXCLUDED.{kuota} > 0
-                    THEN COALESCE(
-                        target.{last_transaction_time},
-                        CASE
-                            WHEN target.{kuota} > 0 THEN target.{updated_time}
-                            ELSE target.{previous_transaction_time}
-                        END
-                    )
-                ELSE target.{previous_transaction_time}
-            END
-            """
-        ).format(
-            updated_time=updated_time,
-            kuota=kuota,
-            last_transaction_time=last_transaction_time,
-            previous_transaction_time=previous_transaction_time,
-        )
-
-        return sql.SQL(
-            """
-            INSERT INTO {table} AS target (
-                {operator},
-                {nik},
-                {nama_konsumer},
-                {jenis_pengguna},
-                {kuota},
-                {max_kuota},
-                {conflict},
-                {status_code},
-                {status_code_description},
-                {problem},
-                {last_transaction_time},
-                {previous_transaction_time},
-                {updated_time},
-                {created_time}
-            )
-            VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
-            )
-            ON CONFLICT ({nik}) DO UPDATE SET
-                {operator} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{operator}
-                    ELSE target.{operator}
-                END,
-                {jenis_pengguna} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN COALESCE(
-                            NULLIF(EXCLUDED.{jenis_pengguna}, ''),
-                            target.{jenis_pengguna}
-                        )
-                    ELSE target.{jenis_pengguna}
-                END,
-                {nama_konsumer} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN COALESCE(
-                            NULLIF(EXCLUDED.{nama_konsumer}, ''),
-                            target.{nama_konsumer}
-                        )
-                    ELSE target.{nama_konsumer}
-                END,
-                {kuota} = {next_kuota},
-                {max_kuota} = {next_max_kuota},
-                {conflict} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{conflict}
-                    ELSE target.{conflict}
-                END,
-                {status_code} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{status_code}
-                    ELSE target.{status_code}
-                END,
-                {status_code_description} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{status_code_description}
-                    ELSE target.{status_code_description}
-                END,
-                {problem} = CASE
-                    WHEN EXCLUDED.{updated_time} > target.{updated_time}
-                        THEN EXCLUDED.{problem}
-                    ELSE target.{problem}
-                END,
-                {last_transaction_time} = {next_last_transaction_time},
-                {previous_transaction_time} = {next_previous_transaction_time},
-                {updated_time} = GREATEST(target.{updated_time}, EXCLUDED.{updated_time})
-            """
-        ).format(
-            table=table,
-            operator=operator,
-            nik=nik,
-            jenis_pengguna=jenis_pengguna,
-            nama_konsumer=nama_konsumer,
-            kuota=kuota,
-            max_kuota=max_kuota,
-            conflict=conflict,
-            status_code=status_code,
-            status_code_description=status_code_description,
-            problem=problem,
-            last_transaction_time=last_transaction_time,
-            previous_transaction_time=previous_transaction_time,
-            updated_time=updated_time,
-            created_time=created_time,
-            next_kuota=next_kuota,
-            next_max_kuota=next_max_kuota,
-            next_last_transaction_time=next_last_transaction_time,
-            next_previous_transaction_time=next_previous_transaction_time,
-        )
+    def _upsert_sql(table_name: str, *, distinct_sale: bool = False):
+        return _operator_sql.upsert_sql(table_name, distinct_sale=distinct_sale)
 
 
 def read_report_payloads(path: Path) -> Iterable[Mapping[str, Any]]:
@@ -1321,6 +1184,10 @@ def _read_json_report(path: Path) -> Iterable[Mapping[str, Any]]:
 
 def format_db_datetime(value: datetime) -> str:
     return _normalize_datetime(value).strftime(TIMESTAMP_FORMAT)
+
+
+def counts_toward_quota(status: Any) -> bool:
+    return _normalize_status(status) in _SUCCESS_STATUSES
 
 
 def _normalize_status(value: Any) -> str:
@@ -1403,13 +1270,6 @@ def _normalize_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
     return value.astimezone().replace(tzinfo=None)
-
-
-def _normalize_table_name(value: str) -> str:
-    normalized = value.strip().upper()
-    if _OPERATOR_TABLE_PATTERN.fullmatch(normalized) is None:
-        raise ValueError(f"Unsupported operator table: {value}")
-    return normalized
 
 
 def _collect_operator_suffixes(source: Mapping[str, str]) -> set[str]:

@@ -8,12 +8,15 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger as _base_logger
 
 from src.path_utils import build_dated_dir
 from src.privacy import sanitize_log_value, sanitize_text
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 _ASCII_LEVEL_ICONS = {
     "TRACE": "T",
@@ -47,7 +50,7 @@ def _apply_ascii_level_icons() -> None:
         )
 
 
-def _inject_default_event(record: dict[str, Any]) -> None:
+def _inject_default_event(record: Record) -> None:
     record["message"] = sanitize_text(record["message"])
     exception = record.get("exception")
     if exception is not None:
@@ -64,7 +67,7 @@ def _inject_default_event(record: dict[str, Any]) -> None:
                     exception_traceback,
                 )
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             formatted_traceback = f"{exception_name}: {exception_value}"
         record["message"] = sanitize_text(
             f"{record['message']} | {exception_name}: {sanitized_exception}"
@@ -91,12 +94,12 @@ def _inject_default_event(record: dict[str, Any]) -> None:
     )
 
 
-def _is_db_log_record(record: dict[str, Any]) -> bool:
+def _is_db_log_record(record: Record) -> bool:
     event = str(record["extra"].get("event", ""))
     return event in _DB_LOG_EVENTS or event.startswith(_DB_LOG_EVENT_PREFIXES)
 
 
-def _is_application_log_record(record: dict[str, Any]) -> bool:
+def _is_application_log_record(record: Record) -> bool:
     return not _is_db_log_record(record)
 
 
@@ -129,14 +132,12 @@ def configure_logging(
     now_local = datetime.now().astimezone()
     context_run_id = str(getattr(run_context, "run_id", "") or "")
     resolved_run_id = (
-        run_id
-        or context_run_id
-        or f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
+        run_id or context_run_id or f"{now_local:%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
     )
 
     context_run_dir = getattr(run_context, "run_dir", None)
     if run_dir is not None or context_run_dir is not None:
-        root = Path(run_dir or context_run_dir).expanduser()
+        root = Path(run_dir or cast(str | Path, context_run_dir)).expanduser()
         if not root.is_absolute():
             root = _PROJECT_ROOT / root
         root = root.resolve()
@@ -254,7 +255,9 @@ def log_print(
     if end and end != "\n":
         message += end
 
-    caller = inspect.currentframe().f_back
+    frame = inspect.currentframe()
+    caller = frame.f_back if frame is not None else None
+    del frame
     source_module = caller.f_globals.get("__name__", "unknown") if caller else "unknown"
     source_function = caller.f_code.co_name if caller else "unknown"
     source_line = caller.f_lineno if caller else -1

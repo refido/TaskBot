@@ -13,34 +13,49 @@ ROOT = Path(__file__).resolve().parents[2]
 def run_python(code):
     result = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
-        cwd=ROOT, capture_output=True, text=True, timeout=30,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("module", [
-    "src.infrastructure.browser.playwright_session",
-    "src.infrastructure.browser.page_objects.dashboard_page",
-    "src.infrastructure.browser.page_objects.customer_update_page",
-    "src.application.models.customer_workflow",
-    "src.application.services.transaction_prechecks",
-    "src.application.services.account_runner",
-    "src.orchestration.transaction_processor",
-    "src.orchestration.browser_session",
-    "src.web.pages.dashboard",
-    "src.web.reporter",
-    "src.pipelines.solve_slider",
-    "src.pipelines.slider",
-])
+@pytest.mark.parametrize(
+    "module",
+    [
+        "src.infrastructure.browser.playwright_session",
+        "src.infrastructure.browser.page_objects.dashboard_page",
+        "src.infrastructure.browser.page_objects.customer_update_page",
+        "src.application.models.customer_workflow",
+        "src.application.services.transaction_prechecks",
+        "src.application.services.account_runner",
+        "src.orchestration.transaction_processor",
+        "src.orchestration.browser_session",
+        "src.web.pages.dashboard",
+        "src.web.reporter",
+        "src.pipelines.solve_slider",
+        "src.pipelines.slider",
+    ],
+)
 def test_direct_module_import_in_fresh_process(module):
     run_python(f"import importlib; importlib.import_module({module!r})")
 
 
-@pytest.mark.parametrize("first_module", [
-    "src.application", "src.infrastructure.browser", "src.orchestration", "src.web.pages",
-])
+@pytest.mark.parametrize(
+    "first_module",
+    [
+        "src.application",
+        "src.infrastructure.browser",
+        "src.orchestration",
+        "src.web.pages",
+    ],
+)
 def test_public_exports_and_identity_after_different_import_orders(first_module):
-    run_python(f"import importlib; importlib.import_module({first_module!r})\n" + textwrap.dedent('''
+    run_python(
+        f"import importlib; importlib.import_module({first_module!r})\n"
+        + textwrap.dedent("""
         import importlib
         import src.application as application
 
@@ -111,25 +126,33 @@ def test_public_exports_and_identity_after_different_import_orders(first_module)
             assert getattr(legacy_slider, name) is canonical
             if name in slider.__all__:
                 assert getattr(slider, name) is canonical
-    '''))
+    """)
+    )
 
 
-@pytest.mark.parametrize("path", [
-    "tests/unit/test_playwright_session.py",
-    "tests/unit/test_dashboard_nib.py",
-    "tests/unit/test_customer_data_close_wrapper.py",
-    "tests/unit/test_customer_workflow.py",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/unit/test_playwright_session.py",
+        "tests/unit/test_dashboard_nib.py",
+        "tests/unit/test_customer_data_close_wrapper.py",
+        "tests/unit/test_customer_workflow.py",
+    ],
+)
 def test_isolated_pytest_collection(path):
     result = subprocess.run(
         [sys.executable, "-m", "pytest", path, "--collect-only", "-q"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_importing_application_model_does_not_eagerly_initialize_services():
-    run_python('''
+    run_python("""
         import sys
         from src.application.models.customer_workflow import CustomerUpdateData
         assert "src.application.services" not in sys.modules
@@ -137,4 +160,4 @@ def test_importing_application_model_does_not_eagerly_initialize_services():
         from src.application import AccountRunner
         from src.application.services.account_runner import AccountRunner as canonical
         assert AccountRunner is canonical
-    ''')
+    """)

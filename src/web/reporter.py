@@ -119,11 +119,11 @@ class TransactionReporter:
         self._meta_history = self.rows
         self._meta_row_count = 0
         self._meta_cache_valid = True
-        self._meta_niks = {
+        self._meta_niks: dict[str, list[str]] = {
             key: []
             for key in ("failed", "failed_puzzle_solve", "successful", "unregistered")
         }
-        self._meta_groups = {
+        self._meta_groups: dict[str, defaultdict[str, list[str]]] = {
             key: defaultdict(list)
             for key in ("skipped", "errors", "puzzle_errors", "labels", "other")
         }
@@ -133,6 +133,13 @@ class TransactionReporter:
         self._batch_size: int | None = None
         self._batch_sync_callback: BatchSyncCallback | None = None
         self._pending_batch_rows: list[TransactionRow] = []
+        self._unqueued_file_error_rows: list[TransactionRow] = []
+        self._terminal_file_failures = 0
+        self._begin_quota_item = None
+        self._confirm_quota_item = None
+        self._quota_start_failed = False
+        self._stage_quota_row = None
+        self._check_quota_items = None
         self._batch_sync_failed = False
 
         self._setup_directories(out_dir, run_name, per_run_subdir)
@@ -152,7 +159,26 @@ class TransactionReporter:
     # Public methods (external API)
     def start_item(self, nik: str) -> str:
         """Start timing for a new item."""
-        return now_iso()
+        started_at = now_iso()
+        if self._begin_quota_item is not None:
+            try:
+                self._begin_quota_item(nik, started_at, str(self.jsonl_path))
+            except Exception:
+                self._quota_start_failed = True
+                raise
+        return started_at
+
+    def configure_quota_journal(self, *, begin, confirm, stage, check) -> None:
+        self._begin_quota_item = begin
+        self._confirm_quota_item = confirm
+        self._stage_quota_row = stage
+        self._check_quota_items = check
+
+    def checkpoint_confirmed_sale(
+        self, nik: str, name: str, customer_type: str
+    ) -> None:
+        if self._confirm_quota_item is not None:
+            self._confirm_quota_item(nik, now_iso(), name, customer_type)
 
     def configure_batch_sync(
         self,
@@ -626,17 +652,13 @@ class TransactionReporter:
 
     def write_files(self, run_name: str | None = None) -> None:
         """Write final snapshot files and update operator summary."""
+        self._stage_file_error_rows_for_sync()
         # NOTE: run_name is kept for backward compatibility; original code did not use it.
         calculator = MetricsCalculator(self.rows)
         mapping_report = self.get_mapping_report()
         mapping_error_report = self.get_mapping_error_report()
         mapping_failed_puzzle_report = self.get_mapping_failed_puzzle_report()
-        retry_report = {
-            **self._compact_retry_report(),
-            "operator": self.operator_id,
-            "operator_id": self.operator_id,
-            "run_id": self.run_id,
-        }
+        retry_report = self._retry_report_for_file()
         workflow_summary = self.get_workflow_event_report()
         payload = {
             "run_id": self.run_id,
@@ -677,6 +699,15 @@ class TransactionReporter:
         )
 
         self._write_meta()
+        if self._check_quota_items is not None:
+            self._check_quota_items()
+        if self._quota_start_failed:
+            raise OSError("An item could not start with a durable quota journal")
+        if self._terminal_file_failures:
+            raise OSError(
+                f"Terminal file persistence failed for {self._terminal_file_failures} row(s). "
+                "See items_snapshot.json for the recorded outcomes."
+            )
         logger.bind(
             event="report.files_written",
             operator_id=self.operator_id,
@@ -796,6 +827,15 @@ class TransactionReporter:
             "retried_niks": list(index["niks"]),
             "by_process": {key: list(niks) for key, niks in index["process"].items()},
             "by_trigger": {key: list(niks) for key, niks in index["trigger"].items()},
+        }
+
+    def _retry_report_for_file(self) -> dict[str, Any]:
+        """Use the stable operator ID in both operator fields of saved reports."""
+        return {
+            **self._compact_retry_report(),
+            "operator": self.operator_id,
+            "operator_id": self.operator_id,
+            "run_id": self.run_id,
         }
 
     def get_error_niks_by_reason(self) -> dict[str, list[str]]:
@@ -1094,11 +1134,17 @@ class TransactionReporter:
     def _record_row(self, row: TransactionRow) -> None:
         self.rows.append(row)
         try:
+            if self._stage_quota_row is not None:
+                self._stage_quota_row(row, str(self.jsonl_path))
             self.file_writer.append_row(row)
-        except BaseException:
+        except BaseException as exc:
             # Memory-first history/error semantics are unchanged. Do not count
             # a failed persistence attempt as an accepted cached terminal row.
             self._meta_cache_valid = False
+            if isinstance(exc, Exception):
+                self._terminal_file_failures += 1
+                if self._batch_sync_callback is not None:
+                    self._unqueued_file_error_rows.append(row)
             raise
         try:
             self._queue_row_for_batch_sync(row)
@@ -1140,10 +1186,16 @@ class TransactionReporter:
             reason=row.reason,
         ).info("Transaction row recorded")
 
+    def _stage_file_error_rows_for_sync(self) -> None:
+        # Preserve event order even if a later customer's file write succeeds.
+        self._pending_batch_rows.extend(self._unqueued_file_error_rows)
+        self._unqueued_file_error_rows.clear()
+
     def _queue_row_for_batch_sync(self, row: TransactionRow) -> None:
         if self._batch_sync_callback is None:
             return
 
+        self._stage_file_error_rows_for_sync()
         self._pending_batch_rows.append(row)
         self._sync_complete_batches()
 
@@ -1300,21 +1352,20 @@ class TransactionReporter:
         )
         reports = self._meta_row_reports() if cached else None
         calculator = self._meta_calculator if cached else MetricsCalculator(self.rows)
-        mapping_report = reports["mapping"] if cached else self.get_mapping_report()
+        mapping_report = (
+            reports["mapping"] if reports is not None else self.get_mapping_report()
+        )
         mapping_error_report = (
-            reports["errors"] if cached else self.get_mapping_error_report()
+            reports["errors"]
+            if reports is not None
+            else self.get_mapping_error_report()
         )
         mapping_failed_puzzle_report = (
             reports["puzzle_errors"]
-            if cached
+            if reports is not None
             else self.get_mapping_failed_puzzle_report()
         )
-        retry_report = {
-            **self._compact_retry_report(),
-            "operator": self.operator_id,
-            "operator_id": self.operator_id,
-            "run_id": self.run_id,
-        }
+        retry_report = self._retry_report_for_file()
         counts = calculator.get_summary()
         workflow_summary = self._meta_workflow_report()
         ended_at = now_iso()
@@ -1339,16 +1390,22 @@ class TransactionReporter:
             retry_report=retry_report,
             workflow_summary=workflow_summary,
             nik_parsing_failures=(
-                reports["parsing"] if cached else self.get_nik_parsing_failure_report()
+                reports["parsing"]
+                if reports is not None
+                else self.get_nik_parsing_failure_report()
             ),
             mapping_report=mapping_report,
             mapping_error_report=mapping_error_report,
             mapping_failed_puzzle_report=mapping_failed_puzzle_report,
             errors_by_label=(
-                reports["labels"] if cached else self.get_error_niks_by_label()
+                reports["labels"]
+                if reports is not None
+                else self.get_error_niks_by_label()
             ),
             other_statuses=(
-                reports["other"] if cached else self.get_other_status_niks_by_status()
+                reports["other"]
+                if reports is not None
+                else self.get_other_status_niks_by_status()
             ),
             retried_niks=retry_report["retried_niks"],
             files={

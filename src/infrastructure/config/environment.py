@@ -25,7 +25,11 @@ def load_environment(
     """
     values: dict[str, str] = {}
     disabled = os.getenv("PYTHON_DOTENV_DISABLED", "").casefold() in {
-        "1", "true", "t", "yes", "y"
+        "1",
+        "true",
+        "t",
+        "yes",
+        "y",
     }
     if load_env_file and not disabled:
         # The parser behind dotenv_values(), with load_dotenv's environment-first

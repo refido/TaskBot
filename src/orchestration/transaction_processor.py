@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import Final
 
 from playwright.sync_api import Page
 
@@ -50,7 +52,7 @@ class PuzzleSolveFailedError(RuntimeError):
 class TransactionProcessor:
     """Handles processing of transactions with error handling and recovery."""
 
-    _LOAD_STATE: str = "load"
+    _LOAD_STATE: Final = "load"
     _MAX_KUOTA_TIMEOUT_MS: int = 1500
     _ZERO_STOCK_TIMEOUT_MS: int = 1500
     _PRE_CEK_PESANAN_BLOCKER_TIMEOUT_MS: int = 300
@@ -408,11 +410,14 @@ class TransactionProcessor:
                 outcome = cek_penjualan.wait_for_transaction_outcome()
                 if not isinstance(outcome, TransactionOutcome):
                     raise TransactionConfirmationError("Invalid transaction outcome")
-            except Exception as exc:  # Observation failure must be reported, never retried.
+            except Exception as exc:  # noqa: BLE001 - observation failure must be reported, never retried.
                 self._record_unconfirmed_transaction(
-                    nik, started_at,
+                    nik,
+                    started_at,
                     TransactionOutcome("unknown", "confirmation_error"),
-                    puzzle_outcome, customer_information, observation_error=exc,
+                    puzzle_outcome,
+                    customer_information,
+                    observation_error=exc,
                 )
                 return
 
@@ -428,6 +433,20 @@ class TransactionProcessor:
             self._confirmed_success_niks.add(str(nik))
             # Success is terminal even when any post-transaction operation fails.
             try:
+                checkpoint = getattr(self.reporter, "checkpoint_confirmed_sale", None)
+                if callable(checkpoint):
+                    try:
+                        checkpoint(
+                            nik,
+                            customer_information.nama_pengguna,
+                            customer_information.jenis_pengguna,
+                        )
+                    except Exception:  # noqa: BLE001 - still attempt the terminal write.
+                        # Keep the durable open marker and still attempt the terminal write.
+                        logger.bind(
+                            event="report.quota_checkpoint_failed",
+                            operator_id=self.operator_id,
+                        ).exception("Could not checkpoint the confirmed sale")
                 self._log_transaction_outcome(nik, outcome)
                 self._log_transaction_stage(
                     nik,
@@ -533,7 +552,9 @@ class TransactionProcessor:
                     reason=outcome.reason,
                 ).exception("Transaction result could not be confirmed")
                 self.reporter.error(
-                    nik, started_at, exc=exc,
+                    nik,
+                    started_at,
+                    exc=exc,
                     puzzle_solved=True,
                     puzzle_attempts=puzzle.attempts,
                     puzzle_retry_count=puzzle.retry_count,
@@ -775,7 +796,7 @@ class TransactionProcessor:
     def _get_puzzle_service(self) -> PuzzleService:
         service = getattr(self, "_puzzle_service", None)
         if service is None:
-            helpers_factory = Helpers
+            helpers_factory: Callable[[Page], Helpers] = Helpers
             slider_solver = solve_slider_with_puzzle
             run_dir = getattr(
                 getattr(self.config, "run_context", None), "run_dir", None

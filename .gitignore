@@ -172,3 +172,9 @@ db_query/
 .pytest*
 .vscode/
 backup/
+.env.test
+.env.local
+AGENTS.md
+CLAUDE.md
+# Node dev tools (package.json / package-lock.json are tracked)
+node_modules/

@@ -1,7 +1,11 @@
+from typing import Literal
+
 from playwright.sync_api import Locator, Page, expect
 
 from src.logging_utils import log_print
 from src.web.session_state import SessionExpiredError, is_login_page
+
+LoadState = Literal["domcontentloaded", "load", "networkidle"]
 
 
 class BasePage:
@@ -19,7 +23,7 @@ class BasePage:
         action_name: str,
         expected_text: str | None = None,
         timeout_ms: int = 5000,
-        load_state: str | None = "networkidle",
+        load_state: LoadState | None = "networkidle",
         allow_login_page: bool = False,
     ) -> None:
         self._raise_if_session_expired(
@@ -59,7 +63,7 @@ class BasePage:
         expected_text: str,
         *,
         timeout_ms: int = 5000,
-        load_state: str = "networkidle",
+        load_state: LoadState = "networkidle",
         allow_login_page: bool = False,
     ) -> None:
         self.click_locator(
@@ -114,9 +118,7 @@ class BasePage:
         if allow_login_page:
             return
 
-        if not is_login_page(
-            self.page, timeout_ms=self._LOGIN_PAGE_CHECK_TIMEOUT_MS
-        ):
+        if not is_login_page(self.page, timeout_ms=self._LOGIN_PAGE_CHECK_TIMEOUT_MS):
             return
 
         message = f"Session expired while {action_name}; app is on the login page."
@@ -128,5 +130,5 @@ class BasePage:
     def _safe_inner_text(locator: Locator) -> str:
         try:
             return locator.inner_text().strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - text lookup is best effort.
             return ""

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Iterator, Optional
 
 import cv2
 import numpy as np
@@ -30,6 +30,7 @@ from src.vision.puzzle.preprocessing import (
     crop_by_mask,
     ensure_output_dir,
     imread_any,
+    normalize_minmax,
     preprocess_for_matching,
     resize_gray,
     resize_mask,
@@ -119,7 +120,7 @@ class PuzzleSolver:
         self.enable_timing = enable_timing
         self.timing_metrics: dict[str, float] = {}
 
-        self.tpl_center_local: Optional[PointF] = None
+        self.tpl_center_local: PointF | None = None
 
     @contextmanager
     def _timed(self, stage: str) -> Iterator[None]:
@@ -132,7 +133,9 @@ class PuzzleSolver:
             yield
         finally:
             elapsed_ms = (perf_counter() - started) * 1000.0
-            self.timing_metrics[stage] = self.timing_metrics.get(stage, 0.0) + elapsed_ms
+            self.timing_metrics[stage] = (
+                self.timing_metrics.get(stage, 0.0) + elapsed_ms
+            )
 
     def _load_image_inputs(self) -> tuple[ImageArray, ImageArray]:
         with self._timed("io.load_images"):
@@ -159,9 +162,7 @@ class PuzzleSolver:
         if max_val - min_val < 1e-6:
             return np.zeros_like(res_map, dtype=np.float32)
 
-        return cv2.normalize(res_map, None, 0.0, 1.0, cv2.NORM_MINMAX).astype(
-            np.float32
-        )
+        return normalize_minmax(res_map, 0.0, 1.0).astype(np.float32)
 
     @staticmethod
     def _local_peak_score(res_map: np.ndarray, loc: Point, radius: int = 1) -> float:
@@ -183,9 +184,7 @@ class PuzzleSolver:
         with self._timed("preprocess.background.edges_dt"):
             bg_edges = adaptive_edge_mask(bg_match, None)
             inv_full = (bg_edges == 0).astype(np.uint8) * 255
-            dt_full = cv2.distanceTransform(inv_full, cv2.DIST_L2, 5).astype(
-                np.float32
-            )
+            dt_full = cv2.distanceTransform(inv_full, cv2.DIST_L2, 5).astype(np.float32)
 
         return _BackgroundContext(
             gray=bg_gray,
@@ -229,12 +228,7 @@ class PuzzleSolver:
     ) -> float:
         th, tw = tpl_gray.shape[:2]
         x, y = int(loc[0]), int(loc[1])
-        if (
-            x < 0
-            or y < 0
-            or x + tw > bg_gray.shape[1]
-            or y + th > bg_gray.shape[0]
-        ):
+        if x < 0 or y < 0 or x + tw > bg_gray.shape[1] or y + th > bg_gray.shape[0]:
             return -1.0
 
         roi = bg_gray[y : y + th, x : x + tw]
@@ -281,9 +275,9 @@ class PuzzleSolver:
         res_sqdiff = cv2.matchTemplate(bg_gray, tpl_gray, cv2.TM_SQDIFF_NORMED)
         res_sqdiff = 1.0 - res_sqdiff
 
-        res_corr = cv2.normalize(res_corr, None, 0, 1, cv2.NORM_MINMAX)
-        res_coef = cv2.normalize(res_coef, None, 0, 1, cv2.NORM_MINMAX)
-        res_sqdiff = cv2.normalize(res_sqdiff, None, 0, 1, cv2.NORM_MINMAX)
+        res_corr = normalize_minmax(res_corr, 0, 1)
+        res_coef = normalize_minmax(res_coef, 0, 1)
+        res_sqdiff = normalize_minmax(res_sqdiff, 0, 1)
 
         max_corr = float(res_corr.max())
         max_coef = float(res_coef.max())
@@ -299,9 +293,9 @@ class PuzzleSolver:
         w_coef /= total_w
         w_sqdiff /= total_w
 
-        return (
-            w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff
-        ).astype(np.float32)
+        return (w_corr * res_corr + w_coef * res_coef + w_sqdiff * res_sqdiff).astype(
+            np.float32
+        )
 
     def _refine_candidate_loc(
         self,
@@ -461,14 +455,14 @@ class PuzzleSolver:
                 bg_grad[y0:y1, :], tpl_grad, edge_mask
             )
             res_dt = cv2.matchTemplate(dt_full[y0:y1, :], tpl_edges_f, cv2.TM_SQDIFF)
-            res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
+            res_dt = normalize_minmax(res_dt, 0, 1)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray[y0:y1, :]
         else:
             y0 = 0
             fused_map = self._legacy_match_maps_fused(bg_grad, tpl_grad, edge_mask)
             res_dt = cv2.matchTemplate(dt_full, tpl_edges_f, cv2.TM_SQDIFF)
-            res_dt = cv2.normalize(res_dt, None, 0, 1, cv2.NORM_MINMAX)
+            res_dt = normalize_minmax(res_dt, 0, 1)
             chamfer_sim = 1.0 - res_dt
             bg_gray_for_rank = bg_gray
 
@@ -490,15 +484,12 @@ class PuzzleSolver:
 
         valid: list[Candidate] = []
         for candidate in candidates:
-            if (
-                not low_texture_mode
-                and is_uniform_region(
-                    bg_gray_for_rank,
-                    candidate.loc,
-                    (th, tw),
-                    threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
-                    uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
-                )
+            if not low_texture_mode and is_uniform_region(
+                bg_gray_for_rank,
+                candidate.loc,
+                (th, tw),
+                threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
+                uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
             ):
                 continue
 
@@ -555,7 +546,7 @@ class PuzzleSolver:
         self,
         tpl_gray: GrayImage,
         bg_gray: GrayImage,
-        raw_mask: Optional[MaskImage] = None,
+        raw_mask: MaskImage | None = None,
         y_roi: YRoi = None,
     ) -> tuple[Point, float]:
         """
@@ -676,15 +667,12 @@ class PuzzleSolver:
                     search_radius=4,
                 )
 
-                if (
-                    not low_texture_mode
-                    and is_uniform_region(
-                        bg_gray_for_rank,
-                        rescored_candidate.loc,
-                        (th, tw),
-                        threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
-                        uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
-                    )
+                if not low_texture_mode and is_uniform_region(
+                    bg_gray_for_rank,
+                    rescored_candidate.loc,
+                    (th, tw),
+                    threshold=self._UNIFORM_EDGE_DENSITY_THRESHOLD,
+                    uniform_std_threshold=self._UNIFORM_STD_THRESHOLD,
                 ):
                     continue
 
@@ -755,8 +743,7 @@ class PuzzleSolver:
         margin = max(0.0, float(best.final_score or 0.0) - runner_up_score)
         best_score = float(
             np.clip(
-                0.90 * float(best.final_score or 0.0)
-                + 0.10 * min(1.0, margin / 0.12),
+                0.90 * float(best.final_score or 0.0) + 0.10 * min(1.0, margin / 0.12),
                 0.0,
                 1.0,
             )
@@ -792,13 +779,10 @@ class PuzzleSolver:
         )
         legacy_selection_score = 0.65 * legacy_score + 0.35 * legacy_template_support
 
-        if (
-            legacy_selection_score > new_selection_score + 0.02
-            or (
-                abs(legacy_loc[0] - final_loc[0]) > max(4, tw // 8)
-                and legacy_template_support > new_template_support + 0.05
-                and legacy_score >= best_score - 0.03
-            )
+        if legacy_selection_score > new_selection_score + 0.02 or (
+            abs(legacy_loc[0] - final_loc[0]) > max(4, tw // 8)
+            and legacy_template_support > new_template_support + 0.05
+            and legacy_score >= best_score - 0.03
         ):
             return legacy_loc, float(np.clip(legacy_selection_score, 0.0, 1.0))
 

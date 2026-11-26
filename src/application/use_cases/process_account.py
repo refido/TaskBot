@@ -56,7 +56,9 @@ def process_accounts(
                 result = future.result()
                 _, is_successful = result
                 detail = (outcomes or {}).get(operator_id, {})
-                status = detail.get("status") or ("completed" if is_successful else "failed")
+                status = detail.get("status") or (
+                    "completed" if is_successful else "failed"
+                )
                 log.bind(
                     event="account.thread.finished",
                     operator_id=operator_id,

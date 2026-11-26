@@ -65,15 +65,11 @@ _CANNOT_TRANSACT_AT_BASE_REASON_MARKERS = (
     "pelanggan tidak dapat transaksi di pangkalan ini",
     "customers cannot transact at this base",
 )
-_UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE = (
-    "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
-)
+_UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE = "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
 _UNUSUAL_TRANSACTION_OTHER_BASE_STATUS = (
     f"skipped_{_UNUSUAL_TRANSACTION_OTHER_BASE_SKIP_TYPE}"
 )
-_UNUSUAL_TRANSACTION_OTHER_BASE_REASON = (
-    "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
-)
+_UNUSUAL_TRANSACTION_OTHER_BASE_REASON = "The customer's NIK indicates an unusual transaction at another base with an unusual distance and close time."
 _UNUSUAL_TRANSACTION_OTHER_BASE_REASON_MARKERS = (
     "nik pelanggan terindikasi transaksi tidak wajar di pangkalan lain dengan jarak tidak wajar dan waktu berdekatan",
     "the customer's nik indicates an unusual transaction at another base with an unusual distance and close time",

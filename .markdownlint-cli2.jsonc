@@ -1,0 +1,23 @@
+// markdownlint configuration, shared by the VS Code extension
+// (DavidAnson.vscode-markdownlint) and the markdownlint-cli2 command line.
+// Workspace scan: npm run --silent lint:md   (one file: npm exec --offline -- markdownlint-cli2 <file>)
+{
+  "config": {
+    "default": true,
+    // Same as the extension's built-in default: long lines are allowed.
+    "MD013": false,
+    // Collapsible evidence blocks are intentional and render on GitHub and in VS Code.
+    "MD033": { "allowed_elements": ["details", "summary"] },
+    // Code blocks hold exact recorded command output; git prints real tab separators.
+    "MD010": { "code_blocks": false }
+  },
+  "ignores": [
+    ".venv/**",
+    "**/node_modules/**",
+    ".git/**",
+    ".pytest_*/**",
+    ".mypy_cache/**",
+    ".ruff_cache/**",
+    ".prof/**"
+  ]
+}

@@ -21,9 +21,17 @@ FALLBACKS = {
 def ui(request, monkeypatch):
     kind = request.param
     case = SimpleNamespace(
-        kind=kind, visible={k: False for k in DOMAINS}, trace=[], logs=[],
-        missing=set(), text={}, errors={}, stays=False, login=False,
-        login_after_click=False, resets=[],
+        kind=kind,
+        visible={k: False for k in DOMAINS},
+        trace=[],
+        logs=[],
+        missing=set(),
+        text={},
+        errors={},
+        stays=False,
+        login=False,
+        login_after_click=False,
+        resets=[],
     )
 
     class Locator:
@@ -44,7 +52,9 @@ def ui(request, monkeypatch):
             error = case.errors.get((self.part, "text"))
             if error:
                 raise error
-            return case.text.get(self.part, "Tutup" if self.part == "button" else "  reason \n")
+            return case.text.get(
+                self.part, "Tutup" if self.part == "button" else "  reason \n"
+            )
 
         def to_be_visible(self, *, timeout):
             self.wait_for(state="visible", timeout=timeout)
@@ -68,11 +78,15 @@ def ui(request, monkeypatch):
             setattr(dashboard, domain + "_modal" + suffix, Locator(domain, part))
         if domain != "cannot_transact_at_base":
             setattr(dashboard, domain + "_modal_message", Locator(domain, "message"))
-    dashboard.reset_nik_input_or_return_to_dashboard = Mock(side_effect=lambda **kw: case.resets.append(kw))
+    dashboard.reset_nik_input_or_return_to_dashboard = Mock(
+        side_effect=lambda **kw: case.resets.append(kw)
+    )
     monkeypatch.setattr(base_page, "expect", lambda locator: locator)
     monkeypatch.setattr(base_page, "is_login_page", lambda *a, **kw: case.login)
     monkeypatch.setattr(base_page, "log_print", lambda *a, **kw: case.logs.append(a))
-    monkeypatch.setattr(dashboard_page, "log_print", lambda *a, **kw: case.logs.append(a))
+    monkeypatch.setattr(
+        dashboard_page, "log_print", lambda *a, **kw: case.logs.append(a)
+    )
     case.dashboard = dashboard
     case.read = getattr(dashboard, "read_" + kind + "_reason_if_present")
     case.dismiss = getattr(dashboard, "dismiss_" + kind + "_modal")
@@ -137,7 +151,9 @@ def test_wrapper_read_dismiss_reset_and_repeated_invocation(ui):
     ui.visible.update({k: True for k in DOMAINS})  # Synthetic coexistence only.
     assert ui.close() == "reason"
     assert len(ui.resets) == 1
-    assert ui.resets[0]["reset_action_name"] == "resetting NIK input after warning modal"
+    assert (
+        ui.resets[0]["reset_action_name"] == "resetting NIK input after warning modal"
+    )
     assert ui.resets[0]["reset_log"].endswith("NIK input reset.")
     assert ui.resets[0]["dashboard_log"].endswith("returned to dashboard.")
     assert all(ui.visible[k] for k in DOMAINS if k != ui.kind)
@@ -146,7 +162,9 @@ def test_wrapper_read_dismiss_reset_and_repeated_invocation(ui):
     assert sum(e[2] == "click" for e in ui.trace) == 1
 
 
-@pytest.mark.parametrize("failure", ["stays_visible", "button_timeout", "click_timeout", "click_error"])
+@pytest.mark.parametrize(
+    "failure", ["stays_visible", "button_timeout", "click_timeout", "click_error"]
+)
 def test_dismiss_failure_propagates_without_reset(ui, failure):
     ui.visible[ui.kind] = True
     if failure == "stays_visible":
@@ -202,8 +220,12 @@ def test_reset_failure_preserves_existing_exception(ui):
 
 
 # The primitive has two read shapes; unusual_transaction repeats the message shape.
-@pytest.mark.parametrize("ui", ["invalid_registered_nik", "cannot_transact_at_base"], indirect=True)
-@pytest.mark.parametrize("scenario", ["absent", "text", "blank", "missing", "unexpected"])
+@pytest.mark.parametrize(
+    "ui", ["invalid_registered_nik", "cannot_transact_at_base"], indirect=True
+)
+@pytest.mark.parametrize(
+    "scenario", ["absent", "text", "blank", "missing", "unexpected"]
+)
 def test_component_read_without_dashboard_workflow(ui, scenario):
     from src.infrastructure.browser.page_objects.simple_warning_modal import (
         SimpleWarningModal,
@@ -218,11 +240,13 @@ def test_component_read_without_dashboard_workflow(ui, scenario):
     if scenario == "unexpected":
         ui.errors[(ui.part, "text")] = failure
     component = SimpleWarningModal(getattr(ui.dashboard, ui.kind + "_modal"))
-    kwargs = dict(
-        detect_timeout=432, missing_log="absent", log=lambda *a: ui.logs.append(a),
-        title_locator=getattr(ui.dashboard, ui.kind + "_modal_title"),
-        title_fallback=FALLBACKS[ui.kind],
-    )
+    kwargs = {
+        "detect_timeout": 432,
+        "missing_log": "absent",
+        "log": lambda *a: ui.logs.append(a),
+        "title_locator": getattr(ui.dashboard, ui.kind + "_modal_title"),
+        "title_fallback": FALLBACKS[ui.kind],
+    }
     if ui.part == "message":
         kwargs.update(
             message_locator=getattr(ui.dashboard, ui.kind + "_modal_message"),
@@ -233,7 +257,13 @@ def test_component_read_without_dashboard_workflow(ui, scenario):
             component.read_reason(**kwargs)
         assert caught.value is failure
     else:
-        expected = None if scenario == "absent" else "reason" if scenario == "text" else FALLBACKS[ui.kind]
+        expected = (
+            None
+            if scenario == "absent"
+            else "reason"
+            if scenario == "text"
+            else FALLBACKS[ui.kind]
+        )
         assert component.read_reason(**kwargs) == expected
     assert not ui.resets
     assert not any(e[2] == "click" for e in ui.trace)

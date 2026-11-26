@@ -8,6 +8,11 @@ import numpy as np
 from src.vision.puzzle.types import GrayImage, ImageArray, MaskImage, PointF, YRoi
 
 
+def normalize_minmax(image: ImageArray, low: float, high: float) -> ImageArray:
+    # OpenCV accepts None to allocate the destination. Its Python stub requires a matrix.
+    return cv2.normalize(image, None, low, high, cv2.NORM_MINMAX)  # type: ignore[call-overload]
+
+
 def ensure_output_dir(output_image_path: str) -> None:
     Path(output_image_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -63,7 +68,9 @@ def preprocess_for_matching(gray: GrayImage) -> GrayImage:
     The pipeline intentionally stays lightweight because this runs per scale:
     mild denoising, local contrast equalization, then a small unsharp pass.
     """
-    denoised = cv2.fastNlMeansDenoising(gray, None, h=5, templateWindowSize=7, searchWindowSize=21)
+    denoised = cv2.fastNlMeansDenoising(
+        gray, None, h=5, templateWindowSize=7, searchWindowSize=21
+    )
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     equalized = clahe.apply(denoised)
 
@@ -72,11 +79,13 @@ def preprocess_for_matching(gray: GrayImage) -> GrayImage:
     return np.clip(sharpened, 0, 255).astype(np.uint8)
 
 
-def build_match_mask(mask: MaskImage | None, erode_iterations: int = 1) -> MaskImage | None:
+def build_match_mask(
+    mask: MaskImage | None, erode_iterations: int = 1
+) -> MaskImage | None:
     if mask is None:
         return None
 
-    match_mask = mask.astype(np.uint8)
+    match_mask: MaskImage = mask.astype(np.uint8)
     if match_mask.max() <= 1:
         match_mask = (match_mask > 0).astype(np.uint8) * 255
 
@@ -132,7 +141,7 @@ def crop_by_mask(
 
     if has_alpha:
         alpha = img[:, :, 3]
-        mask = (alpha > 5).astype(np.uint8) * 255
+        mask: MaskImage = (alpha > 5).astype(np.uint8) * 255
     elif is_white:
         gray = to_gray(img) if img.ndim == 3 else img
 
@@ -143,12 +152,14 @@ def crop_by_mask(
         kernel = np.ones((5, 5), np.uint8)
         edges = cv2.dilate(edges, kernel, iterations=2)
 
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         mask = np.zeros(gray.shape, dtype=np.uint8)
 
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
-            cv2.drawContours(mask, [largest_contour], -1, 255, -1)
+            cv2.drawContours(mask, [largest_contour], -1, (255,), -1)
             mask = cv2.morphologyEx(
                 mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2
             )

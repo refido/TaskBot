@@ -11,15 +11,25 @@ from src.infrastructure.database import operator_store
 from src.infrastructure.sessions import export_service as export
 
 PRECEDENCE_CASES = [
-    (None, None), (None, OSError), (ValueError, None), (ValueError, OSError),
-    (None, KeyboardInterrupt), (None, SystemExit),
-    (ValueError, KeyboardInterrupt), (ValueError, SystemExit),
-    (KeyboardInterrupt, OSError), (SystemExit, OSError),
+    (None, None),
+    (None, OSError),
+    (ValueError, None),
+    (ValueError, OSError),
+    (None, KeyboardInterrupt),
+    (None, SystemExit),
+    (ValueError, KeyboardInterrupt),
+    (ValueError, SystemExit),
+    (KeyboardInterrupt, OSError),
+    (SystemExit, OSError),
 ]
 
 
 def assert_precedence(invoke, primary, cleanup):
-    expected = primary if primary is not None and isinstance(cleanup, Exception) else cleanup or primary
+    expected = (
+        primary
+        if primary is not None and isinstance(cleanup, Exception)
+        else cleanup or primary
+    )
     if expected is None:
         return invoke()
     with pytest.raises(type(expected)) as caught:
@@ -33,7 +43,9 @@ def database(monkeypatch):
     cursor.__enter__.return_value = cursor
     connection = Mock()
     connection.cursor.return_value = cursor
-    manager = operator_store.OperatorDatabaseManager.__new__(operator_store.OperatorDatabaseManager)
+    manager = operator_store.OperatorDatabaseManager.__new__(
+        operator_store.OperatorDatabaseManager
+    )
     manager.config = SimpleNamespace(name="audit", maintenance_name="postgres")
     manager._log_context = Mock(return_value={})
     manager._connect = Mock(return_value=connection)
@@ -47,15 +59,21 @@ def test_database_creation_precedence(database, stage, primary_type, cleanup_typ
     primary = primary_type("database body failed") if primary_type else None
     cleanup = cleanup_type("database close failed") if cleanup_type else None
     database.cursor.fetchone.return_value = (1,) if stage == "select" else None
-    database.cursor.execute.side_effect = [primary] if stage == "select" else [None, primary]
+    database.cursor.execute.side_effect = (
+        [primary] if stage == "select" else [None, primary]
+    )
     database.connection.close.side_effect = cleanup
-    assert assert_precedence(database.manager.ensure_database_exists, primary, cleanup) is None
+    assert (
+        assert_precedence(database.manager.ensure_database_exists, primary, cleanup)
+        is None
+    )
     database.manager._connect.assert_called_once_with("postgres")
     assert database.connection.autocommit is True
     database.connection.close.assert_called_once_with()
     assert database.cursor.execute.call_count == (1 if stage == "select" else 2)
     assert database.cursor.execute.call_args_list[0].args == (
-        "SELECT 1 FROM pg_database WHERE datname = %s", ("audit",),
+        "SELECT 1 FROM pg_database WHERE datname = %s",
+        ("audit",),
     )
 
 
@@ -87,7 +105,9 @@ def test_sqlite_read_precedence(sqlite_reader, primary_type, cleanup_type):
     cleanup = cleanup_type("SQLite close failed") if cleanup_type else None
     case.connection.execute.side_effect = primary
     case.connection.close.side_effect = cleanup
-    result = assert_precedence(lambda: export.read_sqlite_cookie_rows(case.path), primary, cleanup)
+    result = assert_precedence(
+        lambda: export.read_sqlite_cookie_rows(case.path), primary, cleanup
+    )
     if primary is None and cleanup is None:
         assert result == case.rows
         assert result is not case.rows
@@ -134,9 +154,13 @@ def browser_export(monkeypatch, tmp_path):
     context.cookies.side_effect = lambda: step("cookies", [])
     storage = {"cookies": [], "origins": []}
     context.storage_state.return_value = storage
-    context.browser.new_browser_cdp_session.return_value.send.return_value = {"cookies": []}
+    context.browser.new_browser_cdp_session.return_value.send.return_value = {
+        "cookies": []
+    }
     playwright = Mock()
-    playwright.chromium.launch_persistent_context.side_effect = lambda **kw: step("acquire", context)
+    playwright.chromium.launch_persistent_context.side_effect = lambda **kw: step(
+        "acquire", context
+    )
     owner = MagicMock()
     owner.__enter__.return_value = playwright
     owner.__exit__.side_effect = lambda *args: step("playwright.stop", False)
@@ -158,16 +182,31 @@ def browser_export(monkeypatch, tmp_path):
     monkeypatch.setattr(export, "write_json", writer)
     monkeypatch.setattr(export, "log_print", Mock())
     monkeypatch.setattr(export, "logger", Mock())
-    monkeypatch.setattr(export, "datetime", Mock(now=Mock(return_value=datetime(2026, 9, 15, tzinfo=UTC))))
+    monkeypatch.setattr(
+        export,
+        "datetime",
+        Mock(now=Mock(return_value=datetime(2026, 9, 15, tzinfo=UTC))),
+    )
     config = SimpleNamespace(
-        operator_id="operator_audit", headless=True, url_application=page.url,
-        email_user="audit@example.invalid", pin_user="000000",
+        operator_id="operator_audit",
+        headless=True,
+        url_application=page.url,
+        email_user="audit@example.invalid",
+        pin_user="000000",
     )
     return SimpleNamespace(
         run=lambda: export.export_account_session(config, tmp_path),
-        context=context, page=page, playwright=playwright, owner=owner, reader=reader,
-        writer=writer, events=events, errors=errors, root=tmp_path,
-        storage=storage, web_storage=web_storage,
+        context=context,
+        page=page,
+        playwright=playwright,
+        owner=owner,
+        reader=reader,
+        writer=writer,
+        events=events,
+        errors=errors,
+        root=tmp_path,
+        storage=storage,
+        web_storage=web_storage,
     )
 
 
@@ -187,19 +226,37 @@ def test_browser_export_precedence(browser_export, stage, primary_type, cleanup_
     assert case.events.index("close") < case.events.index("playwright.stop")
     if primary is None and cleanup is None:
         artifact_dir = case.root / "operator-audit"
-        assert result == export.SessionArtifacts("operator_audit", artifact_dir, artifact_dir / "profile", 0, 0)
-        assert case.events.index("playwright.stop") < case.events.index("sqlite.read") < case.events.index("write")
-        payloads = {call.args[0].name: call.args[1] for call in case.writer.call_args_list}
+        assert result == export.SessionArtifacts(
+            "operator_audit", artifact_dir, artifact_dir / "profile", 0, 0
+        )
+        assert (
+            case.events.index("playwright.stop")
+            < case.events.index("sqlite.read")
+            < case.events.index("write")
+        )
+        payloads = {
+            call.args[0].name: call.args[1] for call in case.writer.call_args_list
+        }
         assert list(payloads) == [
-            "cookies_playwright.json", "cookies_cdp.json", "cookies_sqlite.json",
-            "cookies_enriched.json", "storage_state.json", "web_storage.json",
-            "network_xhr.json", "session_summary.json",
+            "cookies_playwright.json",
+            "cookies_cdp.json",
+            "cookies_sqlite.json",
+            "cookies_enriched.json",
+            "storage_state.json",
+            "web_storage.json",
+            "network_xhr.json",
+            "session_summary.json",
         ]
-        assert payloads["cookies_playwright.json"] == payloads["cookies_sqlite.json"] == []
+        assert (
+            payloads["cookies_playwright.json"] == payloads["cookies_sqlite.json"] == []
+        )
         assert payloads["cookies_cdp.json"] == {"cookies": []}
         assert payloads["storage_state.json"] == case.storage
         assert payloads["web_storage.json"] == case.web_storage
-        assert payloads["session_summary.json"]["captured_at_iso"] == "2026-09-15T00:00:00+00:00"
+        assert (
+            payloads["session_summary.json"]["captured_at_iso"]
+            == "2026-09-15T00:00:00+00:00"
+        )
         assert payloads["session_summary.json"]["current_stock"] == 7
         case.page.wait_for_timeout.assert_any_call(export.DEFAULT_NETWORK_WAIT_MS)
     else:
@@ -244,19 +301,29 @@ def export_usecase(monkeypatch, tmp_path):
     log.complete.side_effect = complete
     exporter = Mock(side_effect=run_exports)
     monkeypatch.setattr(usecase, "export_configured_sessions", exporter)
-    kwargs = dict(
-        config_factory=lambda: SimpleNamespace(),
-        configure_logging_func=lambda **kw: {"run_id": "audit", "json_log_path": "not-written"},
-        log=log,
-    )
+    kwargs = {
+        "config_factory": lambda: SimpleNamespace(),
+        "configure_logging_func": lambda **kw: {
+            "run_id": "audit",
+            "json_log_path": "not-written",
+        },
+        "log": log,
+    }
     return SimpleNamespace(
-        run=lambda: usecase.run_user_session_export(**kwargs), kwargs=kwargs,
-        log=log, errors=errors, events=events, exporter=exporter, failed_operators=failed_operators,
+        run=lambda: usecase.run_user_session_export(**kwargs),
+        kwargs=kwargs,
+        log=log,
+        errors=errors,
+        events=events,
+        exporter=exporter,
+        failed_operators=failed_operators,
     )
 
 
 @pytest.mark.parametrize("primary_type,cleanup_type", PRECEDENCE_CASES)
-def test_export_usecase_completion_precedence(export_usecase, primary_type, cleanup_type):
+def test_export_usecase_completion_precedence(
+    export_usecase, primary_type, cleanup_type
+):
     case = export_usecase
     primary = primary_type("export usecase failed") if primary_type else None
     cleanup = cleanup_type("log completion failed") if cleanup_type else None

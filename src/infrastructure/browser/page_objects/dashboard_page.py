@@ -432,7 +432,9 @@ class Dashboard(BasePage):
             page.locator("section")
             .filter(
                 has=page.locator("h6")
-                .filter(has_text=re.compile(rf"^\s*{re.escape(_FRAUD_MODAL_TITLE)}\s*$"))
+                .filter(
+                    has_text=re.compile(rf"^\s*{re.escape(_FRAUD_MODAL_TITLE)}\s*$")
+                )
                 .filter(visible=True)
             )
             .filter(visible=True)
@@ -987,7 +989,7 @@ class Dashboard(BasePage):
         return "unknown"
 
     def get_visible_precheck_modal(self) -> PrecheckModalName | None:
-        for modal_name, modal in [
+        modals: list[tuple[PrecheckModalName, Locator]] = [
             ("not_registered", self.pelanggan_tidak_terdaftar_modal),
             (
                 "registration_request_limited",
@@ -1001,7 +1003,8 @@ class Dashboard(BasePage):
             ("nik_mismatch", self.nik_mismatch_modal),
             ("nib_reminder", self.perbarui_data_nib_pelanggan_modal),
             ("perbarui", self.perbarui_data_pelanggan_modal),
-        ]:
+        ]
+        for modal_name, modal in modals:
             if self._is_visible(modal):
                 return modal_name
         return None
@@ -1051,9 +1054,7 @@ class Dashboard(BasePage):
             close_button=self.cannot_transact_modal_tutup,
         )
 
-    def read_fraud_reason_if_present(
-        self, detect_timeout: int = 6000
-    ) -> str | None:
+    def read_fraud_reason_if_present(self, detect_timeout: int = 6000) -> str | None:
         return self._read_simple_warning_modal_reason_if_present(
             modal=self.fraud_modal,
             detect_timeout=detect_timeout,
@@ -2135,7 +2136,7 @@ class Dashboard(BasePage):
             log_print(
                 "Continue-transaction button on 'Perbarui Data Pelanggan' was not usable; closing modal instead."
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - fall back to closing the modal.
             action = "cannot_continue"
             log_print(
                 "Failed to continue past 'Perbarui Data Pelanggan'; closing modal instead.",

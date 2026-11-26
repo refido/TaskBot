@@ -37,9 +37,7 @@ def local_ncc_refine(
     roi = bg_gray[y_min : y_max + th, x_min : x_max + tw]
     if match_mask is not None:
         try:
-            res = cv2.matchTemplate(
-                roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask
-            )
+            res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCORR_NORMED, mask=match_mask)
         except cv2.error:
             res = cv2.matchTemplate(roi, tpl_gray, cv2.TM_CCOEFF_NORMED)
     else:
@@ -157,17 +155,12 @@ def ecc_refine(
     th, tw = tpl_gray.shape[:2]
     x, y = int(coarse_xy[0]), int(coarse_xy[1])
 
-    if (
-        x < 0
-        or y < 0
-        or x + tw > bg_gray.shape[1]
-        or y + th > bg_gray.shape[0]
-    ):
+    if x < 0 or y < 0 or x + tw > bg_gray.shape[1] or y + th > bg_gray.shape[0]:
         return (float(x), float(y)), -1.0
 
     patch = bg_gray[y : y + th, x : x + tw].astype(np.float32) / 255.0
     template = tpl_gray.astype(np.float32) / 255.0
-    warp = np.eye(2, 3, dtype=np.float32)
+    warp: cv2.typing.MatLike = np.eye(2, 3, dtype=np.float32)
     criteria = (
         cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
         40,
@@ -182,7 +175,7 @@ def ecc_refine(
             warp,
             cv2.MOTION_TRANSLATION,
             criteria,
-            inputMask=match_mask,
+            inputMask=match_mask,  # type: ignore[arg-type]  # OpenCV accepts None with an explicit filter size.
             gaussFiltSize=3,
         )
     except cv2.error:

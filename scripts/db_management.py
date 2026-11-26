@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"source={summary.source}"
             )
             return 0
-    except Exception:
+    except Exception:  # noqa: BLE001 - CLI boundary logs every failure.
         logger.bind(
             event="db_management.failed",
             command=command,

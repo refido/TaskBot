@@ -656,9 +656,10 @@ class TransactionPrechecksService:
         return PrecheckAction.SKIP_REQUIRES_RECOVERY
 
     def _handle_cannot_transact(self, nik: str, started_at: str) -> PrecheckAction:
-        reason = self.dashboard.read_cannot_transact_reason_if_present(
-            detect_timeout=500
-        ) or "Tidak Dapat Melakukan Transaksi"
+        reason = (
+            self.dashboard.read_cannot_transact_reason_if_present(detect_timeout=500)
+            or "Tidak Dapat Melakukan Transaksi"
+        )
         self._record_workflow_event(nik, "cannot_transact_detected", reason=reason)
         self._log_customer_action(nik, CustomerState.CANNOT_TRANSACT, "close_and_skip")
         # Persist the terminal skip before closing the modal can fail.
@@ -677,16 +678,15 @@ class TransactionPrechecksService:
         return PrecheckAction.SKIP_REQUIRES_RECOVERY
 
     def _handle_fraud(self, nik: str, started_at: str) -> PrecheckAction:
-        reason = self.dashboard.read_fraud_reason_if_present(
-            detect_timeout=500
-        ) or "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+        reason = (
+            self.dashboard.read_fraud_reason_if_present(detect_timeout=500)
+            or "NIK pelanggan diblokir karena pelanggan terindikasi fraud"
+        )
         self._record_workflow_event(nik, "fraud_detected", reason=reason)
         self._log_customer_action(nik, CustomerState.FRAUD, "close_and_skip")
         # Persist the terminal skip before closing the modal can fail.
         self.limiter.record_skip()
-        self.reporter.skip(
-            nik, started_at, "fraud", url=self.page.url, reason=reason
-        )
+        self.reporter.skip(nik, started_at, "fraud", url=self.page.url, reason=reason)
         self._record_workflow_event(nik, "fraud_skipped", reason=reason)
         try:
             self.dashboard.dismiss_fraud_modal()

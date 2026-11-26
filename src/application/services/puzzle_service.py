@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from pathlib import Path
@@ -110,7 +110,9 @@ class PuzzleService:
                     dict(timing_metrics) if isinstance(timing_metrics, dict) else None
                 ),
             )
-            self.log_func(f"CAPTCHA stage finished on attempt {attempt_number}: {success}")
+            self.log_func(
+                f"CAPTCHA stage finished on attempt {attempt_number}: {success}"
+            )
 
             if success:
                 return PuzzleSolveOutcome(
@@ -176,6 +178,7 @@ class PuzzleService:
             "write_debug_artifacts": self.write_debug_artifacts,
         }
 
+        params: Mapping[str, Parameter]
         try:
             params = signature(self.slider_solver).parameters
         except TypeError, ValueError:

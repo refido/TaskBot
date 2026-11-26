@@ -56,18 +56,30 @@ class AccountRunner:
 
         try:
             batch_sync_configured = self._configure_batch_sync(reporter)
+            prepare = getattr(self.report_syncer, "prepare_delivery", None)
+            recovered = False
+            if batch_sync_configured and callable(prepare):
+                try:
+                    recovered = prepare(reporter) is True
+                except Exception:
+                    persistence_status = "failed"
+                    raise
 
-            with self.browser_session_factory(config) as session:
-                session.initialize_session()
-
-                processor = self.transaction_processor_factory(
-                    config,
-                    session.require_page(),
-                    reporter,
-                    limiter,
+            if recovered:
+                execution_status = "not_started"
+                is_successful = False
+                self.logger.bind(
+                    event="account.previous_quota_recovered", operator_id=operator_id
+                ).warning(
+                    "Recovered the previous quota updates. Review the customer list before starting new sales."
                 )
-
-                processor.process_all_niks()
+            else:
+                with self.browser_session_factory(config) as session:
+                    session.initialize_session()
+                    processor = self.transaction_processor_factory(
+                        config, session.require_page(), reporter, limiter
+                    )
+                    processor.process_all_niks()
 
         except Exception:  # noqa: BLE001 - account boundary records all infrastructure failures.
             is_successful = False
@@ -99,6 +111,9 @@ class AccountRunner:
                 try:
                     if batch_sync_configured:
                         reporter.flush_pending_batches()
+                        finish = getattr(self.report_syncer, "finish_delivery", None)
+                        if callable(finish):
+                            finish()
                     else:
                         self.report_syncer(reporter)
 
@@ -122,7 +137,9 @@ class AccountRunner:
                         if is_successful:
                             finalization_error = exc
                         is_successful = False
-                        with suppress(Exception):  # Cleanup error reporting is best-effort.
+                        with suppress(
+                            Exception
+                        ):  # Cleanup error reporting is best-effort.
                             self.logger.bind(
                                 event="account.report_db_close_error",
                                 operator_id=operator_id,
@@ -144,7 +161,8 @@ class AccountRunner:
         transactions = self._transaction_outcome(reporter, config)
         status = (
             (transactions["transaction_status"] or "completed")
-            if is_successful else "failed"
+            if is_successful
+            else "failed"
         )
         self.outcome.update(
             **transactions,
