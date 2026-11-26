@@ -15,13 +15,13 @@
 
 - Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED** (Q1).
 - Customer selection from the database: DB1 examples ready for review. [Database plan](2026-11-25-plan-database-customer-selection.md#waiting-on-the-owner)
-- Restructuring into one folder per service: phases R0–R10, none started. [Project structure plan](2026-11-25-plan-project-structure.md#waiting-on-the-owner)
+- Restructuring into one folder per service: Phase R0 (glossary and code map) done and waiting for approval, R1–R10 not started. [Project structure plan](2026-11-25-plan-project-structure.md#waiting-on-the-owner)
 - Pinned tools and CI are approved for later but not planned yet (Q5).
 - A test plan is wanted after the restructuring: list every test a move broke and fix them in their own phase (Q7).
 
 ### Questions
 
-Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions). Modernization Q1–Q10 are answered. Q2–Q5 are confirmed closed.
+Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions). Modernization Q1–Q10 are answered. Q2–Q5 are confirmed closed. Q11 (Ruff and Python blocks in Markdown) is open.
 
 ### Confirmations
 
