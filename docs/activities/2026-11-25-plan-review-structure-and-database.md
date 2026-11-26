@@ -50,4 +50,5 @@ Whole workspace, `npm run --silent lint:md`: `Linting: 19 files` · `Summary: 0 
 ## Open items
 
 - **Owner question · Track the agent rules in git?** `AGENTS.md` and `CLAUDE.md` are ignored (F142), so the new naming and Q&A rules reach only this machine. **Suggested answer:** remove the two lines from `.gitignore` and commit both files in a `chore:` commit, so every developer and agent gets the same rules. **Owner answer:** *open*
+  - Moved on 2026-11-26 to [Agent rules Q1](../plans/2026-11-26-plan-owner-questions-and-answers.md#agent-rules-questions). Answer it there.
 - All questions in the three plans are listed at the top of each plan under `## Waiting on the owner`.

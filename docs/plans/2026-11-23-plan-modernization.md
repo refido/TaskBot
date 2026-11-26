@@ -4,6 +4,7 @@
 - **Next decision.** Use six imaginary customers to agree on who goes first tomorrow. Separately, agree on one folder per service for the code. [Database plan](2026-11-25-plan-database-customer-selection.md) · [Project structure plan](2026-11-25-plan-project-structure.md)
 - **Still open.** Customer selection, schema and index changes, new interfaces, compatibility with outside tools and deployment measurements belong to future work.
 - **Quota recovery is hard to use correctly.** The first real recovery found five problems (F147–F151). The guide is rewritten; tool fixes are proposed as Phase QR and wait on Q8–Q10. [Findings](../activities/2026-11-26-quota-recovery-tool-findings.md)
+- **Owner questions are in one file.** Every question and confirmation of all plans moved to [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md). [Task doc](../activities/2026-11-26-centralize-owner-questions.md)
 
 ## Waiting on the owner
 
@@ -20,36 +21,15 @@
 
 ### Questions
 
-- [Q2 · Who should be selected tomorrow?](#questions-and-answers) (partly answered)
-- [Q3 · What must keep working for other people?](#questions-and-answers)
-- [Q4 · What should become easier first?](#questions-and-answers)
-- [Q5 · What evidence would justify more performance or tooling work?](#questions-and-answers) (partly answered)
-- [Q7 · How are tests handled while the code is restructured?](#questions-and-answers) (blocks structure Phase R1)
-- [Q8 · How much customer detail should the recovery `list` show?](#questions-and-answers) (blocks Phase QR)
-- [Q9 · Should `confirmed` check the receipt time?](#questions-and-answers) (blocks Phase QR)
-- [Q10 · What if operator 1's recovered sale was not a sale?](#questions-and-answers)
-
-Answered: Q1 and Q6. Partly answered: Q2 and Q5.
+Every question for this plan, with its suggested and owner answers, is in [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions). Open: Q7–Q10. Q8–Q10 block Phase QR. Q7 is the same decision as structure Q13 and blocks structure Phase R1. Q2–Q5 carry answers, and their status waits on a confirmation.
 
 ### Confirmations
 
-- **Confirmed by the owner (2026-11-26):** the database plan and the project structure plan never change the same code in the same branch or phase.
-- **Proposed, needs a yes/no:** Phase QR changes what the recovery tool prints and its exit codes. That is a behavior change under the agent rules (§2), limited to the recovery command. Shop runs, reports and database writes stay the same. Approve Phase QR as a behavior-changing task?
+Open and confirmed decisions are in [Owner questions and answers · Confirmations](2026-11-26-plan-owner-questions-and-answers.md#confirmations). Open for this plan: Phase QR as a behavior-changing task, and whether Q2–Q5 are closed.
 
 ## Questions and answers
 
-Each question has a suggested answer. Replace `*open*` with your answer, or write “agree” to take the suggestion. Q1–Q5 were called M-Q1–M-Q5 before. Their numbers did not change.
-
-- **Q1 · What closes the original plan?** **Owner answer:** answered. The owner accepted the revised guide: “yes. the guide is clear for me now.” The local test evidence and the reader’s answer close Phase 5. The owner also reported successful daily runs. Production version, live schema, independently verified live sale outcomes and production peak memory remain **UNVERIFIED**. No practice shop is available according to the owner. Keep local and operational results labeled separately.
-- **Q2 · Who should be selected tomorrow?** **Owner answer so far:** the owner identified the Operator 1 Lowokwaru recipe and stock/monthly retry priorities. **Still open:** outside-area behavior per operator, who waits or re-enters, exact ties, unfinished customers, quotas at 5/6, date, clock and restart rules. **Suggested answer:** answer the dummy examples first. [Database plan Q1–Q5 and Q9](2026-11-25-plan-database-customer-selection.md#questions-and-answers) **Owner answer:** *Yes, as suggested.* for the rest
-- **Q3 · What must keep working for other people?** Identify users of old schemas, SQL utilities, CLI/import paths, report files, session/profile/trace/log outputs and recovery commands. **Suggested answer:** decide what history must be retained before removing or unifying anything. [Database plan Q6–Q7](2026-11-25-plan-database-customer-selection.md#questions-and-answers) · [Structure plan Q5–Q6](2026-11-25-plan-project-structure.md#questions-and-answers) **Owner answer:** *Yes, as suggested.*
-- **Q4 · What should become easier first?** Choose the first reader of the code map, and later the first task for a GUI or API. **Suggested answer:** start with finding a sale decision and reading a finished run’s totals. Decide audience and access before exposing customer-level data. [Structure plan Q1, Q7 and Q10](2026-11-25-plan-project-structure.md#questions-and-answers) **Owner answer:** *Yes, as suggested.*
-- **Q5 · What evidence would justify more performance or tooling work?** **Owner answer so far:** tooling and CI are approved for later. **Still open:** representative dummy data sizes, time/memory targets, external checks, CI environment and which stricter checks bring enough benefit. **Suggested answer:** keep runtime guards and compare measured results before adopting a change. [Phase 5 tooling evidence](../activities/2026-11-24-phase-5-reader-guide.md#f117--verified--which-pyproject-settings-earned-their-place) · [Database plan Q8](2026-11-25-plan-database-customer-selection.md#questions-and-answers) **Owner answer:** *Yes, as suggested.* for the rest
-- **Q6 · Should the agent rules describe a mypy strict list that does not exist yet?** The rules (§5) describe a strict list in `pyproject.toml`, but there is none ([structure plan F139](2026-11-25-plan-project-structure.md#f139--contradicted--the-mypy-strict-list-the-rules-describe-does-not-exist)). **Suggested answer:** create the empty list in structure Phase R1 (structure plan Q9), so the rule becomes true. **Owner answer:** *Yes, as suggested.*
-- **Q7 · How are tests handled while the code is restructured?** The owner asked to skip tests during restructuring and the database work, and to write a test plan afterwards. The full question, with the difference between *running* existing tests and *fixing or writing* them, is [structure plan Q13](2026-11-25-plan-project-structure.md#questions-and-answers). **Suggested answer:** no new or fixed tests. Existing tests run as a report only, and the golden master stays blocking. **Owner answer:** *open*
-- **Q8 · How much customer detail should the recovery `list` show?** Today it shows the last four digits of the customer number (NIK) and one time ([F150](../activities/2026-11-26-quota-recovery-tool-findings.md#f150--verified--list-shows-too-little-to-find-the-customer-in-the-shop)). Options: (a) also print the customer's name and type from the operator table, the start time and the finished time, and which run it came from; (b) the same, plus the full customer number; (c) keep the masked number and add only the run and times. More detail makes the shop lookup faster, but puts more customer data on the screen, and (a) and (b) need a database read during `list`. **Suggested answer:** (a). The name plus four digits is enough to find the receipt, and the full number stays off the screen. **Owner answer:** *open*
-- **Q9 · Should `confirmed` check the receipt time?** Today any time with a time zone is accepted, even one before TaskBot started the customer ([F149](../activities/2026-11-26-quota-recovery-tool-findings.md#f149--verified--confirmed-accepts-any-receipt-time-that-has-a-time-zone)). Options: (a) refuse a time before the start or in the future; (b) also ask "Record a sale at … for the customer ending …? [y/N]" before writing; (c) no check. A check can't prove the time is right, only catch obvious mistakes. **Suggested answer:** (a) and (b). There is no undo, and F151 shows how easily an example time gets in. **Owner answer:** *open*
-- **Q10 · What if operator 1's recovered sale was not a sale?** Event `4c6ed10e…` was recorded with an example time ([F151](../activities/2026-11-26-quota-recovery-tool-findings.md#f151--unverified--one-recovered-sale-may-have-the-wrong-time-or-may-not-be-a-sale)). Options: (a) the shop shows the sale, so leave it, or fix only the time; (b) the shop shows no sale, so correct that customer's quota and remove the row and its database receipt in a separate, reviewed task, against a backup first; (c) leave it as it is. **Suggested answer:** check the shop first. If there was no sale, (b), because the customer otherwise loses one unit of quota this month. **Owner answer:** *open*
+Moved on 2026-11-26 to [Owner questions and answers](2026-11-26-plan-owner-questions-and-answers.md#modernization-plan-questions), word for word. A question number in this plan, such as Q9, is the same number in that file.
 
 ## Earlier phase results
 
@@ -1055,10 +1035,7 @@ Risks of the follow-up work have their own tables: [project structure risks](202
 
 **What the owner has already answered.** PostgreSQL 18 and Python 3.14.2 are the proposed test baseline. `.env.test` is mostly dummy/example data. The supplied PostgreSQL 18.4 schema export is the reference for the existing table layout (F39/F41). F31 records historical timing; F2 records the uv migration date. Tooling and CI are approved for later. Other historical layouts and external report consumers are still unknown.
 
-**Questions recorded before Phase 1.** The chosen dummy shop and starting quotas appear in the [Phase 1 notes](../activities/2026-11-23-phase-1-behavior-baseline.md#9-whole-app-test-in-the-local-dummy-shop).
-
-1. Is there a practice shop where a dummy sale is allowed? If there is, what does the operator see when a sale really finishes — for example, a success message or a receipt? A description is enough. If there is no practice shop, use a local mock and label its scope.
-2. For a dummy customer starting at quota 2, are “confirmed sale → 3” and “business skip → 2” the answers you expect in the same month? Which one skip should the first practice example cover? The engineer can generate dummy operators and IDs from those answers.
+**Questions recorded before Phase 1.** Moved on 2026-11-26, word for word, to [Questions answered before Phase 1](2026-11-26-plan-owner-questions-and-answers.md#questions-answered-before-phase-1). The chosen dummy shop and starting quotas appear in the [Phase 1 notes](../activities/2026-11-23-phase-1-behavior-baseline.md#9-whole-app-test-in-the-local-dummy-shop).
 
 **Later decisions.** The owner identified the primary Lowokwaru recipe. The intended outside-region query per operator, treatment of waiting rows, and order of exact ties still need a business decision. Before removing a file, SQL utility or old schema support, identify its users. Production peak memory, deployed version, live schema, DB membership and live sale confirmation remain **UNVERIFIED**.
 
